@@ -90,6 +90,12 @@ services:
       DB_USER: waf_user
       DB_PASSWORD: ${DB_PASSWORD:-your_waf_password_here}
       DASHBOARD_API_KEY: ${DASHBOARD_API_KEY:-change-this-default-token}
+      # Cloudflare API credentials (for zone auto-detection)
+      # Recommended: Use API Token with Zone:Read permission
+      # Legacy: Use CF_API_KEY + CF_EMAIL (from ACME DNS challenge config)
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+      CLOUDFLARE_API_KEY: ${CF_API_KEY:-}
+      CLOUDFLARE_EMAIL: ${CF_EMAIL:-}
 
   acme:
     image: neilpang/acme.sh:latest

@@ -80,8 +80,9 @@ function handleSites($method, $params, $db) {
                     enable_caching, cache_duration, cache_static_files, 
                     enable_image_optimization, image_quality, image_max_width,
                     enable_waf_headers, enable_telemetry, custom_headers, ip_whitelist,
-                    wildcard_subdomains)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    wildcard_subdomains, disable_http_redirect, cf_bypass_ratelimit,
+                    cf_custom_rate_limit, cf_rate_limit_burst)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             
             $stmt->execute([
@@ -116,13 +117,23 @@ function handleSites($method, $params, $db) {
                 $data['enable_telemetry'] ?? 1,
                 $data['custom_headers'] ?? null,
                 $data['ip_whitelist'] ?? null,
-                $data['wildcard_subdomains'] ?? 0
+                $data['wildcard_subdomains'] ?? 0,
+                $data['disable_http_redirect'] ?? 0,
+                $data['cf_bypass_ratelimit'] ?? 0,
+                $data['cf_custom_rate_limit'] ?? 100,
+                $data['cf_rate_limit_burst'] ?? 200
             ]);
             
             $siteId = $db->lastInsertId();
             
             // Generate NGINX config
             generateSiteConfig($siteId, $data);
+            
+            // Auto-issue certificate if SSL is enabled
+            if (!empty($data['ssl_enabled']) && !empty($data['domain'])) {
+                triggerCertificateIssuance($data['domain'], $data['ssl_challenge_type'] ?? 'http-01', 
+                                          $data['cf_api_token'] ?? null, $data['cf_zone_id'] ?? null);
+            }
             
             sendResponse(['success' => true, 'id' => $siteId, 'message' => 'Site created'], 201);
             break;
@@ -158,7 +169,8 @@ function handleSites($method, $params, $db) {
                 'challenge_difficulty', 'challenge_duration', 'challenge_bypass_cf', 
                 'ssl_challenge_type', 'cf_api_token', 'cf_zone_id', 'error_page_404', 
                 'error_page_403', 'error_page_429', 'error_page_500', 'security_txt',
-                'enable_basic_auth', 'basic_auth_username', 'basic_auth_password'
+                'enable_basic_auth', 'basic_auth_username', 'basic_auth_password',
+                'disable_http_redirect', 'cf_bypass_ratelimit', 'cf_custom_rate_limit', 'cf_rate_limit_burst'
             ];
             
             foreach ($updatableFields as $field) {
@@ -212,7 +224,8 @@ function handleSites($method, $params, $db) {
                 'lb_method', 'health_check_enabled', 'health_check_interval', 'health_check_path',
                 'wildcard_subdomains', 'custom_rate_limit', 'enable_rate_limit', 'hash_key',
                 'challenge_enabled', 'challenge_difficulty', 'challenge_duration', 
-                'challenge_bypass_cf', 'ssl_challenge_type', 'cf_api_token', 'cf_zone_id'
+                'challenge_bypass_cf', 'ssl_challenge_type', 'cf_api_token', 'cf_zone_id',
+                'disable_http_redirect', 'cf_bypass_ratelimit', 'cf_custom_rate_limit', 'cf_rate_limit_burst'
             ];
             
             foreach ($updatableFields as $field) {
@@ -356,6 +369,12 @@ function generateSiteConfig($siteId, $siteData) {
     $rate_limit_zone = $siteData['rate_limit_zone'] ?? 'general';
     $custom_config = json_decode($siteData['custom_config'] ?? '{}', true);
     
+    // New features for redirect and CF rate limiting
+    $disable_http_redirect = $siteData['disable_http_redirect'] ?? 0;
+    $cf_bypass_ratelimit = $siteData['cf_bypass_ratelimit'] ?? 0;
+    $cf_custom_rate_limit = $siteData['cf_custom_rate_limit'] ?? 100;
+    $cf_rate_limit_burst = $siteData['cf_rate_limit_burst'] ?? 200;
+    
     // Advanced features
     $enable_gzip = $siteData['enable_gzip'] ?? 1;
     $enable_brotli = $siteData['enable_brotli'] ?? 1;
@@ -448,12 +467,28 @@ function generateSiteConfig($siteId, $siteData) {
     $config .= "    keepalive 32;\n";
     $config .= "}\n\n";
     
-    // HTTP server (redirect to HTTPS or serve directly)
-    $config .= "server {\n";
-    $defaultServer = ($domain === '_') ? ' default_server' : '';
-    $config .= "    listen 80{$defaultServer};\n";
-    $config .= "    listen [::]:80{$defaultServer};\n";
-    $config .= "    server_name {$domain};\n\n";
+    // Special handling for default catch-all server
+    $isDefaultCatchall = ($domain === '_');
+    
+    if ($isDefaultCatchall) {
+        // Minimal default server - just return 444 (close connection) for unknown hosts/IP access
+        $config .= "server {\n";
+        $config .= "    listen 80 default_server;\n";
+        $config .= "    listen [::]:80 default_server;\n";
+        $config .= "    server_name _;\n\n";
+        $config .= "    # Return 444 (close connection) for IP/unknown host access\n";
+        $config .= "    # This prevents invalid redirects to https://_/ or exposing backend\n";
+        $config .= "    return 444;\n";
+        $config .= "}\n\n";
+        
+        // No HTTPS server for default catch-all
+        // Skip the rest of the config generation and jump to file writing
+    } else {
+        // HTTP server (redirect to HTTPS or serve directly)
+        $config .= "server {\n";
+        $config .= "    listen 80;\n";
+        $config .= "    listen [::]:80;\n";
+        $config .= "    server_name {$domain};\n\n";
     
     // Error pages
     $config .= "    # Custom error pages\n";
@@ -473,10 +508,23 @@ function generateSiteConfig($siteId, $siteData) {
     $config .= "    }\n\n";
     
     if ($ssl_enabled) {
-        // Redirect to HTTPS
-        $config .= "    location / {\n";
-        $config .= "        return 301 https://\$server_name\$request_uri;\n";
-        $config .= "    }\n";
+        // Check if HTTP->HTTPS redirect is disabled (to prevent infinite loops when backend also redirects)
+        if ($disable_http_redirect) {
+            // Serve HTTP directly even with SSL enabled (backend handles redirect)
+            $config .= generateLocationBlock($upstream_name, $domain, $modsec_enabled, $geoip_enabled, 
+                                               $blocked_countries, $rate_limit_zone, $custom_config,
+                                               $enable_caching, $cache_duration, $cache_static,
+                                               $enable_waf_headers, $enable_telemetry, $custom_headers,
+                                               $enable_basic_auth, $basic_auth_username, $basic_auth_password,
+                                               $enable_image_opt, $image_quality, $enable_bot_protection,
+                                               false, false, false, false, // Disable challenge on HTTP when backend redirects
+                                               $cf_bypass_ratelimit, $cf_custom_rate_limit, $cf_rate_limit_burst);
+        } else {
+            // Redirect to HTTPS
+            $config .= "    location / {\n";
+            $config .= "        return 301 https://\$server_name\$request_uri;\n";
+            $config .= "    }\n";
+        }
     } else {
         // Serve HTTP directly
         $config .= generateLocationBlock($upstream_name, $domain, $modsec_enabled, $geoip_enabled, 
@@ -484,16 +532,17 @@ function generateSiteConfig($siteId, $siteData) {
                                            $enable_caching, $cache_duration, $cache_static,
                                            $enable_waf_headers, $enable_telemetry, $custom_headers,
                                            $enable_basic_auth, $basic_auth_username, $basic_auth_password,
-                                           $enable_image_opt, $image_quality, $enable_bot_protection);
+                                           $enable_image_opt, $image_quality, $enable_bot_protection,
+                                           false, false, false, false, // No challenge on plain HTTP
+                                           $cf_bypass_ratelimit, $cf_custom_rate_limit, $cf_rate_limit_burst);
     }
     $config .= "}\n\n";
     
     // HTTPS server (if SSL enabled)
     if ($ssl_enabled) {
         $config .= "server {\n";
-        $defaultServer = ($domain === '_') ? ' default_server' : '';
-        $config .= "    listen 443 ssl{$defaultServer};\n";
-        $config .= "    listen [::]:443 ssl{$defaultServer};\n";
+        $config .= "    listen 443 ssl;\n";
+        $config .= "    listen [::]:443 ssl;\n";
         $config .= "    http2 on;\n";
         $config .= "    server_name {$domain};\n\n";
         
@@ -531,12 +580,12 @@ function generateSiteConfig($siteId, $siteData) {
         
         if ($ssl_challenge_type === 'snakeoil') {
             // Use self-signed snakeoil certificate
-            $config .= "    ssl_certificate /etc/nginx/ssl/snakeoil/cert.pem;\n";
-            $config .= "    ssl_certificate_key /etc/nginx/ssl/snakeoil/key.pem;\n";
+            $config .= "    ssl_certificate /etc/nginx/certs/{$domain}/fullchain.pem;\n";
+            $config .= "    ssl_certificate_key /etc/nginx/certs/{$domain}/key.pem;\n";
         } else {
-            // Use Let's Encrypt certificate
-            $config .= "    ssl_certificate /etc/letsencrypt/live/{$domain}/fullchain.pem;\n";
-            $config .= "    ssl_certificate_key /etc/letsencrypt/live/{$domain}/privkey.pem;\n";
+            // Use Let's Encrypt certificate (from acme.sh)
+            $config .= "    ssl_certificate /etc/nginx/certs/{$domain}/fullchain.pem;\n";
+            $config .= "    ssl_certificate_key /etc/nginx/certs/{$domain}/key.pem;\n";
         }
         $config .= "    ssl_protocols TLSv1.2 TLSv1.3;\n";
         $config .= "    ssl_ciphers HIGH:!aNULL:!MD5;\n";
@@ -569,9 +618,12 @@ function generateSiteConfig($siteId, $siteData) {
                                            $enable_waf_headers, $enable_telemetry, $custom_headers,
                                            $enable_basic_auth, $basic_auth_username, $basic_auth_password,
                                            $enable_image_opt, $image_quality, $enable_bot_protection,
-                                           $challenge_enabled, $challenge_difficulty, $challenge_duration, $challenge_bypass_cf);
+                                           $challenge_enabled, $challenge_difficulty, $challenge_duration, $challenge_bypass_cf,
+                                           $cf_bypass_ratelimit, $cf_custom_rate_limit, $cf_rate_limit_burst);
         $config .= "}\n";
     }
+    
+    } // end of if (!$isDefaultCatchall)
     
     // Write config file
     $config_path = "/etc/nginx/sites-enabled/{$domain}.conf";
@@ -604,7 +656,8 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
                                $enable_waf_headers = true, $enable_telemetry = true, $custom_headers = '',
                                $enable_basic_auth = false, $basic_auth_username = '', $basic_auth_password = '',
                                $enable_image_opt = false, $image_quality = 85, $enable_bot_protection = true,
-                               $challenge_enabled = false, $challenge_difficulty = 18, $challenge_duration = 1, $challenge_bypass_cf = false) {
+                               $challenge_enabled = false, $challenge_difficulty = 18, $challenge_duration = 1, $challenge_bypass_cf = false,
+                               $cf_bypass_ratelimit = false, $cf_custom_rate_limit = 100, $cf_rate_limit_burst = 200) {
     $block = "";
     
     // Ban list check
@@ -654,10 +707,31 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
         file_put_contents($htpasswd_path, "{$basic_auth_username}:{$hashed_password}\n");
     }
     
-    // Rate limiting
+    // Rate limiting with Cloudflare bypass support
     $burst = $custom_config['custom_rate_limit'] ?? 20;
     $block .= "    # Rate limiting\n";
-    $block .= "    limit_req zone={$rate_limit} burst={$burst} nodelay;\n";
+    
+    if ($cf_bypass_ratelimit) {
+        // Use geo module to detect Cloudflare IPs and apply different rate limits
+        $block .= "    # Cloudflare IP bypass - use relaxed rate limits\n";
+        $block .= "    set \$is_cf 0;\n";
+        $block .= "    # Check if request is from Cloudflare (via CF-Connecting-IP header)\n";
+        $block .= "    if (\$http_cf_connecting_ip != \"\") {\n";
+        $block .= "        set \$is_cf 1;\n";
+        $block .= "    }\n\n";
+        
+        $block .= "    # Apply different rate limits for CF vs direct access\n";
+        $block .= "    if (\$is_cf = 0) {\n";
+        $block .= "        limit_req zone={$rate_limit} burst={$burst} nodelay;\n";
+        $block .= "    }\n";
+        $block .= "    # Cloudflare gets higher limits (defined globally in nginx.conf)\n";
+        $block .= "    if (\$is_cf = 1) {\n";
+        $block .= "        limit_req zone=cloudflare burst={$cf_rate_limit_burst} nodelay;\n";
+        $block .= "    }\n";
+    } else {
+        // Standard rate limiting
+        $block .= "    limit_req zone={$rate_limit} burst={$burst} nodelay;\n";
+    }
     $block .= "    limit_conn addr 20;\n\n";
     
     // ModSecurity
@@ -781,7 +855,9 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
     $block .= "        proxy_http_version 1.1;\n\n";
     
     $block .= "        # Proxy headers\n";
-    $block .= "        proxy_set_header Host \$host;\n";
+    $block .= "        # Use \$http_host to preserve the original Host header from client\n";
+    $block .= "        # This ensures backend vhosts receive the correct domain name\n";
+    $block .= "        proxy_set_header Host \$http_host;\n";
     $block .= "        proxy_set_header X-Real-IP \$remote_addr;\n";
     $block .= "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;\n";
     $block .= "        proxy_set_header X-Forwarded-Proto \$scheme;\n";
@@ -823,4 +899,19 @@ function removeSiteConfig($siteId) {
             unlink($htpasswd_path);
         }
     }
+}
+
+// Trigger background certificate issuance
+function triggerCertificateIssuance($domain, $challengeType = 'http-01', $cfApiToken = null, $cfZoneId = null) {
+    // Issue certificate in background to avoid blocking the response
+    $command = sprintf(
+        "php %s/certificate-issuer.php %s %s %s %s > /dev/null 2>&1 &",
+        escapeshellarg(__DIR__),
+        escapeshellarg($domain),
+        escapeshellarg($challengeType),
+        escapeshellarg($cfApiToken ?: ''),
+        escapeshellarg($cfZoneId ?: '')
+    );
+    exec($command);
+    error_log("Triggered background certificate issuance for {$domain}");
 }

@@ -45,6 +45,7 @@ const showToast = (message, type) => Toast.show(message, type);
 let currentPage = 'overview';
 let stats = {};
 let charts = {};
+let envDefaults = {}; // Store environment defaults
 
 // Keyboard Shortcuts
 document.addEventListener('keydown', (e) => {
@@ -73,6 +74,25 @@ document.addEventListener('keydown', (e) => {
         });
     }
 });
+
+// Load environment defaults from backend
+async function loadEnvironmentDefaults() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/env-defaults.php`, {
+            headers: {
+                'X-API-Key': API_TOKEN
+            }
+        });
+        const result = await response.json();
+        if (result.success) {
+            envDefaults = result.data;
+            console.log('✅ Environment defaults loaded:', envDefaults.cloudflare.has_credentials ? 'Cloudflare credentials available' : 'No Cloudflare credentials');
+        }
+    } catch (error) {
+        console.warn('Could not load environment defaults:', error);
+        envDefaults = { cloudflare: { api_key: '', email: '', has_credentials: false }, acme: { email: '' } };
+    }
+}
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', () => {
@@ -106,6 +126,9 @@ async function initializeApp() {
         window.location.href = '/login.html';
         return;
     }
+    
+    // Load environment defaults
+    await loadEnvironmentDefaults();
     
     // Load initial data
     await loadDashboardData();
@@ -2668,14 +2691,17 @@ function renderSSLTab() {
             <div id="cloudflare-dns-group" style="display: ${data.ssl_challenge_type === 'dns-01' ? 'block' : 'none'};">
                 <div class="form-group">
                     <label>Cloudflare API Token</label>
-                    <input type="password" id="edit_cf_api_token" class="form-input" value="${data.cf_api_token || ''}" placeholder="Your Cloudflare API token">
-                    <small style="color: var(--text-muted);">Create a token with Zone:DNS:Edit permissions at Cloudflare dashboard</small>
+                    <input type="password" id="edit_cf_api_token" class="form-input" value="${data.cf_api_token || envDefaults.cloudflare?.api_key || ''}" placeholder="Your Cloudflare API token">
+                    <small style="color: var(--text-muted);">
+                        ${envDefaults.cloudflare?.has_credentials ? '✅ Using default from .env file' : '⚠️ Configure CF_API_KEY in .env for automatic fill'} | 
+                        <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" style="color: var(--primary);">Create a token</a> with Zone:DNS:Edit permissions
+                    </small>
                 </div>
                 
                 <div class="form-group">
                     <label>Cloudflare Zone ID</label>
                     <input type="text" id="edit_cf_zone_id" class="form-input" value="${data.cf_zone_id || ''}" placeholder="Zone ID from Cloudflare dashboard">
-                    <small style="color: var(--text-muted);">Found in your domain's Overview page on Cloudflare</small>
+                    <small style="color: var(--text-muted);">📍 Found in your domain's Overview page on Cloudflare</small>
                 </div>
             </div>
         </div>
@@ -3535,12 +3561,18 @@ function renderAddSiteSSLTab() {
             
             <div class="form-group" id="new_cf_api_group" style="display: ${data.ssl_challenge_type === 'dns-01' ? 'block' : 'none'};">
                 <label>Cloudflare API Token</label>
-                <input type="password" id="new_cf_api_token" class="form-input" value="${data.cf_api_token || ''}" placeholder="Your Cloudflare API token">
+                <input type="password" id="new_cf_api_token" class="form-input" value="${data.cf_api_token || envDefaults.cloudflare?.api_key || ''}" placeholder="Your Cloudflare API token">
+                <small style="color: var(--text-muted); display: block; margin-top: 0.25rem;">
+                    ${envDefaults.cloudflare?.has_credentials ? '✅ Using default from .env file' : '⚠️ Configure CF_API_KEY in .env for automatic fill'}
+                </small>
             </div>
             
             <div class="form-group" id="new_cf_zone_group" style="display: ${data.ssl_challenge_type === 'dns-01' ? 'block' : 'none'};">
                 <label>Cloudflare Zone ID</label>
                 <input type="text" id="new_cf_zone_id" class="form-input" value="${data.cf_zone_id || ''}" placeholder="Your Cloudflare zone ID">
+                <small style="color: var(--text-muted); display: block; margin-top: 0.25rem;">
+                    📍 Found in your domain's Overview page on Cloudflare
+                </small>
             </div>
         </div>
     `;
@@ -3606,3 +3638,239 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+
+// ==================== Import/Export Functions ====================
+
+window.exportSites = async function() {
+    try {
+        Toast.show('Exporting sites...', 'info');
+        
+        const response = await fetch(`${API_BASE_URL}/endpoints/sites-export.php?download=1`, {
+            method: 'GET',
+            headers: {
+                'X-API-Key': API_TOKEN
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error('Export failed');
+        }
+        
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `waf-sites-export-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        Toast.show('✅ Sites exported successfully!', 'success');
+    } catch (error) {
+        console.error('Error exporting sites:', error);
+        Toast.show('❌ Failed to export sites', 'error');
+    }
+};
+
+window.showImportModal = function() {
+    openModal('importModal');
+    document.getElementById('importJson').value = '';
+    document.getElementById('importFile').value = '';
+    document.getElementById('importMode').value = 'merge';
+    document.getElementById('importDryRun').checked = false;
+    document.getElementById('importPreview').style.display = 'none';
+};
+
+window.handleImportFile = function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        document.getElementById('importJson').value = e.target.result;
+    };
+    reader.readAsText(file);
+};
+
+window.importSites = async function() {
+    try {
+        const jsonText = document.getElementById('importJson').value.trim();
+        const mode = document.getElementById('importMode').value;
+        const dryRun = document.getElementById('importDryRun').checked;
+        
+        if (!jsonText) {
+            Toast.show('⚠️ Please provide JSON data', 'warning');
+            return;
+        }
+        
+        // Validate JSON
+        let jsonData;
+        try {
+            jsonData = JSON.parse(jsonText);
+        } catch (e) {
+            Toast.show('❌ Invalid JSON format', 'error');
+            return;
+        }
+        
+        if (!jsonData.sites || !Array.isArray(jsonData.sites)) {
+            Toast.show('❌ Invalid format: Expected {sites: [...]}', 'error');
+            return;
+        }
+        
+        // Confirm replace mode
+        if (mode === 'replace' && !dryRun) {
+            if (!confirm('⚠️ REPLACE MODE will delete all existing sites and import new ones. A backup will be created. Continue?')) {
+                return;
+            }
+        }
+        
+        Toast.show(`${dryRun ? 'Validating' : 'Importing'} ${jsonData.sites.length} sites...`, 'info');
+        
+        const queryParams = new URLSearchParams({ mode });
+        if (dryRun) queryParams.append('dry_run', '1');
+        
+        const response = await fetch(`${API_BASE_URL}/endpoints/sites-import.php?${queryParams}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': API_TOKEN
+            },
+            body: jsonText
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(result.error || 'Import failed');
+        }
+        
+        // Show results
+        const preview = document.getElementById('importPreview');
+        const previewContent = document.getElementById('importPreviewContent');
+        preview.style.display = 'block';
+        
+        let summary = '';
+        if (dryRun) {
+            summary = `DRY RUN - No changes made\n\n`;
+        }
+        summary += `Mode: ${result.mode}\n`;
+        summary += `Imported: ${result.imported}\n`;
+        summary += `Updated: ${result.updated}\n`;
+        summary += `Skipped: ${result.skipped}\n`;
+        if (result.errors && result.errors.length > 0) {
+            summary += `\nErrors:\n${result.errors.join('\n')}`;
+        }
+        if (result.sites && result.sites.length > 0) {
+            summary += `\n\nSites:\n`;
+            result.sites.forEach(s => {
+                summary += `  - ${s.domain}: ${s.action}\n`;
+            });
+        }
+        previewContent.textContent = summary;
+        
+        if (dryRun) {
+            Toast.show('✅ Validation complete - Review results above', 'success');
+        } else {
+            Toast.show(`✅ Import complete! ${result.imported} added, ${result.updated} updated`, 'success');
+            
+            // Refresh sites list
+            setTimeout(() => {
+                closeModal('importModal');
+                loadSites();
+            }, 2000);
+        }
+        
+    } catch (error) {
+        console.error('Error importing sites:', error);
+        Toast.show(`❌ Import failed: ${error.message}`, 'error');
+    }
+};
+
+// Auto-detect Cloudflare zones for sites
+window.detectCloudflareZones = async function(siteId = null, force = false) {
+    try {
+        const loadingMsg = siteId ? 'Detecting Cloudflare zone...' : 'Detecting Cloudflare zones for all sites...';
+        Toast.show(loadingMsg, 'info');
+        
+        let url = `${API_BASE_URL}/endpoints/cloudflare-zone-detect.php`;
+        const params = new URLSearchParams();
+        if (siteId) params.append('site_id', siteId);
+        if (force) params.append('force', '1');
+        
+        if (params.toString()) {
+            url += '?' + params.toString();
+        }
+        
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Authorization': 'Bearer ' + API_TOKEN
+            }
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok) {
+            if (result.error === 'Cloudflare credentials not configured') {
+                Toast.show('⚠️ Cloudflare API credentials not configured. Set CLOUDFLARE_API_TOKEN in docker-compose.yml', 'warning');
+                
+                // Show detailed instructions
+                const shouldShowHelp = confirm(
+                    'Cloudflare API credentials are required.\n\n' +
+                    'Would you like to see setup instructions?'
+                );
+                
+                if (shouldShowHelp) {
+                    alert(
+                        'Setup Instructions:\n\n' +
+                        '1. Go to Cloudflare Dashboard → My Profile → API Tokens\n' +
+                        '2. Create a token with "Zone:Read" permissions\n' +
+                        '3. Add to docker-compose.yml under dashboard service:\n' +
+                        '   environment:\n' +
+                        '     - CLOUDFLARE_API_TOKEN=your_token_here\n\n' +
+                        '4. Restart: docker compose up -d dashboard'
+                    );
+                }
+                return;
+            }
+            throw new Error(result.message || result.error || 'Detection failed');
+        }
+        
+        if (!result.success) {
+            throw new Error(result.message || 'Detection failed');
+        }
+        
+        // Show results
+        const total = result.detected + result.failed;
+        const resultMsg = `✅ Detected ${result.detected}/${total} zones` + (result.failed > 0 ? ` (${result.failed} not found)` : '');
+        
+        Toast.show(resultMsg, result.failed > 0 ? 'warning' : 'success');
+        
+        // Show detailed results if available
+        if (result.sites && result.sites.length > 0) {
+            console.log('Cloudflare Zone Detection Results:', result.sites);
+            
+            let details = 'Zone Detection Results:\n\n';
+            result.sites.forEach(site => {
+                if (site.status === 'detected') {
+                    details += `✅ ${site.domain} → ${site.zone_id}\n`;
+                } else {
+                    details += `❌ ${site.domain}: ${site.message}\n`;
+                }
+            });
+            
+            // Show in console for now, could create a modal later
+            console.log(details);
+        }
+        
+        // Reload sites list to show updated zone IDs
+        if (result.detected > 0) {
+            setTimeout(() => loadSites(), 1000);
+        }
+        
+    } catch (error) {
+        console.error('Error detecting Cloudflare zones:', error);
+        Toast.show(`❌ ${error.message}`, 'error');
+    }
+};

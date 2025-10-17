@@ -53,7 +53,7 @@ switch ($method) {
 }
 
 function getCertificateInfo($domain) {
-    $certPath = "/etc/letsencrypt/live/{$domain}/fullchain.pem";
+    $certPath = "/etc/nginx/certs/{$domain}/fullchain.pem";
     
     if (!file_exists($certPath)) {
         http_response_code(404);
@@ -95,63 +95,86 @@ function getCertificateInfo($domain) {
 function issueCertificate($domain) {
     global $db;
     
-    // Get ACME settings
-    $stmt = $db->prepare("SELECT setting_value FROM settings WHERE setting_key IN ('acme_email', 'acme_server')");
-    $stmt->execute();
-    $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+    // Get site configuration for SSL challenge type
+    $stmt = $db->prepare("SELECT ssl_challenge_type, cf_api_token, cf_zone_id FROM sites WHERE domain = ?");
+    $stmt->execute([$domain]);
+    $site = $stmt->fetch(PDO::FETCH_ASSOC);
     
-    $email = $settings['acme_email'] ?? 'admin@localhost';
-    $server = $settings['acme_server'] ?? 'https://acme-v02.api.letsencrypt.org/directory';
+    if (!$site) {
+        http_response_code(404);
+        echo json_encode(['error' => 'Site not found']);
+        return;
+    }
     
-    // Check for Cloudflare DNS credentials from environment
-    $cfApiKey = getenv('CF_API_KEY');
-    $cfEmail = getenv('CF_EMAIL');
+    $challengeType = $site['ssl_challenge_type'] ?? 'http-01';
+    $email = getenv('ACME_EMAIL') ?: 'admin@localhost';
     
-    // Determine if we should use DNS challenge (Cloudflare) or HTTP challenge
-    $useDnsChallenge = !empty($cfApiKey) && !empty($cfEmail);
-    
-    if ($useDnsChallenge) {
-        // Create Cloudflare credentials file for certbot
-        $credentialsPath = '/tmp/cloudflare.ini';
-        $credentials = "# Cloudflare API credentials\n";
-        $credentials .= "dns_cloudflare_email = $cfEmail\n";
-        $credentials .= "dns_cloudflare_api_key = $cfApiKey\n";
-        file_put_contents($credentialsPath, $credentials);
-        chmod($credentialsPath, 0600);
+    // Build acme.sh command based on challenge type
+    if ($challengeType === 'dns-01') {
+        // DNS Challenge with Cloudflare
+        $cfApiKey = $site['cf_api_token'] ?: getenv('CF_API_KEY');
+        $cfZoneId = $site['cf_zone_id'];
         
-        // Use DNS challenge with Cloudflare plugin
+        if (empty($cfApiKey)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Cloudflare API token not configured']);
+            return;
+        }
+        
         $command = sprintf(
-            "docker run --rm --name certbot -v /etc/letsencrypt:/etc/letsencrypt -v %s:/tmp/cloudflare.ini:ro certbot/dns-cloudflare certonly --dns-cloudflare --dns-cloudflare-credentials /tmp/cloudflare.ini --email %s --agree-tos --no-eff-email --server %s -d %s 2>&1",
-            escapeshellarg($credentialsPath),
-            escapeshellarg($email),
-            escapeshellarg($server),
+            "docker exec waf-acme sh -c 'export CF_Token=%s CF_Zone_ID=%s; /root/.acme.sh/acme.sh --issue --dns dns_cf -d %s --server letsencrypt --cert-home /acme.sh/%s --key-file /acme.sh/%s/key.pem --fullchain-file /acme.sh/%s/fullchain.pem' 2>&1",
+            escapeshellarg($cfApiKey),
+            escapeshellarg($cfZoneId),
+            escapeshellarg($domain),
+            escapeshellarg($domain),
+            escapeshellarg($domain),
+            escapeshellarg($domain)
+        );
+    } elseif ($challengeType === 'snakeoil') {
+        // Generate self-signed certificate
+        $certDir = "/etc/nginx/certs/{$domain}";
+        $command = sprintf(
+            "docker exec waf-nginx sh -c 'mkdir -p %s && openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout %s/key.pem -out %s/fullchain.pem -subj \"/CN=%s\"' 2>&1",
+            escapeshellarg($certDir),
+            escapeshellarg($certDir),
+            escapeshellarg($certDir),
             escapeshellarg($domain)
         );
     } else {
-        // Use HTTP webroot challenge (default)
+        // HTTP-01 Challenge (default)
         $command = sprintf(
-            "docker run --rm --name certbot -v /etc/letsencrypt:/etc/letsencrypt -v /var/www/certbot:/var/www/certbot certbot/certbot certonly --webroot --webroot-path /var/www/certbot --email %s --agree-tos --no-eff-email --server %s -d %s 2>&1",
-            escapeshellarg($email),
-            escapeshellarg($server),
+            "docker exec waf-acme sh -c '/root/.acme.sh/acme.sh --issue -d %s --webroot /var/www/certbot --server letsencrypt --cert-home /acme.sh/%s --key-file /acme.sh/%s/key.pem --fullchain-file /acme.sh/%s/fullchain.pem --force' 2>&1",
+            escapeshellarg($domain),
+            escapeshellarg($domain),
+            escapeshellarg($domain),
             escapeshellarg($domain)
         );
     }
     
     exec($command, $output, $returnCode);
     
-    // Clean up credentials file if it was created
-    if ($useDnsChallenge && file_exists($credentialsPath)) {
-        unlink($credentialsPath);
-    }
-    
-    if ($returnCode !== 0) {
+    if ($returnCode !== 0 && $challengeType !== 'snakeoil') {
         http_response_code(500);
         echo json_encode([
             'error' => 'Failed to issue certificate',
             'output' => implode("\n", $output),
-            'challenge_method' => $useDnsChallenge ? 'dns-cloudflare' : 'http-webroot'
+            'challenge_method' => $challengeType,
+            'command' => $command
         ]);
         return;
+    }
+    
+    // Create symlinks in nginx expected location
+    if ($challengeType !== 'snakeoil') {
+        $linkCommand = sprintf(
+            "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/certs/%s && ln -sf /acme.sh/%s/fullchain.pem /etc/nginx/certs/%s/fullchain.pem && ln -sf /acme.sh/%s/key.pem /etc/nginx/certs/%s/key.pem' 2>&1",
+            escapeshellarg($domain),
+            escapeshellarg($domain),
+            escapeshellarg($domain),
+            escapeshellarg($domain),
+            escapeshellarg($domain)
+        );
+        exec($linkCommand);
     }
     
     // Update site to enable SSL
@@ -168,11 +191,14 @@ function issueCertificate($domain) {
         generateNginxConfig($siteId);
     }
     
+    // Reload nginx
+    exec("docker exec waf-nginx nginx -s reload 2>&1");
+    
     echo json_encode([
         'success' => true,
         'message' => "Certificate issued successfully for {$domain}",
         'output' => implode("\n", $output),
-        'challenge_method' => $useDnsChallenge ? 'dns-cloudflare' : 'http-webroot'
+        'challenge_method' => $challengeType
     ]);
 }
 

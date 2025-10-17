@@ -52,6 +52,8 @@ services:
     depends_on:
       mariadb:
         condition: service_healthy
+      migration-runner:
+        condition: service_completed_successfully
     environment:
       TZ: ${TZ:-Europe/Berlin}
       DB_HOST: mariadb
@@ -59,6 +61,12 @@ services:
       DB_USER: waf_user
       DB_PASSWORD: ${DB_PASSWORD:-changeme}
       DASHBOARD_API_KEY: ${DASHBOARD_API_KEY:-change-this-default-token}
+      # Cloudflare API credentials (for zone auto-detection)
+      # Recommended: Use API Token with Zone:Read permission
+      # Legacy: Use CF_API_KEY + CF_EMAIL (from ACME DNS challenge config)
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+      CLOUDFLARE_API_KEY: ${CF_API_KEY:-}
+      CLOUDFLARE_EMAIL: ${CF_EMAIL:-}
     healthcheck:
       test: ["CMD", "php-fpm", "-t"]
       interval: 30s
@@ -135,9 +143,10 @@ services:
     container_name: waf-mariadb-init
     command: >
       sh -c '
-      echo "Downloading database schema..." &&
+      echo "Downloading database schema and migrations..." &&
       wget -q https://raw.githubusercontent.com/smol-kitten/cat-waf/main/mariadb/init/01-complete-schema.sql -O /init/01-complete-schema.sql &&
-      echo "Schema downloaded successfully!" &&
+      wget -q https://raw.githubusercontent.com/smol-kitten/cat-waf/main/mariadb/init/06-migration-redirect-cf-ratelimit.sql -O /init/06-migration-redirect-cf-ratelimit.sql &&
+      echo "Files downloaded successfully!" &&
       ls -lh /init/
       '
     volumes:
@@ -145,6 +154,39 @@ services:
       - waf-mariadb-init:/init
     networks:
       - waf-network
+
+  migration-runner:
+    image: mariadb:latest
+    container_name: waf-migration-runner
+    command: >
+      sh -c '
+      echo "Waiting for MariaDB to be ready..." &&
+      sleep 5 &&
+      echo "Applying migrations..." &&
+      for migration in /migrations/*-migration-*.sql; do
+        if [ -f "$$migration" ]; then
+          echo "  → Applying: $$(basename $$migration)" &&
+          mariadb -h mariadb -u waf_user -p$$DB_PASSWORD waf_db < "$$migration" 2>&1 | grep -v "Warning: Using a password" || true
+        fi
+      done &&
+      echo "✅ Migrations completed!" &&
+      echo "Verifying schema..." &&
+      mariadb -h mariadb -u waf_user -p$$DB_PASSWORD waf_db -e "SELECT COUNT(*) as column_count FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = '"'"'waf_db'"'"' AND TABLE_NAME = '"'"'sites'"'"';" 2>&1 | grep -v "Warning" &&
+      echo "Schema verification complete!"
+      '
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD:-changeme}
+    volumes:
+      # Mount init scripts volume to access migrations
+      - waf-mariadb-init:/migrations:ro
+    networks:
+      - waf-network
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      mariadb-init:
+        condition: service_completed_successfully
+    restart: "no"
 
   default-backend:
     image: nginx:alpine
