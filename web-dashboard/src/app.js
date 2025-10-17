@@ -1052,8 +1052,33 @@ async function loadCertificateStatus() {
         
         let html = '<div class="cert-list">';
         for (const site of sslSites) {
+            // Skip special domains that don't need certificates
+            if (site.domain === '_' || site.domain.includes('*')) {
+                continue;
+            }
+            
             const certInfo = await getCertificateInfo(site.domain);
-            const daysUntilExpiry = certInfo.daysUntilExpiry;
+            
+            // Handle cases where certificate info couldn't be retrieved
+            if (!certInfo || !certInfo.exists) {
+                html += `
+                    <div class="cert-item">
+                        <div class="cert-domain">
+                            <strong>${site.domain}</strong>
+                            <span class="badge badge-danger">No Certificate</span>
+                        </div>
+                        <div class="cert-details">
+                            <span style="color: #ff6b6b;">Certificate not found</span>
+                        </div>
+                        <div class="cert-actions">
+                            <button class="btn-primary btn-sm" onclick="issueCertificate('${site.domain}')">Issue Certificate</button>
+                        </div>
+                    </div>
+                `;
+                continue;
+            }
+            
+            const daysUntilExpiry = certInfo.daysUntilExpiry || 0;
             let statusClass = 'success';
             let statusText = 'Valid';
             
@@ -1075,21 +1100,13 @@ async function loadCertificateStatus() {
                         <span class="badge badge-${statusClass}">${statusText}</span>
                     </div>
                     <div class="cert-details">
-                        ${certInfo.exists ? `
-                            <span>Expires: ${certInfo.expiryDate}</span>
-                            <span>(${daysUntilExpiry} days)</span>
-                            ${certInfo.issuer ? `<span style="font-size: 0.85em; color: #666;">Issuer: ${certInfo.issuer}</span>` : ''}
-                        ` : `
-                            <span style="color: #ff6b6b;">Certificate not found</span>
-                        `}
+                        <span>Expires: ${certInfo.expiryDate}</span>
+                        <span>(${daysUntilExpiry} days)</span>
+                        ${certInfo.issuer ? `<span style="font-size: 0.85em; color: #666;">Issuer: ${certInfo.issuer}</span>` : ''}
                     </div>
                     <div class="cert-actions">
-                        ${certInfo.exists ? `
-                            <button class="btn-secondary btn-sm" onclick="renewCertificate('${site.domain}')">Renew Now</button>
-                            <button class="btn-secondary btn-sm" onclick="revokeCertificate('${site.domain}')">Revoke</button>
-                        ` : `
-                            <button class="btn-primary btn-sm" onclick="issueCertificate('${site.domain}')">Issue Certificate</button>
-                        `}
+                        <button class="btn-secondary btn-sm" onclick="renewCertificate('${site.domain}')">Renew Now</button>
+                        <button class="btn-secondary btn-sm" onclick="revokeCertificate('${site.domain}')">Revoke</button>
                     </div>
                 </div>
             `;

@@ -38,9 +38,20 @@ if (!$domain) {
 }
 
 // Validate domain format
-if (!preg_match('/^[a-zA-Z0-9.-]+$/', $domain)) {
+if (!preg_match('/^[a-zA-Z0-9._-]+$/', $domain)) {
     http_response_code(400);
     echo json_encode(['error' => 'Invalid domain format']);
+    exit;
+}
+
+// Skip special domains that shouldn't have certificates
+if ($domain === '_') {
+    http_response_code(200);
+    echo json_encode([
+        'exists' => false,
+        'domain' => $domain,
+        'message' => 'Default/catch-all domain - no certificate needed'
+    ]);
     exit;
 }
 
