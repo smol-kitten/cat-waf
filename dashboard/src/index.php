@@ -59,7 +59,7 @@ try {
                 'name' => 'CatWAF Dashboard API',
                 'version' => '1.0.0',
                 'completion' => '89%',
-                'tagline' => 'Purr-otecting your sites since 2025',
+                'tagline' => 'Purr-tecting your sites since 2025',
                 'features' => [
                     'sites_management' => true,
                     'ssl_certificates' => true,

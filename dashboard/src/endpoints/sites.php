@@ -820,6 +820,33 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
         $static_cache_duration = $cache_duration * 10; // Cache static files 10x longer
         $block .= "    # Static file caching\n";
         $block .= "    location ~* \\.(jpg|jpeg|png|gif|ico|css|js|svg|woff|woff2|ttf|eot|webp|avif|mp4|webm)$ {\n";
+        
+        // Add JavaScript Challenge check for static files too
+        if ($challenge_enabled) {
+            $block .= "        # JavaScript Challenge Mode\n";
+            $block .= "        set \$challenge_passed 0;\n";
+            $block .= "        \n";
+            $block .= "        if (\$cookie_waf_challenge) {\n";
+            $block .= "            set \$challenge_passed 1;\n";
+            $block .= "        }\n";
+            $block .= "        if (\$cookie_waf_difficulty != '{$challenge_difficulty}') {\n";
+            $block .= "            set \$challenge_passed 0;\n";
+            $block .= "        }\n\n";
+            
+            // Bypass for Cloudflare if enabled
+            if ($challenge_bypass_cf) {
+                $block .= "        # Bypass challenge for Cloudflare\n";
+                $block .= "        if (\$http_cf_visitor) {\n";
+                $block .= "            set \$challenge_passed 1;\n";
+                $block .= "        }\n\n";
+            }
+            
+            $block .= "        # Redirect to challenge if not verified\n";
+            $block .= "        if (\$challenge_passed = 0) {\n";
+            $block .= "            return 302 /challenge.html?difficulty={$challenge_difficulty}&duration={$challenge_duration}&redirect=\$scheme://\$host\$request_uri;\n";
+            $block .= "        }\n\n";
+        }
+        
         $block .= "        proxy_pass http://{$upstream};\n";
         $block .= "        proxy_cache {$cache_zone_name};\n";
         $block .= "        proxy_cache_valid 200 {$static_cache_duration}s;\n";
@@ -835,6 +862,33 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
     if ($enable_image_opt) {
         $block .= "    # Image optimization\n";
         $block .= "    location ~* \\.(jpg|jpeg|png)$ {\n";
+        
+        // Add JavaScript Challenge check for images too
+        if ($challenge_enabled) {
+            $block .= "        # JavaScript Challenge Mode\n";
+            $block .= "        set \$challenge_passed 0;\n";
+            $block .= "        \n";
+            $block .= "        if (\$cookie_waf_challenge) {\n";
+            $block .= "            set \$challenge_passed 1;\n";
+            $block .= "        }\n";
+            $block .= "        if (\$cookie_waf_difficulty != '{$challenge_difficulty}') {\n";
+            $block .= "            set \$challenge_passed 0;\n";
+            $block .= "        }\n\n";
+            
+            // Bypass for Cloudflare if enabled
+            if ($challenge_bypass_cf) {
+                $block .= "        # Bypass challenge for Cloudflare\n";
+                $block .= "        if (\$http_cf_visitor) {\n";
+                $block .= "            set \$challenge_passed 1;\n";
+                $block .= "        }\n\n";
+            }
+            
+            $block .= "        # Redirect to challenge if not verified\n";
+            $block .= "        if (\$challenge_passed = 0) {\n";
+            $block .= "            return 302 /challenge.html?difficulty={$challenge_difficulty}&duration={$challenge_duration}&redirect=\$scheme://\$host\$request_uri;\n";
+            $block .= "        }\n\n";
+        }
+        
         $block .= "        proxy_pass http://{$upstream};\n";
         $block .= "        image_filter resize 1920 -;\n";
         $block .= "        image_filter_jpeg_quality {$image_quality};\n";

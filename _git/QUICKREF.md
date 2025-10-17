@@ -522,4 +522,4 @@ docker-compose logs -f
 
 **CatWAF v1.0.0** | Made with 💖 by catboys 🐱
 
-*Keep purr-otecting!* 🛡️✨
+*Keep purr-tecting!* 🛡️✨
