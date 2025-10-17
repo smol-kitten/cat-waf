@@ -11,19 +11,18 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/sites-enabled:/etc/nginx/sites-enabled
-      - ./nginx/conf.d:/etc/nginx/conf.d
-      - ./nginx/modsecurity/coreruleset:/etc/nginx/modsecurity/coreruleset
-      - ./nginx/modsecurity/custom-rules:/etc/nginx/modsecurity/custom-rules
-      - ./nginx/error-pages:/usr/share/nginx/error-pages
-      - ./error-pages:/usr/share/nginx/html/errors
-      - ./logs/nginx:/var/log/nginx
-      - ./logs/modsec:/var/log/modsec
-      - ./certs:/etc/nginx/certs
-      - ./data/geoip:/usr/share/GeoIP
-      - nginx-htpasswd:/etc/nginx/htpasswd
+      # All configuration now in volumes (managed via Docker)
+      - waf-nginx-conf:/etc/nginx/conf.d
+      - waf-nginx-sites:/etc/nginx/sites-enabled
+      - waf-nginx-modsecurity:/etc/nginx/modsecurity
+      # Data volumes (persistent across deployments)
+      - waf-logs:/var/log
+      - waf-certs:/etc/nginx/certs
+      - waf-nginx-cache:/var/cache/nginx
+      - waf-fail2ban:/etc/fail2ban
     networks:
       - waf-network
+      - backend-network
     restart: unless-stopped
     depends_on:
       dashboard:
@@ -39,6 +38,20 @@ services:
   dashboard:
     image: ghcr.io/smol-kitten/cat-waf-dashboard:latest
     container_name: waf-dashboard
+    volumes:
+      # Data volumes (read-only access to logs)
+      - waf-logs:/var/log
+      # Configuration access (via volumes)
+      - waf-nginx-sites:/etc/nginx/sites-enabled
+      - waf-fail2ban:/etc/fail2ban
+      - waf-nginx-cache:/var/cache/nginx
+      - fail2ban-socket:/var/run/fail2ban
+    networks:
+      - waf-network
+    restart: unless-stopped
+    depends_on:
+      mariadb:
+        condition: service_healthy
     environment:
       TZ: ${TZ:-Europe/Berlin}
       DB_HOST: mariadb
@@ -46,22 +59,30 @@ services:
       DB_USER: waf_user
       DB_PASSWORD: ${DB_PASSWORD:-changeme}
       DASHBOARD_API_KEY: ${DASHBOARD_API_KEY:-change-this-default-token}
-    volumes:
-      - ./nginx/sites-enabled:/etc/nginx/sites-enabled
-      - ./logs/modsec:/var/log/modsec
-      - ./logs/nginx:/var/log/nginx
-      - nginx-htpasswd:/etc/nginx/htpasswd
-    networks:
-      - waf-network
-    restart: unless-stopped
-    depends_on:
-      mariadb:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "php-fpm", "-t"]
       interval: 30s
       timeout: 10s
       retries: 3
+
+  fail2ban:
+    image: ghcr.io/smol-kitten/cat-waf-fail2ban:latest
+    container_name: waf-fail2ban
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      # Configuration files (consolidated into single volume)
+      - waf-fail2ban:/etc/fail2ban
+      # Data volumes (persistent logs - read-only)
+      - waf-logs:/mnt/logs:ro
+      # Socket for communication
+      - fail2ban-socket:/var/run/fail2ban
+    networks:
+      - waf-network
+    restart: unless-stopped
+    depends_on:
+      - nginx
 
   web-dashboard:
     image: ghcr.io/smol-kitten/cat-waf-web-dashboard:latest
@@ -84,7 +105,7 @@ services:
       retries: 3
 
   mariadb:
-    image: mariadb:11.8.2
+    image: mariadb:latest
     container_name: waf-mariadb
     environment:
       TZ: ${TZ:-Europe/Berlin}
@@ -93,34 +114,37 @@ services:
       MYSQL_USER: waf_user
       MYSQL_PASSWORD: ${DB_PASSWORD:-changeme}
     volumes:
-      - ./mariadb/init:/docker-entrypoint-initdb.d
-      - ./data/mysql:/var/lib/mysql
+      # Database data (volume for persistence)
+      - waf-mysql-data:/var/lib/mysql
+      # Shared volume for init scripts
+      - waf-mariadb-init:/docker-entrypoint-initdb.d
     networks:
       - waf-network
     restart: unless-stopped
+    depends_on:
+      mariadb-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  fail2ban:
-    image: ghcr.io/smol-kitten/cat-waf-fail2ban:latest
-    container_name: waf-fail2ban
-    privileged: true
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
+  mariadb-init:
+    image: alpine:latest
+    container_name: waf-mariadb-init
+    command: >
+      sh -c '
+      echo "Downloading database schema..." &&
+      wget -q https://raw.githubusercontent.com/smol-kitten/cat-waf/main/mariadb/init/01-complete-schema.sql -O /init/01-complete-schema.sql &&
+      echo "Schema downloaded successfully!" &&
+      ls -lh /init/
+      '
     volumes:
-      - ./logs/nginx:/var/log/nginx:ro
-      - ./logs/modsec:/var/log/modsec:ro
-      - ./nginx/banlist.conf:/etc/nginx/banlist.conf
-      - ./fail2ban/banlist.conf:/etc/fail2ban/action.d/banlist.conf
+      # Shared volume with MariaDB for init scripts
+      - waf-mariadb-init:/init
     networks:
       - waf-network
-    restart: unless-stopped
-    depends_on:
-      - nginx
 
   default-backend:
     image: nginx:alpine
@@ -156,8 +180,8 @@ services:
       DB_USER: waf_user
       DB_PASSWORD: ${DB_PASSWORD:-changeme}
     volumes:
-      - ./logs/nginx:/var/log/nginx:ro
-      - ./logs/modsec:/var/log/modsec:ro
+      # Data volumes (read-only access to logs)
+      - waf-logs:/var/log:ro
     networks:
       - waf-network
     restart: unless-stopped
@@ -168,8 +192,40 @@ services:
 networks:
   waf-network:
     driver: bridge
+  backend-network:
+    driver: bridge
 
 volumes:
-  nginx-htpasswd:
+  # MySQL/MariaDB data volume
+  waf-mysql-data:
+    name: waf-mysql-data
+  # MariaDB init scripts volume (shared with init container)
+  waf-mariadb-init:
+    name: waf-mariadb-init
+  # Fail2ban configuration and state
+  waf-fail2ban:
+    name: waf-fail2ban
+  # NGINX cache directory
+  waf-nginx-cache:
+    name: waf-nginx-cache
+  # SSL/TLS certificates
   waf-certs:
+    name: waf-certs
+  # Log files (nginx, modsec, etc.)
+  waf-logs:
+    name: waf-logs
+  # Web dashboard data
+  waf-web-dashboard:
+    name: waf-web-dashboard
+  # NGINX main configuration
   waf-nginx-conf:
+    name: waf-nginx-conf
+  # NGINX site configurations
+  waf-nginx-sites:
+    name: waf-nginx-sites
+  # ModSecurity configuration and rules
+  waf-nginx-modsecurity:
+    name: waf-nginx-modsecurity
+  # Fail2ban socket for communication
+  fail2ban-socket:
+    name: fail2ban-socket
