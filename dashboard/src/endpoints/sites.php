@@ -377,6 +377,8 @@ function generateSiteConfig($siteId, $siteData) {
     // Remove trailing slash if present
     $backend = rtrim($backend, '/');
     
+    // Allow per-site override to disable HTTP->HTTPS redirect
+    $disable_http_redirect = $siteData['disable_http_redirect'] ?? 0;
     $ssl_enabled = $siteData['ssl_enabled'] ?? 0;
     $modsec_enabled = $siteData['enable_modsecurity'] ?? 1;
     $geoip_enabled = $siteData['enable_geoip_blocking'] ?? 0;
@@ -432,6 +434,61 @@ function generateSiteConfig($siteId, $siteData) {
     
     // Create upstream name (sanitize domain)
     $upstream_name = preg_replace('/[^a-z0-9_]/', '_', strtolower($domain)) . '_backend';
+    // Determine whether backend speaks HTTPS (auto-detect)
+    $use_https_backend = false;
+    // If backend_raw explicitly specifies scheme
+    if (stripos($backend_raw, 'https://') === 0) {
+        $use_https_backend = true;
+    } else {
+        // If backend includes explicit port 443
+        $port = null;
+        if (preg_match('/:[0-9]+$/', $backend)) {
+            $port = (int)substr($backend, strrpos($backend, ':') + 1);
+            if ($port === 443) {
+                $use_https_backend = true;
+            }
+        }
+        
+        // If not port 443, probe the backend for redirect to https (quick detection)
+        if (!$use_https_backend) {
+            error_log("About to probe {$domain} at {$backend}");
+            $probeCmd = "curl -s -I -m 2 -H 'Host: {$domain}' http://{$backend}";
+            $probeOutput = shell_exec($probeCmd);
+            error_log("Probe {$domain} result: " . ($probeOutput ? substr($probeOutput, 0, 200) : 'NULL'));
+            if ($probeOutput !== null && $probeOutput !== '') {
+                $probeLines = explode("\n", $probeOutput);
+                foreach ($probeLines as $line) {
+                    if (stripos($line, 'Location:') === 0 && stripos($line, 'https://') !== false) {
+                        $use_https_backend = true;
+                        error_log("Detected HTTPS redirect for {$domain}: {$line}");
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Record upstream https usage in a global map so generateLocationBlock can use it
+    if (!isset($GLOBALS['upstream_https'])) $GLOBALS['upstream_https'] = [];
+    
+    // Determine if backend SPEAKS https natively or just REDIRECTS to https
+    $backend_speaks_https = false;
+    if (stripos($backend_raw, 'https://') === 0 || (isset($port) && $port === 443)) {
+        $backend_speaks_https = true;
+    }
+    
+    $GLOBALS['upstream_https'][$upstream_name] = $backend_speaks_https;
+
+    // If backend REDIRECTS to HTTPS (but doesn't speak it), disable nginx HTTP->HTTPS redirect
+    // to avoid redirect loops - the backend will handle the redirect.
+    // We'll still proxy as HTTP so the backend sees the HTTP request and can redirect.
+    if ($use_https_backend && !$backend_speaks_https) {
+        error_log("Backend {$backend} for {$domain} redirects to HTTPS - disabling nginx redirect");
+        $siteData['disable_http_redirect'] = 1;
+        $disable_http_redirect = 1;
+    } else {
+        error_log("Backend {$backend} for {$domain}: use_https={$use_https_backend}, speaks_https={$backend_speaks_https}, disable_redirect={$disable_http_redirect}");
+    }
     
     // Build NGINX config
     $config = "# Auto-generated config for {$domain}\n";
@@ -467,6 +524,7 @@ function generateSiteConfig($siteId, $siteData) {
             $down = ($backend_config['down'] ?? false) ? ' down' : '';
             
             if (!empty($server)) {
+                // If backend uses HTTPS, ensure we keep port 443 in server entry
                 $config .= "    server {$server}";
                 if ($weight != 1) $config .= " weight={$weight}";
                 $config .= " max_fails={$max_fails} fail_timeout={$fail_timeout}s";
@@ -524,6 +582,7 @@ function generateSiteConfig($siteId, $siteData) {
     
     if ($ssl_enabled) {
         // Check if HTTP->HTTPS redirect is disabled (to prevent infinite loops when backend also redirects)
+        // Only disable nginx redirect if backend is actively redirecting to HTTPS (not just using port 80)
         if ($disable_http_redirect) {
             // Serve HTTP directly even with SSL enabled (backend handles redirect)
             $config .= generateLocationBlock($upstream_name, $domain, $modsec_enabled, $geoip_enabled, 
@@ -593,11 +652,63 @@ function generateSiteConfig($siteId, $siteData) {
         // SSL configuration
         $ssl_challenge_type = $siteData['ssl_challenge_type'] ?? 'http-01';
         
+        // Try to copy certificates from acme.sh if they exist and are not snakeoil
+        if ($ssl_challenge_type !== 'snakeoil') {
+            // Check if acme.sh has a certificate for this domain
+            $acmeCertPath = "/acme.sh/{$domain}/{$domain}_ecc/fullchain.cer";
+            $acmeKeyPath = "/acme.sh/{$domain}/{$domain}_ecc/{$domain}.key";
+            
+            $nginxCertDir = "/etc/nginx/certs/{$domain}";
+            $nginxCertPath = "{$nginxCertDir}/fullchain.pem";
+            $nginxKeyPath = "{$nginxCertDir}/key.pem";
+            
+            // Check if acme.sh has certificates
+            $checkCmd = "docker exec waf-acme test -f {$acmeCertPath} && echo 'exists' || echo 'missing' 2>&1";
+            $acmeExists = trim(shell_exec($checkCmd));
+            
+            if ($acmeExists === 'exists') {
+                // Check if it's a real Let's Encrypt cert or snakeoil
+                $issuerCmd = "docker exec waf-acme openssl x509 -in {$acmeCertPath} -noout -issuer 2>&1";
+                $issuer = shell_exec($issuerCmd);
+                
+                // If not self-signed (doesn't have CN=domain as issuer), copy to nginx
+                if (strpos($issuer, "CN={$domain}") === false) {
+                    error_log("Found Let's Encrypt certificate for {$domain}, copying to nginx...");
+                    
+                    // Create cert directory in nginx container and remove any old symlinks
+                    $mkdirCmd = "docker exec waf-nginx sh -c 'mkdir -p {$nginxCertDir} && rm -f {$nginxCertPath} {$nginxKeyPath}' 2>&1";
+                    shell_exec($mkdirCmd);
+                    
+                    // Copy cert: read from acme, write to nginx
+                    $copyCertCmd = "docker exec waf-acme cat {$acmeCertPath} | docker exec -i waf-nginx sh -c 'cat > {$nginxCertPath}' 2>&1";
+                    $certResult = shell_exec($copyCertCmd);
+                    
+                    // Copy key: read from acme, write to nginx
+                    $copyKeyCmd = "docker exec waf-acme cat {$acmeKeyPath} | docker exec -i waf-nginx sh -c 'cat > {$nginxKeyPath}' 2>&1";
+                    $keyResult = shell_exec($copyKeyCmd);
+                    
+                    // Verify files exist in nginx
+                    $verifyCmd = "docker exec waf-nginx test -f {$nginxCertPath} && docker exec waf-nginx test -f {$nginxKeyPath} && echo 'success' || echo 'failed' 2>&1";
+                    $verifyResult = trim(shell_exec($verifyCmd));
+                    
+                    if ($verifyResult === 'success') {
+                        error_log("Successfully copied Let's Encrypt certificate for {$domain} to nginx");
+                    } else {
+                        error_log("Failed to verify copied certificate for {$domain}");
+                    }
+                }
+            }
+        }
+        
         // Check if certificate files exist, generate snakeoil if missing
         $certPath = "/etc/nginx/certs/{$domain}/fullchain.pem";
         $keyPath = "/etc/nginx/certs/{$domain}/key.pem";
         
-        if (!file_exists($certPath) || !file_exists($keyPath)) {
+        // Check if certs exist in nginx container (check if it's a regular file, not a symlink)
+        $certExistsCmd = "docker exec waf-nginx sh -c '[ -f {$certPath} ] && [ ! -L {$certPath} ] && echo exists || echo missing' 2>&1";
+        $certExists = trim(shell_exec($certExistsCmd));
+        
+        if ($certExists !== 'exists') {
             // Generate snakeoil certificate if missing
             error_log("Certificate missing for {$domain}, generating snakeoil...");
             $certDir = "/etc/nginx/certs/{$domain}";
@@ -941,7 +1052,16 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
         $block .= "        add_header X-Cache-Status \$upstream_cache_status always;\n\n";
     }
     
-    $block .= "        proxy_pass http://{$upstream};\n";
+    // If upstream backend expects HTTPS, use https:// scheme and enable proxy_ssl
+    $use_https = isset($GLOBALS['upstream_https'][$upstream]) && $GLOBALS['upstream_https'][$upstream];
+    $proxy_scheme = $use_https ? 'https' : 'http';
+    $block .= "        proxy_pass {$proxy_scheme}://{$upstream};\n";
+    if ($use_https) {
+        $block .= "        proxy_ssl_server_name on;\n";
+        $block .= "        proxy_ssl_name \$host;\n";
+        // Do not verify upstream cert by default (internal network)
+        $block .= "        proxy_ssl_verify off;\n";
+    }
     $block .= "        proxy_http_version 1.1;\n\n";
     
     $block .= "        # Proxy headers\n";

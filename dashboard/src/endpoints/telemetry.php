@@ -78,22 +78,23 @@ function handleTelemetry($method, $params, $db) {
             $limit = min((int)($_GET['limit'] ?? 10), 100);
             
             try {
-                $stmt = $db->prepare("
-                    SELECT 
-                        domain,
-                        uri as path,
-                        AVG(response_time) as avg_response,
-                        COUNT(*) as request_count,
-                        MAX(response_time) as p95,
-                        MAX(response_time) as p99
-                    FROM request_telemetry 
-                    WHERE timestamp > DATE_SUB(NOW(), INTERVAL 24 HOUR)
-                    AND response_time IS NOT NULL
-                    AND response_time > 0
-                    GROUP BY domain, uri
-                    ORDER BY avg_response DESC
-                    LIMIT ?
-                ");
+                    // Normalize URI by stripping volatile query parameters (t, ts, nonce, _)
+                    $stmt = $db->prepare("
+                        SELECT 
+                            domain,
+                            SUBSTRING_INDEX(uri, '?', 1) AS path,
+                            AVG(response_time) as avg_response,
+                            COUNT(*) as request_count,
+                            MAX(response_time) as p95,
+                            MAX(response_time) as p99
+                        FROM request_telemetry 
+                        WHERE timestamp > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                        AND response_time IS NOT NULL
+                        AND response_time > 0
+                        GROUP BY domain, path
+                        ORDER BY avg_response DESC
+                        LIMIT ?
+                    ");
                 $stmt->execute([$limit]);
                 
                 $results = $stmt->fetchAll();
