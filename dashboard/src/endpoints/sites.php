@@ -1,5 +1,35 @@
 <?php
 
+// Generate APR1-MD5 hash for htpasswd (Apache compatible)
+function generateApr1Hash($plainpasswd) {
+    $salt = substr(str_shuffle("abcdefghijklmnopqrstuvwxyz0123456789"), 0, 8);
+    $len = strlen($plainpasswd);
+    $text = $plainpasswd.'$apr1$'.$salt;
+    $bin = pack("H32", md5($plainpasswd.$salt.$plainpasswd));
+    for($i = $len; $i > 0; $i -= 16) { $text .= substr($bin, 0, min(16, $i)); }
+    for($i = $len; $i > 0; $i >>= 1) { $text .= ($i & 1) ? chr(0) : $plainpasswd[0]; }
+    $bin = pack("H32", md5($text));
+    for($i = 0; $i < 1000; $i++) {
+        $new = ($i & 1) ? $plainpasswd : $bin;
+        if ($i % 3) $new .= $salt;
+        if ($i % 7) $new .= $plainpasswd;
+        $new .= ($i & 1) ? $bin : $plainpasswd;
+        $bin = pack("H32", md5($new));
+    }
+    $tmp = "";
+    for ($i = 0; $i < 5; $i++) {
+        $k = $i + 6;
+        $j = $i + 12;
+        if ($j == 16) $j = 5;
+        $tmp = $bin[$i].$bin[$k].$bin[$j].$tmp;
+    }
+    $tmp = chr(0).chr(0).$bin[11].$tmp;
+    $tmp = strtr(strrev(substr(base64_encode($tmp), 2)),
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+        "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz");
+    return "$"."apr1$".$salt."$".$tmp;
+}
+
 function handleSites($method, $params, $db) {
     // Check if this is a backends sub-route: /sites/:id/backends
     if (isset($params[1]) && $params[1] === 'backends') {
@@ -230,6 +260,68 @@ function handleSites($method, $params, $db) {
             sendResponse(['success' => true, 'message' => 'Site deleted']);
             break;
             
+        case 'COPY':
+            // Copy site (duplicate database entry)
+            if (empty($params[0])) {
+                sendResponse(['error' => 'Site ID required'], 400);
+            }
+            
+            // Get original site
+            $stmt = $db->prepare("SELECT * FROM sites WHERE id = ?");
+            $stmt->execute([$params[0]]);
+            $originalSite = $stmt->fetch();
+            
+            if (!$originalSite) {
+                sendResponse(['error' => 'Site not found'], 404);
+            }
+            
+            // Create copy with .copy suffix
+            $newDomain = $originalSite['domain'] . '.copy';
+            
+            // Check if domain already exists, add number if needed
+            $counter = 1;
+            while (true) {
+                $checkStmt = $db->prepare("SELECT COUNT(*) FROM sites WHERE domain = ?");
+                $checkStmt->execute([$newDomain]);
+                if ($checkStmt->fetchColumn() == 0) break;
+                $newDomain = $originalSite['domain'] . '.copy' . $counter;
+                $counter++;
+            }
+            
+            // Get all columns except id, created_at, updated_at
+            $columns = array_keys($originalSite);
+            $columns = array_filter($columns, function($col) {
+                return !in_array($col, ['id', 'created_at', 'updated_at']);
+            });
+            
+            $columnsList = implode(', ', $columns);
+            $placeholders = implode(', ', array_fill(0, count($columns), '?'));
+            
+            // Prepare values
+            $values = [];
+            foreach ($columns as $col) {
+                if ($col === 'domain') {
+                    $values[] = $newDomain;
+                } else {
+                    $values[] = $originalSite[$col];
+                }
+            }
+            
+            // Insert copy
+            $insertStmt = $db->prepare("INSERT INTO sites ($columnsList) VALUES ($placeholders)");
+            $insertStmt->execute($values);
+            
+            $newSiteId = $db->lastInsertId();
+            
+            // Generate NGINX config for copy
+            $newSiteData = $originalSite;
+            $newSiteData['domain'] = $newDomain;
+            $newSiteData['id'] = $newSiteId;
+            generateSiteConfig($newSiteId, $newSiteData);
+            
+            sendResponse(['success' => true, 'id' => $newSiteId, 'domain' => $newDomain, 'message' => 'Site copied successfully']);
+            break;
+            
         default:
             sendResponse(['error' => 'Method not allowed'], 405);
     }
@@ -277,6 +369,11 @@ function generateSiteConfig($siteId, $siteData) {
     $enable_telemetry = $siteData['enable_telemetry'] ?? 1;
     $enable_bot_protection = $siteData['enable_bot_protection'] ?? 1;
     $custom_headers = $siteData['custom_headers'] ?? '';
+    
+    // Basic authentication
+    $enable_basic_auth = $siteData['enable_basic_auth'] ?? 0;
+    $basic_auth_username = $siteData['basic_auth_username'] ?? '';
+    $basic_auth_password = $siteData['basic_auth_password'] ?? '';
 
     
     // Challenge mode configuration
@@ -386,6 +483,7 @@ function generateSiteConfig($siteId, $siteData) {
                                            $blocked_countries, $rate_limit_zone, $custom_config,
                                            $enable_caching, $cache_duration, $cache_static,
                                            $enable_waf_headers, $enable_telemetry, $custom_headers,
+                                           $enable_basic_auth, $basic_auth_username, $basic_auth_password,
                                            $enable_image_opt, $image_quality, $enable_bot_protection);
     }
     $config .= "}\n\n";
@@ -469,6 +567,7 @@ function generateSiteConfig($siteId, $siteData) {
                                            $blocked_countries, $rate_limit_zone, $custom_config,
                                            $enable_caching, $cache_duration, $cache_static,
                                            $enable_waf_headers, $enable_telemetry, $custom_headers,
+                                           $enable_basic_auth, $basic_auth_username, $basic_auth_password,
                                            $enable_image_opt, $image_quality, $enable_bot_protection,
                                            $challenge_enabled, $challenge_difficulty, $challenge_duration, $challenge_bypass_cf);
         $config .= "}\n";
@@ -503,6 +602,7 @@ function generateSiteConfig($siteId, $siteData) {
 function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_countries, $rate_limit, $custom_config,
                                $enable_caching = true, $cache_duration = 3600, $cache_static = true,
                                $enable_waf_headers = true, $enable_telemetry = true, $custom_headers = '',
+                               $enable_basic_auth = false, $basic_auth_username = '', $basic_auth_password = '',
                                $enable_image_opt = false, $image_quality = 85, $enable_bot_protection = true,
                                $challenge_enabled = false, $challenge_difficulty = 18, $challenge_duration = 1, $challenge_bypass_cf = false) {
     $block = "";
@@ -541,19 +641,17 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
         $block .= "    deny all;\n\n";
     }
     
-    // Basic auth
-    if (isset($custom_config['basic_auth']) && !empty($custom_config['basic_auth']['username'])) {
+    // Basic auth - now from database columns
+    if (!empty($enable_basic_auth) && !empty($basic_auth_username) && !empty($basic_auth_password)) {
         $block .= "    # Basic authentication\n";
         $block .= "    auth_basic \"Restricted Access\";\n";
         $block .= "    auth_basic_user_file /etc/nginx/htpasswd/{$domain};\n\n";
         
-        // Generate htpasswd file
+        // Generate htpasswd file with APR1-MD5 hashing (Apache compatible)
         $htpasswd_path = "/etc/nginx/htpasswd/{$domain}";
-        $username = $custom_config['basic_auth']['username'];
-        $password = $custom_config['basic_auth']['password'];
-        $hashed = crypt($password, base64_encode($password));
+        $hashed_password = generateApr1Hash($basic_auth_password);
         @mkdir(dirname($htpasswd_path), 0755, true);
-        file_put_contents($htpasswd_path, "{$username}:{$hashed}\n");
+        file_put_contents($htpasswd_path, "{$basic_auth_username}:{$hashed_password}\n");
     }
     
     // Rate limiting

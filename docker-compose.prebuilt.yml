@@ -1,0 +1,140 @@
+version: '3.8'
+
+# Fast deployment with pre-built images from GitHub Container Registry
+# Usage: docker-compose -f docker-compose.prebuilt.yml up -d
+
+services:
+  nginx:
+    image: ghcr.io/smol-kitten/cat-waf-nginx:latest
+    container_name: waf-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/sites-enabled:/etc/nginx/sites-enabled
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./nginx/modsecurity/coreruleset:/etc/nginx/modsecurity/coreruleset
+      - ./nginx/modsecurity/custom-rules:/etc/nginx/modsecurity/custom-rules
+      - ./nginx/error-pages:/usr/share/nginx/error-pages
+      - ./error-pages:/usr/share/nginx/html/errors
+      - ./logs/nginx:/var/log/nginx
+      - ./logs/modsec:/var/log/modsec
+      - ./certs:/etc/nginx/certs
+      - ./data/geoip:/usr/share/GeoIP
+      - nginx-htpasswd:/etc/nginx/htpasswd
+    networks:
+      - waf-network
+    restart: unless-stopped
+    depends_on:
+      - dashboard
+      - fail2ban
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  dashboard:
+    image: ghcr.io/smol-kitten/cat-waf-dashboard:latest
+    container_name: waf-dashboard
+    environment:
+      DB_HOST: mariadb
+      DB_NAME: waf_db
+      DB_USER: waf_user
+      DB_PASS: waf_secure_password_2024
+      API_KEY: your-super-secret-api-key-change-this
+    volumes:
+      - ./nginx/sites-enabled:/etc/nginx/sites-enabled
+      - ./logs/modsec:/var/log/modsec
+      - ./logs/nginx:/var/log/nginx
+      - nginx-htpasswd:/etc/nginx/htpasswd
+    networks:
+      - waf-network
+    restart: unless-stopped
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "php-fpm", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  web-dashboard:
+    image: ghcr.io/smol-kitten/cat-waf-web-dashboard:latest
+    container_name: waf-web-dashboard
+    ports:
+      - "8080:80"
+    networks:
+      - waf-network
+    restart: unless-stopped
+    depends_on:
+      - dashboard
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  mariadb:
+    image: mariadb:11.8.2
+    container_name: waf-mariadb
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password_2024_change_this
+      MYSQL_DATABASE: waf_db
+      MYSQL_USER: waf_user
+      MYSQL_PASSWORD: waf_secure_password_2024
+    volumes:
+      - ./mariadb/init:/docker-entrypoint-initdb.d
+      - ./data/mysql:/var/lib/mysql
+    networks:
+      - waf-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  fail2ban:
+    image: ghcr.io/smol-kitten/cat-waf-fail2ban:latest
+    container_name: waf-fail2ban
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ./logs/nginx:/var/log/nginx:ro
+      - ./logs/modsec:/var/log/modsec:ro
+      - ./nginx/banlist.conf:/etc/nginx/banlist.conf
+      - ./fail2ban/banlist.conf:/etc/fail2ban/action.d/banlist.conf
+    networks:
+      - waf-network
+    restart: unless-stopped
+    depends_on:
+      - nginx
+
+  log-parser:
+    image: ghcr.io/smol-kitten/cat-waf-log-parser:latest
+    container_name: waf-log-parser
+    environment:
+      DB_HOST: mariadb
+      DB_NAME: waf_db
+      DB_USER: waf_user
+      DB_PASS: waf_secure_password_2024
+    volumes:
+      - ./logs/nginx:/var/log/nginx:ro
+      - ./logs/modsec:/var/log/modsec:ro
+    networks:
+      - waf-network
+    restart: unless-stopped
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
+networks:
+  waf-network:
+    driver: bridge
+
+volumes:
+  nginx-htpasswd:

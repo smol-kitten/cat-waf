@@ -15,22 +15,28 @@ A production-ready Web Application Firewall with NGINX + ModSecurity v3, automat
 
 ## Quick Start
 
+### Option 1: Pre-Built Images (Fastest - 2 minutes)
 ```bash
-# Clone repository
-git clone <repository-url>
-cd waf
+git clone https://github.com/smol-kitten/cat-waf
+cd cat-waf
+docker-compose -f docker-compose.prebuilt.yml up -d
+```
+📖 **See [`QUICKSTART.md`](QUICKSTART.md) for detailed instructions**
+
+### Option 2: Build Locally (5-10 minutes)
+```bash
+git clone https://github.com/smol-kitten/cat-waf
+cd cat-waf
 
 # Configure environment
 cp .env.example .env
 nano .env  # Set DASHBOARD_API_KEY, DB_PASSWORD, ACME_EMAIL
 
 # Start all services
-docker-compose up -d --build
-
-# Access dashboard
-open http://localhost:8080
+docker compose up -d --build
 ```
 
+**Dashboard Access**: http://localhost:8080  
 **First login**: Use `DASHBOARD_API_KEY` from `.env` file
 
 ---
@@ -193,6 +199,7 @@ Edit site settings without clicking save:
 - 4GB RAM minimum (8GB recommended)
 - 10GB free disk space
 - Linux, macOS, or Windows with WSL2
+> ⚠️ I actually have no clue runs fine with a gig of RAM and 2vCPUs on my test instance with 1-5k requests/h with all features enabled and barely any load. Your mileage may vary.
 
 ---
 

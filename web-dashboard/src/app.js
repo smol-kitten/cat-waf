@@ -317,8 +317,8 @@ async function apiRequest(endpoint, methodOrOptions = {}, bodyData = null) {
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             const errorMsg = errorData.error || errorData.message || response.statusText;
-            Toast.show(`API Error: ${errorMsg}`, 'error');
-            return null;
+            Toast.show(`Error: ${errorMsg}`, 'error');
+            throw new Error(errorMsg);
         }
         
         return await response.json();
@@ -561,6 +561,7 @@ async function loadSites() {
         });
     } catch (error) {
         console.error('Error loading sites:', error);
+        Toast.show('❌ Failed to load sites', 'error');
     }
 }
 
@@ -639,6 +640,7 @@ async function loadBans() {
         });
     } catch (error) {
         console.error('Error loading bans:', error);
+        Toast.show('❌ Failed to load bans', 'error');
     }
 }
 
@@ -697,6 +699,7 @@ async function loadSecurityEvents() {
         });
     } catch (error) {
         console.error('Error loading security events:', error);
+        Toast.show('❌ Failed to load security events', 'error');
     }
 }
 
@@ -1558,33 +1561,22 @@ window.showPage = navigateToPage;
 // Copy Site - Open add site page with pre-filled data
 window.copySite = async (id) => {
     try {
-        const response = await apiRequest(`/sites/${id}`);
-        const site = response?.site;
+        const response = await apiRequest(`/sites/${id}`, {
+            method: 'COPY'
+        });
         
-        if (!site) {
-            Toast.show('Site not found', 'error');
-            return;
+        if (response && response.success) {
+            Toast.show(`✅ Site copied as: ${response.domain}`, 'success');
+            await loadSites();
+            
+            // Open editor for the new copy
+            if (response.id) {
+                editSite(response.id);
+            }
         }
-        
-        // Store site data for copying
-        currentSiteData = site;
-        currentSiteData.domain = site.domain + '-copy'; // Modify domain
-        currentSiteData.id = null; // Clear ID for new site
-        
-        // Navigate to add site page
-        navigateToPage('add-site');
-        document.getElementById('addSiteTitle').textContent = 'Copy Site: ' + site.domain;
-        
-        // Initialize tabs
-        initializeAddSiteTabs();
-        
-        // Load general tab with copied data
-        loadAddSiteTab('general');
-        
-        Toast.show('Site data copied. Modify and save as new site.', 'info');
     } catch (error) {
         console.error('Error copying site:', error);
-        Toast.show('Failed to copy site', 'error');
+        Toast.show('❌ Failed to copy site', 'error');
     }
 };
 
@@ -2758,7 +2750,7 @@ function renderAccessTab() {
             
             <div class="form-group">
                 <label>Username</label>
-                <input type="text" id="edit_auth_username" class="form-input" value="${data.auth_username || ''}" placeholder="admin">
+                <input type="text" id="edit_auth_username" class="form-input" value="${data.basic_auth_username || ''}" placeholder="admin">
             </div>
             
             <div class="form-group">
@@ -3296,6 +3288,7 @@ async function autoSaveField(fieldName, value) {
     } catch (error) {
         console.error('Auto-save error:', error);
         updateAutoSaveStatus('error', 'Failed to save');
+        Toast.show(`❌ ${error.message}`, 'error');
     }
 }
 
