@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Site - WAF Dashboard</title>
+    <link rel="stylesheet" href="style.css?v=3">
+</head>
+<body>
+    <div class="container">
+        <div class="page-header">
+            <div>
+                <h1>Add New Site</h1>
+                <p class="text-muted">Configure a new site to protect with the WAF</p>
+            </div>
+            <div>
+                <button class="btn-secondary" onclick="window.location.href='dashboard.html?page=sites'">
+                    ← Back to Sites
+                </button>
+            </div>
+        </div>
+
+        <div class="card">
+            <form id="addSiteForm" onsubmit="event.preventDefault(); submitAddSite();">
+                <div class="form-section">
+                    <h3>Basic Configuration</h3>
+                    
+                    <div class="form-group">
+                        <label for="siteDomain">Domain *</label>
+                        <input type="text" id="siteDomain" name="domain" placeholder="example.com" required>
+                        <small>The domain name this site will respond to</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="siteBackend">Backend URL *</label>
+                        <input type="text" id="siteBackend" name="backend" placeholder="http://backend:8080" required>
+                        <small>The upstream server to proxy requests to</small>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3>Security Settings</h3>
+                    
+                    <div class="form-group">
+                        <label for="siteRateLimit">Rate Limit Zone</label>
+                        <select id="siteRateLimit" name="rate_limit_zone">
+                            <option value="general">General (10 req/s)</option>
+                            <option value="strict">Strict (5 req/s)</option>
+                            <option value="api">API (20 req/s)</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="siteModSec" name="enable_modsecurity" checked>
+                            <span>Enable ModSecurity WAF</span>
+                        </label>
+                        <small>Enable OWASP Core Rule Set protection</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="siteGeoIP" name="enable_geoip_blocking">
+                            <span>Enable GeoIP Blocking</span>
+                        </label>
+                        <small>Block requests from specific countries</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="siteSSL" name="ssl_enabled">
+                            <span>Enable SSL/TLS</span>
+                        </label>
+                        <small>Automatically provision Let's Encrypt certificate</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="siteCaching" name="enable_caching">
+                            <span>Enable Caching</span>
+                        </label>
+                        <small>Cache responses for improved performance</small>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3>Advanced Options</h3>
+                    
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="siteTelemetry" name="enable_telemetry" checked>
+                            <span>Enable Telemetry</span>
+                        </label>
+                        <small>Collect performance and usage metrics</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="siteWAFHeaders" name="enable_waf_headers" checked>
+                            <span>Add WAF Headers</span>
+                        </label>
+                        <small>Include X-WAF-* response headers</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="siteCustomHeaders">Custom Headers</label>
+                        <textarea id="siteCustomHeaders" name="custom_headers" rows="4" placeholder="X-Custom-Header: value&#10;X-Another-Header: value"></textarea>
+                        <small>One header per line in format: Header-Name: value</small>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="btn-secondary" onclick="window.location.href='dashboard.html?page=sites'">
+                        Cancel
+                    </button>
+                    <button type="submit" class="btn-primary">
+                        Add Site
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="toast.js?v=2"></script>
+    <script>
+        const API_BASE = 'http://localhost:8080/api';
+        const API_KEY = localStorage.getItem('waf_api_key') || 'your_secure_api_key_here';
+
+        async function apiRequest(endpoint, options = {}) {
+            const response = await fetch(`${API_BASE}${endpoint}`, {
+                ...options,
+                headers: {
+                    'X-API-Key': API_KEY,
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                }
+            });
+            
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({ error: 'Request failed' }));
+                throw new Error(error.error || error.message || 'Request failed');
+            }
+            
+            return response.json();
+        }
+
+        async function submitAddSite() {
+            const form = document.getElementById('addSiteForm');
+            const formData = new FormData(form);
+            
+            const data = {
+                domain: formData.get('domain'),
+                backend_url: formData.get('backend'),
+                rate_limit_zone: formData.get('rate_limit_zone') || 'general',
+                enable_modsecurity: formData.get('enable_modsecurity') === 'on',
+                enable_geoip_blocking: formData.get('enable_geoip_blocking') === 'on',
+                ssl_enabled: formData.get('ssl_enabled') === 'on',
+                enable_caching: formData.get('enable_caching') === 'on',
+                enable_telemetry: formData.get('enable_telemetry') === 'on',
+                enable_waf_headers: formData.get('enable_waf_headers') === 'on',
+                custom_headers: formData.get('custom_headers') || ''
+            };
+
+            try {
+                const response = await apiRequest('/sites', {
+                    method: 'POST',
+                    body: JSON.stringify(data)
+                });
+
+                Toast.show('✅ Site added successfully!', 'success');
+                
+                // Redirect to sites list after short delay
+                setTimeout(() => {
+                    window.location.href = 'dashboard.html?page=sites';
+                }, 1500);
+            } catch (error) {
+                console.error('Error adding site:', error);
+                Toast.show('❌ Failed to add site: ' + error.message, 'error');
+            }
+        }
+
+        // Pre-fill from copy operation if data in sessionStorage
+        window.addEventListener('DOMContentLoaded', () => {
+            const copiedData = sessionStorage.getItem('copySiteData');
+            if (copiedData) {
+                try {
+                    const data = JSON.parse(copiedData);
+                    document.getElementById('siteBackend').value = data.backend_url || '';
+                    document.getElementById('siteRateLimit').value = data.rate_limit_zone || 'general';
+                    document.getElementById('siteModSec').checked = Boolean(data.enable_modsecurity);
+                    document.getElementById('siteGeoIP').checked = Boolean(data.enable_geoip_blocking);
+                    document.getElementById('siteSSL').checked = Boolean(data.ssl_enabled);
+                    document.getElementById('siteCaching').checked = Boolean(data.enable_caching);
+                    document.getElementById('siteTelemetry').checked = Boolean(data.enable_telemetry);
+                    document.getElementById('siteWAFHeaders').checked = Boolean(data.enable_waf_headers);
+                    document.getElementById('siteCustomHeaders').value = data.custom_headers || '';
+                    
+                    sessionStorage.removeItem('copySiteData');
+                    Toast.show('Site configuration copied. Enter a new domain.', 'info');
+                } catch (e) {
+                    console.error('Failed to parse copied site data:', e);
+                }
+            }
+        });
+    </script>
+</body>
+</html>

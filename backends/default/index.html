@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🐱 Protected by CatWAF</title>
+    <style>
+        :root {
+            --primary: #FF6B9D;
+            --secondary: #B388FF;
+            --bg: #0F0F1E;
+            --bg-card: #1E1E30;
+            --border: #363650;
+            --text: #FFFFFF;
+            --text-muted: #B4B4C8;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, var(--bg) 0%, #1A1A2E 100%);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 600px;
+            text-align: center;
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .cat-icon {
+            font-size: 8rem;
+            display: inline-block;
+            animation: bounce 2s ease-in-out infinite;
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin: 2rem 0 1rem;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            font-size: 1.25rem;
+            color: var(--text-muted);
+            margin-bottom: 3rem;
+        }
+
+        .info-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 2rem;
+            margin: 2rem 0;
+            text-align: left;
+        }
+
+        .info-card h2 {
+            color: var(--primary);
+            font-size: 1.25rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .info-item:last-child {
+            border-bottom: none;
+        }
+
+        .info-label {
+            color: var(--text-muted);
+        }
+
+        .info-value {
+            color: var(--text);
+            font-family: 'Courier New', monospace;
+            font-weight: 500;
+        }
+
+        .steps {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 2rem;
+            text-align: left;
+            margin-top: 2rem;
+        }
+
+        .steps h3 {
+            color: var(--secondary);
+            margin-bottom: 1rem;
+        }
+
+        .steps ol {
+            margin-left: 1.5rem;
+            line-height: 1.8;
+        }
+
+        .steps li {
+            margin-bottom: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .steps code {
+            background: rgba(255, 107, 157, 0.1);
+            color: var(--primary);
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-family: 'Courier New', monospace;
+        }
+
+        .footer {
+            margin-top: 3rem;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="cat-icon">🐱</div>
+        <h1>🛡️ Protected by CatWAF</h1>
+        <p class="subtitle">This domain is not configured on this server</p>
+
+        <div class="info-card">
+            <h2>📋 Request Information</h2>
+            <div class="info-item">
+                <span class="info-label">Request ID:</span>
+                <span class="info-value" id="requestId">Loading...</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Your IP:</span>
+                <span class="info-value" id="clientIp">Hidden for privacy</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Requested Host:</span>
+                <span class="info-value" id="requestedHost">Loading...</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Timestamp:</span>
+                <span class="info-value" id="timestamp">Loading...</span>
+            </div>
+        </div>
+
+        <div class="steps">
+            <h3>🚀 How to Configure This Domain</h3>
+            <ol>
+                <li>Access the dashboard at <code>http://your-server:8080</code></li>
+                <li>Navigate to <strong>"Managed Sites"</strong></li>
+                <li>Click <strong>"Add Site"</strong> button</li>
+                <li>Enter your domain and backend URL</li>
+                <li>Configure security settings (SSL, ModSecurity, Rate Limits, etc.)</li>
+                <li>Click <strong>"Add Site"</strong> - The NGINX configuration will be generated automatically!</li>
+            </ol>
+            <p style="margin-top: 1rem; color: var(--text-muted); font-size: 0.875rem;">
+                💡 <strong>Tip:</strong> The WAF dashboard automatically generates and reloads NGINX configurations. 
+                No manual configuration needed!
+            </p>
+        </div>
+
+        <div class="footer">
+            <p>🐾 CatWAF v1.0.0 | Protecting your web applications with purr-fection</p>
+        </div>
+    </div>
+
+    <script>
+        // Generate request ID
+        function generateRequestId() {
+            return 'REQ-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substr(2, 5).toUpperCase();
+        }
+
+        // Populate request info
+        document.getElementById('requestId').textContent = generateRequestId();
+        document.getElementById('requestedHost').textContent = window.location.hostname || window.location.host;
+        document.getElementById('timestamp').textContent = new Date().toISOString().replace('T', ' ').substr(0, 19) + ' UTC';
+    </script>
+</body>
+</html>

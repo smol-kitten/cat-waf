@@ -1,0 +1,41 @@
+# Fail2Ban jail configuration
+
+[DEFAULT]
+# Ban settings
+bantime  = 3600
+findtime = 600
+maxretry = 5
+
+# Actions
+banaction = nginx-banlist
+action = %(banaction)s[name=%(__name__)s, port="%(port)s", protocol="%(protocol)s"]
+
+# Backend
+backend = auto
+
+# Email settings (optional)
+destemail = root@localhost
+sender = fail2ban@localhost
+mta = sendmail
+
+# Logging
+logpath = /var/log/fail2ban/fail2ban.log
+
+# Custom WAF jails only
+# Standard NGINX and SSH jails are disabled via jail.d/defaults-disabled.conf
+
+[modsecurity]
+enabled = true
+port = http,https
+logpath = /mnt/logs/modsec/modsec_audit.log
+maxretry = 5
+findtime = 600
+bantime = 3600
+
+[modsecurity-severe]
+enabled = true
+port = http,https
+logpath = /mnt/logs/modsec/modsec_audit.log
+maxretry = 2
+findtime = 300
+bantime = 86400

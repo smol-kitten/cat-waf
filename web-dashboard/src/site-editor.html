@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Site - CatWAF 🐱</title>
+    <link rel="stylesheet" href="style.css?v=3">
+    <link rel="stylesheet" href="site-editor.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐱</text></svg>">
+</head>
+<body>
+    <div class="editor-container">
+        <!-- Header -->
+        <header class="editor-header">
+            <div class="editor-header-left">
+                <a href="dashboard.html#sites" class="back-link">
+                    <span>←</span>
+                    <span>Back to Sites</span>
+                </a>
+                <div class="site-switcher">
+                    <label for="siteSwitcher" style="font-size: 0.9rem; color: #888; margin-right: 8px;">Editing:</label>
+                    <select id="siteSwitcher" onchange="switchSite(this.value)" style="padding: 8px 12px; border-radius: 6px; border: 1px solid #e0e0e0; background: white; min-width: 200px;">
+                        <option value="">Loading sites...</option>
+                    </select>
+                </div>
+                <div class="site-indicator" style="margin-left: 16px;">
+                    <span class="status-dot status-active" id="siteStatusDot"></span>
+                    <span class="site-domain" id="siteDomain" style="font-size: 0.85rem; color: #666;">Status</span>
+                </div>
+            </div>
+            <div class="editor-header-right">
+                <button class="btn-secondary" onclick="testSite()">
+                    <span>🧪</span>
+                    <span>Test Config</span>
+                </button>
+                <button class="btn-primary" onclick="saveSite()">
+                    <span>💾</span>
+                    <span>Save Changes</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <nav class="editor-tabs">
+            <button class="tab-btn active" data-tab="general">General</button>
+            <button class="tab-btn" data-tab="security">Security</button>
+            <button class="tab-btn" data-tab="performance">Performance</button>
+            <button class="tab-btn" data-tab="backends">Backends</button>
+            <button class="tab-btn" data-tab="access">Access Control</button>
+            <button class="tab-btn" data-tab="advanced">Advanced</button>
+        </nav>
+
+        <!-- Tab Content -->
+        <main class="editor-content">
+            <!-- General Tab -->
+            <div class="tab-content active" id="general-tab">
+                <div class="section">
+                    <div class="section-header">
+                        <h2>🌐 Basic Configuration</h2>
+                        <p>Configure domain and backend server settings</p>
+                    </div>
+                    <div class="section-body">
+                        <div class="form-group">
+                            <label for="domain">Domain Name *</label>
+                            <input type="text" id="domain" placeholder="example.com" required>
+                            <span class="help-text">The domain name for this site</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="wildcard_subdomains">
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Wildcard Subdomains</span>
+                            </label>
+                            <span class="help-text">Match all subdomains (*.example.com) - requires SSL wildcard cert</span>
+                        </div>
+
+                        <div class="form-group" id="backend-url-group">
+                            <label for="backend_url">Backend Server *</label>
+                            <input type="text" id="backend_url" placeholder="192.168.1.100:8080 or backend.internal:3000" required>
+                            <span class="help-text">Backend server address (hostname:port or IP:port). For multiple backends or load balancing, use the <strong>Backends</strong> tab.</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="enabled" checked>
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Site Enabled</span>
+                            </label>
+                            <span class="help-text">Enable or disable this site configuration</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-header">
+                        <h2>🔐 SSL/TLS</h2>
+                        <p>Configure HTTPS and certificate settings</p>
+                    </div>
+                    <div class="section-body">
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="ssl_enabled">
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Enable SSL/TLS</span>
+                            </label>
+                            <span class="help-text">Automatically obtain Let's Encrypt certificate and redirect HTTP to HTTPS</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="ssl_challenge_type">ACME Challenge Type</label>
+                            <select id="ssl_challenge_type">
+                                <option value="http-01">HTTP-01 (Standard)</option>
+                                <option value="dns-01">DNS-01 (Wildcard Support)</option>
+                            </select>
+                            <span class="help-text">DNS-01 required for wildcard certificates</span>
+                        </div>
+
+                        <div id="cloudflare-settings" style="display: none;">
+                            <div class="form-group">
+                                <label for="cf_api_token">Cloudflare API Token</label>
+                                <input type="password" id="cf_api_token" placeholder="Enter Cloudflare API token">
+                                <span class="help-text">Required for DNS-01 challenge with Cloudflare</span>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="cf_zone_id">Cloudflare Zone ID</label>
+                                <input type="text" id="cf_zone_id" placeholder="Enter Zone ID">
+                                <span class="help-text">Find this in your Cloudflare dashboard</span>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="ssl_cert_path">Custom SSL Certificate Path (Optional)</label>
+                            <input type="text" id="ssl_cert_path" placeholder="/etc/nginx/certs/example.com.crt">
+                            <span class="help-text">Leave empty to use Let's Encrypt auto-certificates</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="ssl_key_path">Custom SSL Key Path (Optional)</label>
+                            <input type="text" id="ssl_key_path" placeholder="/etc/nginx/certs/example.com.key">
+                            <span class="help-text">Private key for custom certificate</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Security Tab -->
+            <div class="tab-content" id="security-tab">
+                <div class="section">
+                    <div class="section-header">
+                        <h2>🛡️ ModSecurity WAF</h2>
+                        <p>Web Application Firewall with OWASP Core Rule Set</p>
+                    </div>
+                    <div class="section-body">
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="enable_modsecurity" checked>
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Enable ModSecurity</span>
+                            </label>
+                            <span class="help-text">Protect against SQL injection, XSS, and other attacks</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-header">
+                        <h2>🤖 Bot Protection</h2>
+                        <p>Block malicious bots and scrapers</p>
+                    </div>
+                    <div class="section-body">
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="enable_bot_protection" checked>
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Enable Bot Protection</span>
+                            </label>
+                            <span class="help-text">Block known bad bots (100+ patterns). Good bots like Googlebot are whitelisted.</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="bot_protection_level">Protection Level</label>
+                            <select id="bot_protection_level">
+                                <option value="low">Low - Block only known malicious bots</option>
+                                <option value="medium" selected>Medium - Standard protection</option>
+                                <option value="high">High - Aggressive blocking</option>
+                            </select>
+                            <span class="help-text">Higher levels may block more legitimate traffic</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-header">
+                        <h2>🛡️ Challenge Mode</h2>
+                        <p>Browser verification challenge (like Cloudflare's "I'm Under Attack")</p>
+                    </div>
+                    <div class="section-body">
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="challenge_enabled">
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Enable Challenge Mode</span>
+                            </label>
+                            <span class="help-text">Show JavaScript proof-of-work challenge before allowing access</span>
+                        </div>
+
+                        <div id="challenge-settings" style="display: none;">
+                            <div class="form-group">
+                                <label for="challenge_difficulty">Difficulty Level</label>
+                                <input type="range" id="challenge_difficulty" min="10" max="25" value="18">
+                                <div class="range-labels">
+                                    <span>Easy (10)</span>
+                                    <span id="challenge_difficulty_value">18</span>
+                                    <span>Hard (25)</span>
+                                </div>
+                                <span class="help-text">Higher = more CPU work required (may affect mobile users)</span>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="challenge_duration">Challenge Duration (hours)</label>
+                                <input type="number" id="challenge_duration" min="0.1" max="24" step="0.1" value="1">
+                                <span class="help-text">How long the challenge solution is valid</span>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="challenge_bypass_cf">
+                                    <span class="toggle-slider"></span>
+                                    <span class="toggle-text">Bypass for Cloudflare IPs</span>
+                                </label>
+                                <span class="help-text">Skip challenge for traffic from Cloudflare CDN</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-header">
+                        <h2>🚦 Rate Limiting</h2>
+                        <p>Prevent abuse and DDoS attacks</p>
+                    </div>
+                    <div class="section-body">
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="enable_rate_limit" checked>
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Enable Rate Limiting</span>
+                            </label>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="rate_limit_zone">Rate Limit Preset</label>
+                            <select id="rate_limit_zone">
+                                <option value="general">General (10 req/s)</option>
+                                <option value="strict">Strict (2 req/s)</option>
+                                <option value="api">API (30 req/s)</option>
+                                <option value="custom">Custom</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group" id="custom_rate_group" style="display: none;">
+                            <label for="custom_rate_limit">Requests per Second</label>
+                            <input type="number" id="custom_rate_limit" min="1" max="1000" value="10">
+                            <span class="help-text">Maximum requests per second per IP</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="rate_limit_burst">Burst Size</label>
+                            <input type="number" id="rate_limit_burst" min="1" max="100" value="20">
+                            <span class="help-text">Allow bursts up to this many requests</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Performance Tab -->
+            <div class="tab-content" id="performance-tab">
+                <div class="section">
+                    <div class="section-header">
+                        <h2>📦 Compression</h2>
+                        <p>Reduce bandwidth and improve load times</p>
+                    </div>
+                    <div class="section-body">
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="enable_gzip" checked>
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Enable Gzip</span>
+                            </label>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="enable_brotli" checked>
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Enable Brotli</span>
+                            </label>
+                            <span class="help-text">Brotli provides better compression than Gzip</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="compression_level">Compression Level</label>
+                            <input type="range" id="compression_level" min="1" max="9" value="6">
+                            <div class="range-labels">
+                                <span>Faster (1)</span>
+                                <span id="compression_level_value">6</span>
+                                <span>Smaller (9)</span>
+                            </div>
+                            <span class="help-text">Higher levels = better compression but more CPU usage</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="compression_types">Compression MIME Types</label>
+                            <textarea id="compression_types" rows="3" placeholder="text/html text/css text/javascript application/json">text/html text/css text/javascript application/json application/xml</textarea>
+                            <span class="help-text">Space-separated list of MIME types to compress</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-header">
+                        <h2>⚡ Caching</h2>
+                        <p>Cache static files in browser and proxy</p>
+                    </div>
+                    <div class="section-body">
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="enable_caching" checked>
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Enable Browser Caching</span>
+                            </label>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="cache_duration">Cache Duration (seconds)</label>
+                            <input type="number" id="cache_duration" min="60" max="31536000" value="3600">
+                            <span class="help-text">How long browsers should cache static files (default: 1 hour)</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="cache_static_files" checked>
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Cache Static Files (images, CSS, JS)</span>
+                            </label>
+                            <span class="help-text">Enable caching for common static file types</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="cache_max_size">Proxy Cache Max Size</label>
+                            <input type="text" id="cache_max_size" value="100m" placeholder="100m">
+                            <span class="help-text">Maximum size of the proxy cache (e.g., 100m, 1g)</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="cache_path">Proxy Cache Path</label>
+                            <input type="text" id="cache_path" value="/var/cache/nginx" placeholder="/var/cache/nginx">
+                            <span class="help-text">Directory for storing cached files</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-header">
+                        <h2>🖼️ Image Optimization</h2>
+                        <p>Resize and compress images on-the-fly (experimental)</p>
+                    </div>
+                    <div class="section-body">
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="enable_image_optimization">
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Enable Image Optimization</span>
+                            </label>
+                            <span class="help-text">⚠️ Requires NGINX image_filter module</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="image_quality">JPEG Quality</label>
+                            <input type="range" id="image_quality" min="1" max="100" value="85">
+                            <div class="range-labels">
+                                <span>Low (1)</span>
+                                <span id="image_quality_value">85</span>
+                                <span>High (100)</span>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="image_max_width">Maximum Image Width (px)</label>
+                            <input type="number" id="image_max_width" min="320" max="4096" value="1920">
+                            <span class="help-text">Resize images wider than this to save bandwidth</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="image_webp_conversion">
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Convert to WebP (Modern Browsers)</span>
+                            </label>
+                            <span class="help-text">Serve WebP format to supported browsers for better compression</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Backends Tab -->
+            <div class="tab-content" id="backends-tab">
+                <div class="section">
+                    <div class="section-header">
+                        <h2>⚖️ Load Balancing</h2>
+                        <p>Configure multiple backend servers for high availability and performance</p>
+                    </div>
+                    <div class="section-body">
+                        <div class="form-group">
+                            <label for="lb_method">Load Balancing Method</label>
+                            <select id="lb_method">
+                                <option value="round_robin">Round Robin - Distribute requests evenly</option>
+                                <option value="least_conn">Least Connections - Send to server with fewest connections</option>
+                                <option value="ip_hash">IP Hash - Same client always goes to same server</option>
+                                <option value="hash">Hash - Custom hash based on variable</option>
+                            </select>
+                            <span class="help-text">Choose how requests are distributed across backend servers</span>
+                        </div>
+
+                        <div class="form-group" id="hash_key_group" style="display: none;">
+                            <label for="hash_key">Hash Key</label>
+                            <input type="text" id="hash_key" placeholder="$request_uri" value="$request_uri">
+                            <span class="help-text">Variable to hash (e.g., $request_uri, $arg_sessionid)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-header">
+                        <h2>🖥️ Backend Servers</h2>
+                        <p>Manage your backend server pool</p>
+                    </div>
+                    <div class="section-body">
+                        <div id="backends-list" class="backends-list">
+                            <!-- Backend servers will be loaded here -->
+                        </div>
+
+                        <button class="btn-secondary" onclick="addBackend()" style="margin-top: 1rem; width: 100%;">
+                            <span>➕</span>
+                            <span>Add Backend Server</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-header">
+                        <h2>💓 Health Checks</h2>
+                        <p>Monitor backend server health automatically</p>
+                    </div>
+                    <div class="section-body">
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="health_check_enabled">
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Enable Health Checks</span>
+                            </label>
+                            <span class="help-text">Automatically remove unhealthy servers from rotation</span>
+                        </div>
+
+                        <div id="health-check-settings" style="display: none;">
+                            <div class="form-group">
+                                <label for="health_check_interval">Check Interval (seconds)</label>
+                                <input type="number" id="health_check_interval" min="1" max="300" value="10">
+                                <span class="help-text">How often to check server health</span>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="health_check_path">Health Check Path</label>
+                                <input type="text" id="health_check_path" placeholder="/health" value="/health">
+                                <span class="help-text">URL path to check (should return 200 OK)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Access Control Tab -->
+            <div class="tab-content" id="access-tab">
+                <div class="section">
+                    <div class="section-header">
+                        <h2>🌍 GeoIP Blocking</h2>
+                        <p>Block or allow traffic from specific countries</p>
+                    </div>
+                    <div class="section-body">
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="enable_geoip_blocking">
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Enable GeoIP Blocking</span>
+                            </label>
+                            <span class="help-text">⚠️ Not yet implemented - coming soon!</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="blocked_countries">Blocked Countries (ISO codes)</label>
+                            <textarea id="blocked_countries" rows="3" placeholder="CN, RU, KP (comma-separated)"></textarea>
+                            <span class="help-text">Block traffic from these countries (ISO 3166-1 alpha-2 codes)</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="allowed_countries">Allowed Countries (Whitelist Mode)</label>
+                            <textarea id="allowed_countries" rows="3" placeholder="US, CA, GB (comma-separated)"></textarea>
+                            <span class="help-text">If set, ONLY allow these countries (overrides blocked list)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-header">
+                        <h2>🔑 IP Whitelist</h2>
+                        <p>Restrict access to specific IP addresses</p>
+                    </div>
+                    <div class="section-body">
+                        <div class="form-group">
+                            <label for="ip_whitelist">Allowed IPs/CIDRs</label>
+                            <textarea id="ip_whitelist" rows="4" placeholder="192.168.1.0/24&#10;10.0.0.5&#10;203.0.113.42"></textarea>
+                            <span class="help-text">One IP or CIDR block per line. Leave empty to allow all.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-header">
+                        <h2>🔐 Basic Authentication</h2>
+                        <p>Require username/password to access site</p>
+                    </div>
+                    <div class="section-body">
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="enable_basic_auth">
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Enable Basic Auth</span>
+                            </label>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="auth_username">Username</label>
+                            <input type="text" id="auth_username" placeholder="admin">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="auth_password">Password</label>
+                            <input type="password" id="auth_password" placeholder="Enter password">
+                            <span class="help-text">Leave empty to keep existing password</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Advanced Tab -->
+            <div class="tab-content" id="advanced-tab">
+                <div class="section">
+                    <div class="section-header">
+                        <h2>🔧 Headers</h2>
+                        <p>Add custom headers to responses</p>
+                    </div>
+                    <div class="section-body">
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="enable_waf_headers" checked>
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Enable WAF Headers</span>
+                            </label>
+                            <span class="help-text">Add X-Protected-By, X-Frame-Options, X-XSS-Protection headers</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="enable_telemetry" checked>
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Enable Telemetry Headers</span>
+                            </label>
+                            <span class="help-text">Add X-Request-ID, X-Response-Time, X-Backend-Server headers</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="custom_headers">Custom Headers</label>
+                            <textarea id="custom_headers" rows="5" placeholder="X-Custom-Header 'value'&#10;X-Another-Header 'another value'"></textarea>
+                            <span class="help-text">One header per line. Format: Header-Name 'value'</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-header">
+                        <h2>⚙️ Custom Configuration</h2>
+                        <p>Advanced NGINX configuration (experts only)</p>
+                    </div>
+                    <div class="section-body">
+                        <div class="form-group">
+                            <label for="custom_config">Custom NGINX Directives</label>
+                            <textarea id="custom_config" rows="8" placeholder="# Add custom NGINX configuration here&#10;# Example:&#10;# client_max_body_size 100m;&#10;# proxy_connect_timeout 120s;"></textarea>
+                            <span class="help-text">⚠️ Advanced feature - invalid config will break the site</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-header">
+                        <h2>📄 Custom Error Pages</h2>
+                        <p>Customize HTML for error responses</p>
+                    </div>
+                    <div class="section-body">
+                        <div class="form-group">
+                            <label for="error_page_404">404 Not Found Page</label>
+                            <textarea id="error_page_404" rows="4" placeholder="&lt;h1&gt;Page Not Found&lt;/h1&gt;&#10;&lt;p&gt;The requested page could not be found.&lt;/p&gt;"></textarea>
+                            <span class="help-text">Custom HTML for 404 errors (leave empty for default)</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="error_page_403">403 Forbidden Page</label>
+                            <textarea id="error_page_403" rows="4" placeholder="&lt;h1&gt;Access Forbidden&lt;/h1&gt;&#10;&lt;p&gt;You don't have permission to access this resource.&lt;/p&gt;"></textarea>
+                            <span class="help-text">Custom HTML for 403 errors (WAF blocks, IP blocks)</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="error_page_429">429 Rate Limited Page</label>
+                            <textarea id="error_page_429" rows="4" placeholder="&lt;h1&gt;Too Many Requests&lt;/h1&gt;&#10;&lt;p&gt;Please slow down and try again later.&lt;/p&gt;"></textarea>
+                            <span class="help-text">Custom HTML for 429 rate limit errors</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="error_page_500">500 Server Error Page</label>
+                            <textarea id="error_page_500" rows="4" placeholder="&lt;h1&gt;Server Error&lt;/h1&gt;&#10;&lt;p&gt;Something went wrong. Please try again later.&lt;/p&gt;"></textarea>
+                            <span class="help-text">Custom HTML for 500 backend errors</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-header">
+                        <h2>🔒 Security.txt</h2>
+                        <p>Security contact and disclosure policy</p>
+                    </div>
+                    <div class="section-body">
+                        <div class="form-group">
+                            <label for="security_txt">Security.txt Content</label>
+                            <textarea id="security_txt" rows="8" placeholder="Contact: security@example.com&#10;Expires: 2025-12-31T23:59:59.000Z&#10;Preferred-Languages: en&#10;Policy: https://example.com/security-policy"></textarea>
+                            <span class="help-text">Served at /.well-known/security.txt (RFC 9116 format)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <script src="toast.js"></script>
+    <script src="site-editor.js"></script>
+</body>
+</html>

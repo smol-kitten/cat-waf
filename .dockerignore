@@ -1,0 +1,30 @@
+# Build-time exclusions
+.git/
+.github/
+_git/
+*.md
+!*/README.md
+
+# Runtime data (should use volumes)
+logs/
+data/
+certs/
+backups/
+
+# Development files
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Documentation and scripts (not needed in images)
+scripts/
+goaccess/reports/
+TODO.md
+CHANGELOG.md

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CatWAF - Redirecting...</title>
+    <script>
+        // Check if user is authenticated
+        const apiToken = localStorage.getItem('api_token');
+        
+        if (apiToken) {
+            // Verify token and redirect to dashboard
+            const headers = new Headers();
+            headers.append('Authorization', 'Bearer ' + apiToken);
+            
+            fetch('/api/stats', {
+                method: 'GET',
+                headers: headers
+            })
+            .then(response => {
+                if (response.ok) {
+                    window.location.href = '/dashboard.html';
+                } else {
+                    // Invalid token, clear and redirect to login
+                    localStorage.removeItem('api_token');
+                    window.location.href = '/login.html';
+                }
+            })
+            .catch(() => {
+                // API error, redirect to login
+                window.location.href = '/login.html';
+            });
+        } else {
+            // No token, redirect to login
+            window.location.href = '/login.html';
+        }
+    </script>
+</head>
+<body>
+    <p>Redirecting...</p>
+</body>
+</html>

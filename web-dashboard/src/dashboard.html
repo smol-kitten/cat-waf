@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CatWAF 🐱 - Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐱</text></svg>">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <span class="logo-icon">🐱</span>
+                    <span class="logo-text">CatWAF</span>
+                </div>
+                <div class="logo-subtitle">Purr-otecting your sites</div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-page="overview">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-text">Overview</span>
+                </a>
+                <a href="#" class="nav-item" data-page="sites">
+                    <span class="nav-icon">🌐</span>
+                    <span class="nav-text">Sites</span>
+                </a>
+                <a href="#" class="nav-item" data-page="site-editor" style="display: none;">
+                    <span class="nav-icon">✏️</span>
+                    <span class="nav-text">Edit Site</span>
+                </a>
+                <a href="#" class="nav-item" data-page="bans">
+                    <span class="nav-icon">🚫</span>
+                    <span class="nav-text">Bans</span>
+                </a>
+                <a href="#" class="nav-item" data-page="security">
+                    <span class="nav-icon">🛡️</span>
+                    <span class="nav-text">Security Events</span>
+                </a>
+                <a href="#" class="nav-item" data-page="modsecurity">
+                    <span class="nav-icon">🔒</span>
+                    <span class="nav-text">ModSecurity</span>
+                </a>
+                <a href="#" class="nav-item" data-page="bots">
+                    <span class="nav-icon">🤖</span>
+                    <span class="nav-text">Bot Protection</span>
+                </a>
+                <a href="#" class="nav-item" data-page="telemetry">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-text">Telemetry</span>
+                </a>
+                <a href="#" class="nav-item" data-page="cache">
+                    <span class="nav-icon">💾</span>
+                    <span class="nav-text">Cache</span>
+                </a>
+                <a href="#" class="nav-item" data-page="logs">
+                    <span class="nav-icon">📝</span>
+                    <span class="nav-text">Logs</span>
+                </a>
+                <a href="#" class="nav-item" data-page="settings">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-text">Settings</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="cat-status">
+                    <div class="cat-text">All systems purring!</div>
+                    <div class="version-text" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; text-align: center;">
+                        v1.0.0 | 89% Complete
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="header">
+                <div class="header-left">
+                    <h1 class="page-title">Dashboard</h1>
+                    <div class="breadcrumbs">
+                        <span class="breadcrumb">Home</span>
+                        <span class="breadcrumb-separator">/</span>
+                        <span class="breadcrumb active">Overview</span>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <button class="header-btn" id="refreshBtn">
+                        <span>🔄</span>
+                        <span>Refresh</span>
+                    </button>
+                    <div class="api-status" id="apiStatus">
+                        <span class="status-dot"></span>
+                        <span class="status-text">Connected</span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Content Area -->
+            <div class="content" id="mainContent">
+                <!-- Overview Page (default) -->
+                <div class="page active" id="overview-page">
+                    <!-- Stats Cards -->
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">📊</span>
+                                <span class="stat-label">Total Requests</span>
+                            </div>
+                            <div class="stat-value" id="totalRequests">Loading...</div>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">🚫</span>
+                                <span class="stat-label">Blocked</span>
+                            </div>
+                            <div class="stat-value" id="blockedRequests">Loading...</div>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">👥</span>
+                                <span class="stat-label">Unique IPs</span>
+                            </div>
+                            <div class="stat-value" id="uniqueIps">Loading...</div>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">🔒</span>
+                                <span class="stat-label">Active Bans</span>
+                            </div>
+                            <div class="stat-value" id="activeBans">Loading...</div>
+                        </div>
+                    </div>
+
+                    <!-- Charts Row -->
+                    <div class="charts-row">
+                        <div class="chart-card">
+                            <div class="chart-header">
+                                <h3>Traffic Over Time</h3>
+                                <select class="time-range" id="timeRange">
+                                    <option value="1h">Last Hour</option>
+                                    <option value="24h" selected>Last 24 Hours</option>
+                                    <option value="7d">Last 7 Days</option>
+                                    <option value="30d">Last 30 Days</option>
+                                </select>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="trafficChart"></canvas>
+                            </div>
+                        </div>
+
+                        <div class="chart-card">
+                            <div class="chart-header">
+                                <h3>Request Status Distribution</h3>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="statusChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Activity -->
+                    <div class="activity-section">
+                        <div class="section-header">
+                            <h3>Recent Security Events</h3>
+                            <button class="btn-secondary" onclick="showPage('security')">View All</button>
+                        </div>
+                        <div class="activity-list" id="recentEvents">
+                            <div class="activity-item loading">Loading events...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sites Page -->
+                <div class="page" id="sites-page">
+                    <div class="page-header">
+                        <h2>Managed Sites</h2>
+                        <div style="display: flex; gap: 0.75rem;">
+                            <button class="btn-secondary" onclick="regenerateAllConfigs()" title="Regenerate all NGINX configurations">
+                                <span>🔄</span>
+                                <span>Regenerate All Configs</span>
+                            </button>
+                            <button class="btn-primary" onclick="showAddSiteModal()">
+                                <span>➕</span>
+                                <span>Add Site</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="sites-grid" id="sitesGrid">
+                        <div class="loading-spinner">Loading sites...</div>
+                    </div>
+                </div>
+
+                <!-- Bans Page -->
+                <div class="page" id="bans-page">
+                    <div class="page-header">
+                        <h2>IP Bans</h2>
+                        <button class="btn-primary" onclick="showBanModal()">
+                            <span>🚫</span>
+                            <span>Ban IP</span>
+                        </button>
+                    </div>
+                    <div class="filter-bar">
+                        <select class="filter-select" id="banFilter" onchange="loadBans()">
+                            <option value="active">Active Bans</option>
+                            <option value="permanent">Permanent Bans</option>
+                            <option value="expired">Expired Bans</option>
+                        </select>
+                    </div>
+                    <div class="table-container" id="bansTable">
+                        <div class="loading-spinner">Loading bans...</div>
+                    </div>
+                </div>
+
+                <!-- Security Page -->
+                <div class="page" id="security-page">
+                    <div class="page-header">
+                        <h2>Security Events</h2>
+                    </div>
+
+                    <!-- Combined Security Summary -->
+                    <div class="security-summary-card">
+                        <h3>🛡️ Security Overview (Last 24 Hours)</h3>
+                        <div class="security-summary-grid">
+                            <div class="security-metric">
+                                <div class="security-metric-value" id="summary-modsec-blocks">-</div>
+                                <div class="security-metric-label">ModSecurity Blocks</div>
+                            </div>
+                            <div class="security-metric">
+                                <div class="security-metric-value" id="summary-bot-blocks">-</div>
+                                <div class="security-metric-label">Bot Blocks</div>
+                            </div>
+                            <div class="security-metric">
+                                <div class="security-metric-value" id="summary-active-bans">-</div>
+                                <div class="security-metric-label">Active IP Bans</div>
+                            </div>
+                            <div class="security-metric">
+                                <div class="security-metric-value" id="summary-auto-bans">-</div>
+                                <div class="security-metric-label">Auto-Bans Today</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Auto-Ban Settings -->
+                        <div class="auto-ban-settings">
+                            <div class="toggle-container">
+                                <label class="toggle">
+                                    <input type="checkbox" id="enableAutoBan" onchange="updateAutoBanSettings()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <span style="margin-left: 0.5rem; font-weight: 600;">Enable Auto-Ban (≥5 blocks in 5 min)</span>
+                            </div>
+                            <div class="toggle-container">
+                                <label class="toggle">
+                                    <input type="checkbox" id="excludeCloudflare" onchange="updateAutoBanSettings()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <span style="margin-left: 0.5rem; font-weight: 600;">Exclude Cloudflare IPs</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="filter-bar">
+                        <select class="filter-select" id="severityFilter" onchange="loadSecurityEvents()">
+                            <option value="">All Severities</option>
+                            <option value="CRITICAL">Critical</option>
+                            <option value="WARNING">Warning</option>
+                            <option value="NOTICE">Notice</option>
+                        </select>
+                    </div>
+                    <div class="events-list" id="securityEvents">
+                        <div class="loading-spinner">Loading events...</div>
+                    </div>
+                </div>
+
+                <!-- Analytics Page -->
+                <div class="page" id="analytics-page">
+                    <div class="page-header">
+                        <h2>Analytics & Insights</h2>
+                    </div>
+                    <div class="analytics-grid">
+                        <div class="analytics-card">
+                            <h3>Top Domains</h3>
+                            <div id="topDomains" class="list-container">Loading...</div>
+                        </div>
+                        <div class="analytics-card">
+                            <h3>Top IPs</h3>
+                            <div id="topIps" class="list-container">Loading...</div>
+                        </div>
+                        <div class="analytics-card">
+                            <h3>Geographic Distribution</h3>
+                            <div id="geoDistribution" class="list-container">Loading...</div>
+                        </div>
+                        <div class="analytics-card">
+                            <h3>Attack Types</h3>
+                            <div id="attackTypes" class="list-container">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Logs Page -->
+                <div class="page" id="logs-page">
+                    <div class="page-header">
+                        <h2>System Logs</h2>
+                    </div>
+                    <div class="filter-bar">
+                        <select class="filter-select" id="logType" onchange="loadLogs()">
+                            <option value="access">Access Logs</option>
+                            <option value="modsec">ModSecurity Logs</option>
+                            <option value="error">Error Logs</option>
+                        </select>
+                        <input type="number" class="filter-input" id="logLimit" value="100" min="10" max="1000" onchange="loadLogs()">
+                        <button class="btn-secondary" onclick="loadLogs()">Refresh</button>
+                    </div>
+                    <div class="logs-container" id="logsContainer">
+                        <div class="loading-spinner">Loading logs...</div>
+                    </div>
+                </div>
+
+                <!-- Cache Management Page -->
+                <div class="page" id="cache-page">
+                    <div class="page-header">
+                        <h2>💾 Cache Management</h2>
+                        <div class="header-actions">
+                            <button class="btn-danger" onclick="purgeAllCache()">🗑️ Purge All Cache</button>
+                            <button class="btn-secondary" onclick="loadCacheStats()">🔄 Refresh</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Cache Stats -->
+                    <div class="stats-grid" style="margin-bottom: 2rem;">
+                        <div class="stat-card">
+                            <div class="stat-label">Total Cached Items</div>
+                            <div class="stat-value" id="cacheTotalItems">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Cache Size</div>
+                            <div class="stat-value" id="cacheTotalSize">0 MB</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Hit Rate</div>
+                            <div class="stat-value" id="cacheHitRate">0%</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Miss Rate</div>
+                            <div class="stat-value" id="cacheMissRate">0%</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Purge by Pattern -->
+                    <div class="settings-card" style="margin-bottom: 2rem;">
+                        <h3>Purge Cache by Pattern</h3>
+                        <div class="setting-item">
+                            <label>URL Pattern (wildcard * supported)</label>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <input type="text" id="cachePattern" class="setting-input" placeholder="/api/*, *.jpg, /static/*" style="margin-bottom: 0;">
+                                <button class="btn-primary" onclick="purgeCachePattern()">Purge Pattern</button>
+                            </div>
+                            <small style="color: #666; margin-top: 0.5rem; display: block;">
+                                Examples: /api/* (all API), *.jpg (all JPG images), /static/* (all static files)
+                            </small>
+                        </div>
+                    </div>
+                    
+                    <!-- Cache Items Table -->
+                    <div class="settings-card">
+                        <h3>Cached Items</h3>
+                        <div class="filter-bar" style="margin-bottom: 1rem;">
+                            <input type="text" id="cacheSearchFilter" class="filter-input" placeholder="Search by URL..." onkeyup="filterCacheItems()">
+                            <select class="filter-select" id="cacheSortBy" onchange="sortCacheItems()">
+                                <option value="time">Sort by Time</option>
+                                <option value="size">Sort by Size</option>
+                                <option value="hits">Sort by Hits</option>
+                                <option value="url">Sort by URL</option>
+                            </select>
+                        </div>
+                        <div id="cacheItemsContainer">
+                            <p style="color: #666;">Loading cache items...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Settings Page -->
+                <div class="page" id="settings-page">
+                    <div class="page-header">
+                        <h2>Settings</h2>
+                    </div>
+                    <div class="settings-grid">
+                        <div class="settings-card">
+                            <h3>🔐 API Configuration</h3>
+                            <div class="setting-item">
+                                <label>API Token</label>
+                                <input type="password" id="apiToken" class="setting-input" placeholder="Enter your API token">
+                                <button class="btn-secondary" onclick="saveApiToken()">Save Token</button>
+                            </div>
+                        </div>
+                        <div class="settings-card">
+                            <h3>⚙️ WAF Configuration</h3>
+                            <div id="wafSettings">
+                                <div class="setting-item">
+                                    <label>Default Rate Limit (req/s)</label>
+                                    <input type="number" id="setting-default_rate_limit" class="setting-input" value="10" min="1" max="1000">
+                                </div>
+                                <div class="setting-item">
+                                    <label>Default Ban Duration (seconds)</label>
+                                    <input type="number" id="setting-ban_duration" class="setting-input" value="3600" min="60">
+                                </div>
+                                <div class="setting-item">
+                                    <label>ModSecurity Paranoia Level</label>
+                                    <select id="setting-paranoia_level" class="setting-input">
+                                        <option value="1">Level 1 (Recommended)</option>
+                                        <option value="2">Level 2 (Moderate)</option>
+                                        <option value="3">Level 3 (Strict)</option>
+                                        <option value="4">Level 4 (Very Strict)</option>
+                                    </select>
+                                </div>
+                                <button class="btn-primary" onclick="saveWafSettings()">Save WAF Settings</button>
+                            </div>
+                        </div>
+                        <div class="settings-card">
+                            <h3>📧 Email Notifications</h3>
+                            <div class="setting-item">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="setting-email_enabled">
+                                    <span>Enable Email Alerts</span>
+                                </label>
+                            </div>
+                            <div class="setting-item">
+                                <label>SMTP Server</label>
+                                <input type="text" id="setting-smtp_server" class="setting-input" placeholder="smtp.gmail.com">
+                            </div>
+                            <div class="setting-item">
+                                <label>SMTP Port</label>
+                                <input type="number" id="setting-smtp_port" class="setting-input" placeholder="587" value="587">
+                            </div>
+                            <div class="setting-item">
+                                <label>SMTP Username</label>
+                                <input type="text" id="setting-smtp_user" class="setting-input" placeholder="alerts@example.com">
+                            </div>
+                            <div class="setting-item">
+                                <label>SMTP Password</label>
+                                <input type="password" id="setting-smtp_pass" class="setting-input">
+                            </div>
+                            <div class="setting-item">
+                                <label>Alert Recipients (comma-separated)</label>
+                                <input type="text" id="setting-alert_recipients" class="setting-input" placeholder="admin@example.com, security@example.com">
+                            </div>
+                            <div class="setting-item">
+                                <label>Alert Threshold (attacks/hour)</label>
+                                <input type="number" id="setting-alert_threshold" class="setting-input" value="10" min="1">
+                            </div>
+                            <button class="btn-primary" onclick="saveEmailSettings()">Save Email Settings</button>
+                        </div>
+                        
+                        <div class="settings-card">
+                            <h3>🔐 SSL/TLS Certificates (Let's Encrypt)</h3>
+                            <div class="setting-item">
+                                <label>ACME Email Address</label>
+                                <input type="email" id="setting-acme_email" class="setting-input" placeholder="admin@example.com">
+                                <small style="color: #666; margin-top: 0.5rem; display: block;">Used for certificate expiry notifications</small>
+                            </div>
+                            <div class="setting-item">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="setting-acme_auto_renew" checked>
+                                    <span>Enable Auto-Renewal (recommended)</span>
+                                </label>
+                            </div>
+                            <div class="setting-item">
+                                <label>ACME Server</label>
+                                <select id="setting-acme_server" class="setting-input">
+                                    <option value="https://acme-v02.api.letsencrypt.org/directory">Let's Encrypt (Production)</option>
+                                    <option value="https://acme-staging-v02.api.letsencrypt.org/directory">Let's Encrypt (Staging)</option>
+                                </select>
+                            </div>
+                            <button class="btn-primary" onclick="saveAcmeSettings()">Save Certificate Settings</button>
+                            
+                            <hr style="margin: 2rem 0; border: none; border-top: 1px solid #e0e0e0;">
+                            
+                            <h4 style="margin-bottom: 1rem;">Certificate Status</h4>
+                            <div id="certStatusContainer">
+                                <p style="color: #666;">Loading certificate information...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ModSecurity Page -->
+                <div class="page" id="modsecurity-page">
+                    <div class="page-header">
+                        <h2>🔒 ModSecurity WAF</h2>
+                        <div class="status-badge" id="modsecStatus">
+                            <span class="status-dot active"></span>
+                            <span>Active</span>
+                        </div>
+                    </div>
+
+                    <!-- ModSecurity Stats -->
+                    <div class="stats-grid" style="margin-bottom: 30px;">
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">🛡️</span>
+                                <span class="stat-label">Rules Loaded</span>
+                            </div>
+                            <div class="stat-value" id="modsecRulesCount">-</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">🚫</span>
+                                <span class="stat-label">Blocks Today</span>
+                            </div>
+                            <div class="stat-value danger" id="modsecBlocksToday">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">⚠️</span>
+                                <span class="stat-label">Warnings Today</span>
+                            </div>
+                            <div class="stat-value warning" id="modsecWarningsToday">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">📊</span>
+                                <span class="stat-label">Paranoia Level</span>
+                            </div>
+                            <div class="stat-value" id="modsecParanoia">1</div>
+                        </div>
+                    </div>
+
+                    <!-- Top Triggered Rules -->
+                    <div class="chart-card" style="margin-bottom: 20px;">
+                        <div class="chart-header">
+                            <h3>Top Triggered Rules (Last 24h)</h3>
+                        </div>
+                        <div id="topModsecRules" class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Rule ID</th>
+                                        <th>Description</th>
+                                        <th>Severity</th>
+                                        <th>Triggers</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="topModsecRulesBody">
+                                    <tr><td colspan="4" style="text-align: center;">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Recent Events -->
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3>Recent Security Events</h3>
+                            <div class="filter-bar">
+                                <select class="filter-select" id="modsecSeverityFilter" onchange="loadModSecEvents()">
+                                    <option value="">All Severities</option>
+                                    <option value="CRITICAL">Critical</option>
+                                    <option value="WARNING">Warning</option>
+                                    <option value="NOTICE">Notice</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="modsecEvents" class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Time</th>
+                                        <th>Location</th>
+                                        <th>IP</th>
+                                        <th>Rule</th>
+                                        <th>Severity</th>
+                                        <th>Message</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="modsecEventsBody">
+                                    <tr><td colspan="7" style="text-align: center;">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bot Protection Page -->
+                <div class="page" id="bots-page">
+                    <div class="page-header">
+                        <h2>🤖 Bot Protection</h2>
+                    </div>
+
+                    <!-- Bot Stats -->
+                    <div class="stats-grid" style="margin-bottom: 30px;">
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">🤖</span>
+                                <span class="stat-label">Bots Detected</span>
+                            </div>
+                            <div class="stat-value" id="botsDetected">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">✅</span>
+                                <span class="stat-label">Good Bots</span>
+                            </div>
+                            <div class="stat-value success" id="goodBots">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">❌</span>
+                                <span class="stat-label">Bad Bots Blocked</span>
+                            </div>
+                            <div class="stat-value danger" id="badBots">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">📈</span>
+                                <span class="stat-label">Detection Rate</span>
+                            </div>
+                            <div class="stat-value" id="botDetectionRate">0%</div>
+                        </div>
+                    </div>
+
+                    <!-- Bot Detection Chart -->
+                    <div class="chart-card" style="margin-bottom: 20px;">
+                        <div class="chart-header">
+                            <h3>Bot Activity (Last 24h)</h3>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="botActivityChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Recent Bot Detections -->
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3>Recent Bot Detections</h3>
+                        </div>
+                        <div id="botDetections" class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Time</th>
+                                        <th>IP Address</th>
+                                        <th>User Agent</th>
+                                        <th>Bot Type</th>
+                                        <th>Confidence</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="botDetectionsBody">
+                                    <tr><td colspan="6" style="text-align: center;">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Telemetry Page -->
+                <div class="page" id="telemetry-page">
+                    <div class="page-header">
+                        <h2>📡 Performance Telemetry</h2>
+                    </div>
+
+                    <!-- Telemetry Stats -->
+                    <div class="stats-grid" style="margin-bottom: 30px;">
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">⚡</span>
+                                <span class="stat-label">Avg Response Time</span>
+                            </div>
+                            <div class="stat-value" id="avgResponseTime">0ms</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">📊</span>
+                                <span class="stat-label">Requests/min</span>
+                            </div>
+                            <div class="stat-value" id="requestsPerMinute">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">💾</span>
+                                <span class="stat-label">Cache Hit Rate</span>
+                            </div>
+                            <div class="stat-value success" id="cacheHitRate">0%</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">🎯</span>
+                                <span class="stat-label">Error Rate</span>
+                            </div>
+                            <div class="stat-value" id="errorRate">0%</div>
+                        </div>
+                    </div>
+
+                    <!-- Response Time Chart -->
+                    <div class="chart-card" style="margin-bottom: 20px;">
+                        <div class="chart-header">
+                            <h3>Response Time Distribution</h3>
+                            <select class="time-range" id="telemetryTimeRange" onchange="loadTelemetry()">
+                                <option value="1h">Last Hour</option>
+                                <option value="24h" selected>Last 24 Hours</option>
+                                <option value="7d">Last 7 Days</option>
+                            </select>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="responseTimeChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Slowest Endpoints -->
+                    <div class="chart-card" style="margin-bottom: 20px;">
+                        <div class="chart-header">
+                            <h3>Slowest Endpoints</h3>
+                        </div>
+                        <div id="slowestEndpoints" class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Path</th>
+                                        <th>Avg Response</th>
+                                        <th>P95</th>
+                                        <th>P99</th>
+                                        <th>Requests</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="slowestEndpointsBody">
+                                    <tr><td colspan="5" style="text-align: center;">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Backend Performance -->
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3>Backend Server Performance</h3>
+                        </div>
+                        <div id="backendPerformance" class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Backend Server</th>
+                                        <th>Requests</th>
+                                        <th>Avg Response</th>
+                                        <th>Errors</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="backendPerformanceBody">
+                                    <tr><td colspan="5" style="text-align: center;">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Site Editor Page -->
+                <div class="page" id="site-editor-page">
+                    <div class="editor-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                        <div>
+                            <h2 id="editorSiteTitle" style="margin: 0;">Edit Site</h2>
+                            <p id="editorSiteDomain" style="color: var(--text-muted); margin: 0.5rem 0 0 0;"></p>
+                        </div>
+                        <div style="display: flex; gap: 1rem; align-items: center;">
+                            <div id="autoSaveStatus" style="display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); font-size: 0.875rem;">
+                                <span id="autoSaveIcon">💾</span>
+                                <span id="autoSaveText">Auto-save enabled</span>
+                            </div>
+                            <button class="btn-secondary" onclick="navigateToPage('sites')">
+                                <span>←</span>
+                                <span>Back to Sites</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Editor Tabs -->
+                    <div class="tabs-container" style="margin-bottom: 2rem;">
+                        <div class="tabs">
+                            <button class="tab-btn active" data-editor-tab="general">General</button>
+                            <button class="tab-btn" data-editor-tab="security">Security</button>
+                            <button class="tab-btn" data-editor-tab="performance">Performance</button>
+                            <button class="tab-btn" data-editor-tab="backends">Backends</button>
+                            <button class="tab-btn" data-editor-tab="ssl">SSL/TLS</button>
+                            <button class="tab-btn" data-editor-tab="access">Access Control</button>
+                            <button class="tab-btn" data-editor-tab="advanced">Advanced</button>
+                        </div>
+                    </div>
+
+                    <!-- Editor Content -->
+                    <div id="editorContent"></div>
+                </div>
+
+                <!-- Add Site Page -->
+                <div class="page" id="add-site-page">
+                    <div class="editor-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                        <div>
+                            <h2 id="addSiteTitle" style="margin: 0;">Add New Site</h2>
+                            <p style="color: var(--text-muted); margin: 0.5rem 0 0 0;">Configure a new protected site</p>
+                        </div>
+                        <div style="display: flex; gap: 1rem;">
+                            <button class="btn-secondary" onclick="navigateToPage('sites')">
+                                <span>←</span>
+                                <span>Back to Sites</span>
+                            </button>
+                            <button class="btn-primary" onclick="saveNewSite()">
+                                <span>💾</span>
+                                <span>Add Site</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Add Site Tabs -->
+                    <div class="tabs-container" style="margin-bottom: 2rem;">
+                        <div class="tabs">
+                            <button class="tab-btn active" data-add-tab="general">General</button>
+                            <button class="tab-btn" data-add-tab="security">Security</button>
+                            <button class="tab-btn" data-add-tab="ssl">SSL/TLS</button>
+                        </div>
+                    </div>
+
+                    <!-- Add Site Content -->
+                    <div id="addSiteContent"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div class="modal" id="addSiteModal">
+        <div class="modal-content" style="max-width: 700px; max-height: 90vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h3>Add New Site</h3>
+                <button class="modal-close" onclick="closeModal('addSiteModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Domain *</label>
+                    <input type="text" id="siteDomain" placeholder="example.com" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label>Backend URL *</label>
+                    <input type="text" id="siteBackend" placeholder="http://10.0.0.100:8080" class="form-input">
+                    <small style="color: var(--text-muted);">Primary backend server</small>
+                </div>
+                
+                <hr style="border-color: var(--border-color); margin: 1.5rem 0;">
+                <h4 style="color: var(--primary-color); margin-bottom: 1rem;">🔒 Security Settings</h4>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="siteSSL" checked>
+                        <span>Enable SSL/TLS</span>
+                    </label>
+                </div>
+                
+                <div class="form-group" id="sslChallengeTypeGroup">
+                    <label>SSL Certificate Type</label>
+                    <select id="sslChallengeType" class="form-input">
+                        <option value="http-01">Let's Encrypt (HTTP Challenge)</option>
+                        <option value="dns-01">Let's Encrypt (DNS Challenge)</option>
+                        <option value="snakeoil">Self-Signed (Snakeoil)</option>
+                        <option value="custom">Custom Certificate</option>
+                    </select>
+                    <small style="color: var(--text-muted); display: block; margin-top: 0.25rem;">
+                        Snakeoil: Quick start with self-signed cert (not for production)
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="siteModSec" checked>
+                        <span>Enable ModSecurity WAF</span>
+                    </label>
+                </div>
+                
+                <div class="form-group">
+                    <label>Rate Limit</label>
+                    <select id="siteRateLimit" class="form-input" onchange="toggleCustomRateLimit()">
+                        <option value="general">General (10 req/s)</option>
+                        <option value="strict">Strict (5 req/s)</option>
+                        <option value="api">API (20 req/s)</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                </div>
+                
+                <div class="form-group" id="customRateLimitGroup" style="display: none;">
+                    <label>Custom Rate Limit (req/s)</label>
+                    <input type="number" id="siteCustomRateLimit" placeholder="15" class="form-input" min="1" max="1000">
+                </div>
+                
+                <hr style="border-color: var(--border-color); margin: 1.5rem 0;">
+                <h4 style="color: var(--primary-color); margin-bottom: 1rem;">🌍 GeoIP Blocking</h4>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="siteGeoIP" onchange="toggleGeoIPConfig()">
+                        <span>Enable GeoIP Blocking</span>
+                    </label>
+                </div>
+                
+                <div id="geoipConfigGroup" style="display: none;">
+                    <div class="form-group">
+                        <label>Blocked Countries (ISO codes, comma-separated)</label>
+                        <input type="text" id="siteBlockedCountries" placeholder="CN,RU,KP" class="form-input">
+                        <small style="color: var(--text-muted);">Leave empty to allow all</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Allowed Countries (optional, overrides blocked)</label>
+                        <input type="text" id="siteAllowedCountries" placeholder="US,GB,DE" class="form-input">
+                    </div>
+                </div>
+                
+                <hr style="border-color: var(--border-color); margin: 1.5rem 0;">
+                <h4 style="color: var(--primary-color); margin-bottom: 1rem;">🌍 GeoIP Blocking</h4>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="siteGeoIPEnabled">
+                        <span>Enable GeoIP Blocking</span>
+                    </label>
+                    <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">
+                        Block or allow access based on visitor's country
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Blocked Countries (ISO codes, comma-separated)</label>
+                    <input type="text" id="siteGeoBlockedCountries" placeholder="CN,RU,KP" class="form-input">
+                    <small style="color: var(--text-muted);">
+                        Common codes: CN (China), RU (Russia), KP (North Korea), IR (Iran), VN (Vietnam)
+                        <br>Full list: <a href="https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2" target="_blank" style="color: var(--primary-color);">ISO 3166-1 alpha-2</a>
+                    </small>
+                </div>
+                
+                <hr style="border-color: var(--border-color); margin: 1.5rem 0;">
+                <h4 style="color: var(--primary-color); margin-bottom: 1rem;">🛡️ Access Control</h4>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="siteBasicAuth" onchange="toggleBasicAuth()">
+                        <span>Enable Basic Authentication</span>
+                    </label>
+                </div>
+                
+                <div id="basicAuthGroup" style="display: none;">
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="siteAuthUser" placeholder="admin" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="siteAuthPass" placeholder="password" class="form-input">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>IP Whitelist (comma-separated, optional)</label>
+                    <input type="text" id="siteIPWhitelist" placeholder="192.168.1.0/24, 10.0.0.5" class="form-input">
+                    <small style="color: var(--text-muted);">Only these IPs can access if set</small>
+                </div>
+                
+                <hr style="border-color: var(--border-color); margin: 1.5rem 0;">
+                <h4 style="color: var(--primary-color); margin-bottom: 1rem;">⚡ Performance & Compression</h4>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="siteGzip" checked>
+                        <span>Enable Gzip Compression</span>
+                    </label>
+                </div>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="siteBrotli" checked>
+                        <span>Enable Brotli Compression</span>
+                    </label>
+                </div>
+                
+                <div class="form-group">
+                    <label>Compression Level (1-9)</label>
+                    <input type="number" id="siteCompressionLevel" placeholder="6" class="form-input" min="1" max="9" value="6">
+                    <small style="color: var(--text-muted);">Higher = better compression, more CPU</small>
+                </div>
+                
+                <hr style="border-color: var(--border-color); margin: 1.5rem 0;">
+                <h4 style="color: var(--primary-color); margin-bottom: 1rem;">💾 Caching</h4>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="siteCaching" checked>
+                        <span>Enable Caching</span>
+                    </label>
+                </div>
+                
+                <div class="form-group">
+                    <label>Cache Duration (seconds)</label>
+                    <input type="number" id="siteCacheDuration" placeholder="3600" class="form-input" min="60" value="3600">
+                    <small style="color: var(--text-muted);">How long to cache responses (default: 1 hour)</small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="siteCacheStatic" checked>
+                        <span>Cache Static Files (images, CSS, JS)</span>
+                    </label>
+                </div>
+                
+                <hr style="border-color: var(--border-color); margin: 1.5rem 0;">
+                <h4 style="color: var(--primary-color); margin-bottom: 1rem;">� JavaScript Challenge (DDoS Protection)</h4>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="siteChallengeEnabled">
+                        <span>Enable JavaScript Challenge</span>
+                    </label>
+                    <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">
+                        Requires visitors to solve a proof-of-work challenge before accessing the site. 
+                        Protects against DDoS attacks and automated scraping.
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Challenge Difficulty (12-24)</label>
+                    <input type="range" id="siteChallengeDifficulty" min="12" max="24" value="18" class="form-range">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.875rem; color: var(--text-muted); margin-top: 0.5rem;">
+                        <span>Easy (12)</span>
+                        <span id="challengeDifficultyValue">Medium (18)</span>
+                        <span>Hard (24)</span>
+                    </div>
+                    <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">
+                        Higher difficulty increases protection but may affect user experience. 
+                        Medium (18) takes ~1-3 seconds to solve on modern devices.
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Challenge Duration (hours)</label>
+                    <input type="number" id="siteChallengeDuration" placeholder="1" class="form-input" min="0.25" max="24" step="0.25" value="1">
+                    <small style="color: var(--text-muted);">How long a solved challenge remains valid (default: 1 hour)</small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="siteChallengeBypassCF" checked>
+                        <span>Bypass Challenge for Cloudflare IPs</span>
+                    </label>
+                    <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">
+                        Automatically bypass challenge for requests from Cloudflare's network (CF-Connecting-IP header)
+                    </small>
+                </div>
+                
+                <hr style="border-color: var(--border-color); margin: 1.5rem 0;">
+                <h4 style="color: var(--primary-color); margin-bottom: 1rem;">�🖼️ Image Optimization</h4>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="siteImageOpt" onchange="toggleImageOpt()">
+                        <span>Enable Image Optimization</span>
+                    </label>
+                    <small style="color: var(--text-muted); display: block; margin-top: 0.25rem;">Resize and compress images on-the-fly</small>
+                </div>
+                
+                <div id="imageOptGroup" style="display: none;">
+                    <div class="form-group">
+                        <label>JPEG Quality (1-100)</label>
+                        <input type="number" id="siteImageQuality" placeholder="85" class="form-input" min="1" max="100" value="85">
+                        <small style="color: var(--text-muted);">Lower = smaller files, lower quality</small>
+                    </div>
+                </div>
+                
+                <hr style="border-color: var(--border-color); margin: 1.5rem 0;">
+                <h4 style="color: var(--primary-color); margin-bottom: 1rem;">📡 Headers & Telemetry</h4>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="siteWAFHeaders" checked>
+                        <span>Add WAF Headers</span>
+                    </label>
+                    <small style="color: var(--text-muted); display: block; margin-top: 0.25rem;">X-Protected-By, X-WAF-Status, security headers</small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="siteTelemetry" checked>
+                        <span>Enable Telemetry</span>
+                    </label>
+                    <small style="color: var(--text-muted); display: block; margin-top: 0.25rem;">X-Request-ID, X-Response-Time, X-Backend-Server</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Custom Headers (one per line, format: "Header-Name value")</label>
+                    <textarea id="siteCustomHeaders" placeholder="X-Custom-Header custom-value&#10;X-Another-Header another-value" class="form-input" rows="3"></textarea>
+                    <small style="color: var(--text-muted);">Additional headers to add to responses</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal('addSiteModal')">Cancel</button>
+                <button class="btn-primary" onclick="addSite()">Add Site</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="banModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Ban IP Address</h3>
+                <button class="modal-close" onclick="closeModal('banModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>IP Address</label>
+                    <input type="text" id="banIp" placeholder="192.168.1.100" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label>Reason</label>
+                    <input type="text" id="banReason" placeholder="Manual ban - suspicious activity" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label>Duration (seconds)</label>
+                    <input type="number" id="banDuration" value="3600" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="banPermanent">
+                        <span>Permanent Ban</span>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal('banModal')">Cancel</button>
+                <button class="btn-primary" onclick="banIp()">Ban IP</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="toast.js?v=2"></script>
+    <script src="app.js?v=2"></script>
+</body>
+</html>

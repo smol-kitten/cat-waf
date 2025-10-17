@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verifying Your Browser - CatWAF</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --surface: #1e293b;
+            --primary: #8b5cf6;
+            --text: #e2e8f0;
+            --text-muted: #94a3b8;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            justify-center;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+        
+        .challenge-container {
+            background: var(--surface);
+            border-radius: 16px;
+            padding: 3rem;
+            max-width: 500px;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+        
+        .logo {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 1.5rem;
+            background: linear-gradient(135deg, var(--primary), #a78bfa);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        
+        h1 {
+            font-size: 1.75rem;
+            margin-bottom: 1rem;
+            color: var(--text);
+        }
+        
+        .status {
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+            font-size: 0.95rem;
+        }
+        
+        .progress-container {
+            background: rgba(139, 92, 246, 0.1);
+            border-radius: 8px;
+            height: 8px;
+            overflow: hidden;
+            margin-bottom: 1.5rem;
+        }
+        
+        .progress-bar {
+            background: linear-gradient(90deg, var(--primary), #a78bfa);
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s ease;
+            border-radius: 8px;
+        }
+        
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid rgba(139, 92, 246, 0.2);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1.5rem;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .info {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            margin-top: 2rem;
+        }
+        
+        .success {
+            color: #10b981;
+        }
+        
+        .error {
+            color: #ef4444;
+        }
+        
+        .redirect-message {
+            display: none;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1.5rem;
+            color: #10b981;
+        }
+        
+        .redirect-message.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="challenge-container">
+        <div class="logo">🐱</div>
+        <h1>Verifying Your Browser</h1>
+        <p class="status" id="status">Please wait while we check your browser...</p>
+        
+        <div class="spinner" id="spinner"></div>
+        
+        <div class="progress-container">
+            <div class="progress-bar" id="progress"></div>
+        </div>
+        
+        <div class="redirect-message" id="redirectMessage">
+            ✓ Verification complete! Redirecting...
+        </div>
+        
+        <div class="info">
+            This process is automatic. Your browser is being verified to protect against automated attacks.
+            <br><br>
+            <strong>Protected by CatWAF</strong>
+        </div>
+    </div>
+
+    <script>
+        // JavaScript Challenge Configuration
+        const CHALLENGE_CONFIG = {
+            difficulty: 18, // Number of leading zeros required in hash (higher = harder)
+            timeout: 30000, // 30 seconds max
+            redirectDelay: 2000 // Wait 2s before redirect
+        };
+
+        // Get challenge parameters from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const challengeId = urlParams.get('id') || generateChallengeId();
+        const targetUrl = urlParams.get('url') || '/';
+        const difficulty = parseInt(urlParams.get('difficulty')) || CHALLENGE_CONFIG.difficulty;
+
+        // Update status
+        const statusEl = document.getElementById('status');
+        const progressEl = document.getElementById('progress');
+        const spinnerEl = document.getElementById('spinner');
+        const redirectEl = document.getElementById('redirectMessage');
+
+        // Generate challenge ID if not provided
+        function generateChallengeId() {
+            return Array.from(crypto.getRandomValues(new Uint8Array(16)))
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
+        }
+
+        // SHA-256 hash function
+        async function sha256(message) {
+            const msgBuffer = new TextEncoder().encode(message);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        // Check if hash meets difficulty requirement
+        function meetsDifficulty(hash, difficulty) {
+            const leadingZeros = hash.match(/^0*/)[0].length;
+            return leadingZeros >= difficulty;
+        }
+
+        // Solve proof-of-work challenge
+        async function solveChallenge() {
+            const startTime = Date.now();
+            let nonce = 0;
+            let attempts = 0;
+            let lastUpdate = Date.now();
+
+            statusEl.textContent = `Computing proof-of-work (difficulty: ${difficulty})...`;
+
+            while (Date.now() - startTime < CHALLENGE_CONFIG.timeout) {
+                attempts++;
+                
+                // Update progress every 100ms
+                if (Date.now() - lastUpdate > 100) {
+                    const progress = Math.min(95, (Date.now() - startTime) / CHALLENGE_CONFIG.timeout * 100);
+                    progressEl.style.width = progress + '%';
+                    statusEl.textContent = `Computing proof-of-work... ${attempts.toLocaleString()} attempts`;
+                    lastUpdate = Date.now();
+                    
+                    // Yield to browser for UI updates
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
+                
+                // Try this nonce
+                const input = `${challengeId}:${nonce}`;
+                const hash = await sha256(input);
+                
+                if (meetsDifficulty(hash, difficulty)) {
+                    // Success!
+                    progressEl.style.width = '100%';
+                    spinnerEl.style.display = 'none';
+                    statusEl.innerHTML = `<span class="success">✓ Verification complete!</span>`;
+                    statusEl.innerHTML += `<br><small>Solved in ${((Date.now() - startTime) / 1000).toFixed(2)}s with ${attempts.toLocaleString()} attempts</small>`;
+                    
+                    // Send solution to server
+                    await submitSolution(challengeId, nonce, hash);
+                    return true;
+                }
+                
+                nonce++;
+            }
+            
+            // Timeout
+            statusEl.innerHTML = `<span class="error">⚠ Verification timeout. Please reload the page.</span>`;
+            return false;
+        }
+
+        // Submit solution to server
+        async function submitSolution(challengeId, nonce, hash) {
+            try {
+                const response = await fetch('/api/challenge/verify', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        challenge_id: challengeId,
+                        nonce: nonce,
+                        hash: hash
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    if (data.verified) {
+                        // Set the verification cookie
+                        document.cookie = `challenge_pass=${data.token}; path=/; max-age=${data.duration || 3600}; SameSite=Strict`;
+                        
+                        // Show redirect message
+                        redirectEl.classList.add('show');
+                        
+                        // Redirect after delay
+                        setTimeout(() => {
+                            window.location.href = decodeURIComponent(targetUrl);
+                        }, CHALLENGE_CONFIG.redirectDelay);
+                    } else {
+                        throw new Error('Verification failed');
+                    }
+                } else {
+                    throw new Error('Server error');
+                }
+            } catch (error) {
+                console.error('Submission error:', error);
+                statusEl.innerHTML = `<span class="error">⚠ Could not verify. Please reload the page.</span>`;
+            }
+        }
+
+        // Check if already verified (bypass for Cloudflare IPs, local testing, etc.)
+        async function checkBypass() {
+            try {
+                const response = await fetch('/api/challenge/check', {
+                    method: 'GET',
+                    headers: {
+                        'X-Challenge-ID': challengeId
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    if (data.bypass) {
+                        // Bypassed (CF-Connecting-IP, whitelist, etc.)
+                        statusEl.innerHTML = `<span class="success">✓ Access granted</span>`;
+                        spinnerEl.style.display = 'none';
+                        progressEl.style.width = '100%';
+                        redirectEl.classList.add('show');
+                        
+                        setTimeout(() => {
+                            window.location.href = decodeURIComponent(targetUrl);
+                        }, 1000);
+                        
+                        return true;
+                    }
+                }
+            } catch (error) {
+                // Continue with normal challenge
+            }
+            
+            return false;
+        }
+
+        // Start verification process
+        (async () => {
+            // Check for bypass first
+            const bypassed = await checkBypass();
+            
+            if (!bypassed) {
+                // Run challenge
+                await solveChallenge();
+            }
+        })();
+    </script>
+</body>
+</html>

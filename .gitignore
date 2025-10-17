@@ -1,0 +1,11 @@
+.env
+data/
+logs/
+certs/
+*.log
+.DS_Store
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
