@@ -46,6 +46,7 @@ services:
       - waf-fail2ban:/etc/fail2ban
       - waf-nginx-cache:/var/cache/nginx
       - fail2ban-socket:/var/run/fail2ban
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - waf-network
     restart: unless-stopped
@@ -209,6 +210,11 @@ services:
     environment:
       - ACME_SH_EMAIL=${ACME_EMAIL:-admin@example.com}
       - TZ=${TZ:-Europe/Berlin}
+      # Cloudflare credentials for DNS-01 challenge
+      # acme.sh expects CF_Token (API Token) or CF_Key + CF_Email (Global API Key)
+      - CF_Token=${CLOUDFLARE_API_TOKEN:-}
+      - CF_Key=${CF_API_KEY:-}
+      - CF_Email=${CF_EMAIL:-}
     command: daemon
     restart: unless-stopped
 
