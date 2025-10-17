@@ -494,6 +494,17 @@
                             
                             <hr style="margin: 2rem 0; border: none; border-top: 1px solid #e0e0e0;">
                             
+                            <h4 style="margin-bottom: 1rem;">Certificate Management</h4>
+                            <div style="margin-bottom: 1.5rem;">
+                                <button class="btn-primary" onclick="renewAllCertificates()" style="width: 100%; padding: 12px;">
+                                    <span style="font-size: 1.2rem;">🔄</span>
+                                    <span>Process All Certificates</span>
+                                </button>
+                                <p style="font-size: 0.85rem; color: #666; margin-top: 8px;">
+                                    Automatically renews existing certificates and issues new ones for domains without certificates. Works for all SSL-enabled sites (except snakeoil).
+                                </p>
+                            </div>
+                            
                             <h4 style="margin-bottom: 1rem;">Certificate Status</h4>
                             <div id="certStatusContainer">
                                 <p style="color: #666;">Loading certificate information...</p>

@@ -702,3 +702,97 @@ function showToast(type, message) {
         setTimeout(() => toast.remove(), 300);
     }, 5000);
 }
+
+// Certificate Status Check
+async function checkCertificateStatus() {
+    const domain = document.getElementById('domain').value;
+    if (!domain) {
+        showToast('error', 'Please enter a domain name first');
+        return;
+    }
+    
+    const statusDisplay = document.getElementById('certStatusDisplay');
+    statusDisplay.style.display = 'block';
+    statusDisplay.innerHTML = '<div style=\"font-size: 0.9rem; color: #666;\">⏳ Checking certificate status...</div>';
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/certificates/${domain}`, {
+            headers: {
+                'Authorization': `Bearer ${API_TOKEN}`
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.exists) {
+            const expiryClass = data.daysUntilExpiry < 30 ? 'color: #e74c3c;' : data.daysUntilExpiry < 60 ? 'color: #f39c12;' : 'color: #27ae60;';
+            statusDisplay.innerHTML = `
+                <div style="font-size: 0.9rem;">
+                    <div style="margin-bottom: 8px;"><strong>✅ Certificate Found</strong></div>
+                    <div style="color: #666; margin-bottom: 4px;"><strong>Issuer:</strong> ${data.issuer}</div>
+                    <div style="color: #666; margin-bottom: 4px;"><strong>Subject:</strong> ${data.subject}</div>
+                    <div style="color: #666; margin-bottom: 4px;"><strong>Valid From:</strong> ${data.validFrom}</div>
+                    <div style="color: #666; margin-bottom: 4px;"><strong>Expires:</strong> ${data.expiryDate}</div>
+                    <div style="${expiryClass} font-weight: bold;"><strong>Days Until Expiry:</strong> ${data.daysUntilExpiry} days</div>
+                </div>
+            `;
+        } else {
+            statusDisplay.innerHTML = `
+                <div style="font-size: 0.9rem; color: #e74c3c;">
+                    ❌ No certificate found for ${domain}. Click "Renew/Issue Certificate" to create one.
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('Error checking certificate:', error);
+        statusDisplay.innerHTML = `
+            <div style="font-size: 0.9rem; color: #e74c3c;">
+                ❌ Error: ${error.message}
+            </div>
+        `;
+    }
+}
+
+// Renew/Issue Certificate
+async function renewCertificate() {
+    const domain = document.getElementById('domain').value;
+    if (!domain) {
+        showToast('error', 'Please enter a domain name first');
+        return;
+    }
+    
+    const sslEnabled = document.getElementById('ssl_enabled').checked;
+    if (!sslEnabled) {
+        if (!confirm('SSL is not enabled for this site. Enable SSL and issue certificate?')) {
+            return;
+        }
+        document.getElementById('ssl_enabled').checked = true;
+        await saveSite(); // Save the change
+    }
+    
+    showToast('info', '🔄 Issuing/renewing certificate... This may take a minute.');
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/certificates/${domain}/renew`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${API_TOKEN}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast('success', data.message);
+            checkCertificateStatus(); // Refresh status
+        } else {
+            showToast('error', data.error || 'Failed to renew certificate');
+            console.error('Certificate renewal failed:', data);
+        }
+    } catch (error) {
+        console.error('Error renewing certificate:', error);
+        showToast('error', `Error: ${error.message}`);
+    }
+}
+

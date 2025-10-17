@@ -3,11 +3,12 @@
 header('Content-Type: application/json');
 
 // Get environment variables with defaults
+$cfToken = getenv('CLOUDFLARE_API_TOKEN') ?: getenv('CF_API_KEY') ?: '';
 $defaults = [
     'cloudflare' => [
-        'api_key' => getenv('CF_API_KEY') ?: '',
+        'api_key' => $cfToken,
         'email' => getenv('CF_EMAIL') ?: '',
-        'has_credentials' => !empty(getenv('CF_API_KEY'))
+        'has_credentials' => !empty($cfToken)
     ],
     'acme' => [
         'email' => getenv('ACME_EMAIL') ?: 'admin@example.com'

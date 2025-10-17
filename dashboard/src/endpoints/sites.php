@@ -239,6 +239,11 @@ function handleSites($method, $params, $db) {
                 sendResponse(['error' => 'No fields to update'], 400);
             }
             
+            // Get old site data for comparison BEFORE updating
+            $stmt = $db->prepare("SELECT ssl_enabled FROM sites WHERE id = ?");
+            $stmt->execute([$params[0]]);
+            $oldSite = $stmt->fetch();
+            
             $values[] = $params[0];
             $stmt = $db->prepare("UPDATE sites SET " . implode(', ', $fields) . " WHERE id = ?");
             $stmt->execute($values);
@@ -250,6 +255,16 @@ function handleSites($method, $params, $db) {
             
             if ($site) {
                 generateSiteConfig($params[0], $site);
+                
+                // Auto-issue certificate if SSL was just enabled
+                if (!empty($data['ssl_enabled']) && empty($oldSite['ssl_enabled'])) {
+                    triggerCertificateIssuance(
+                        $site['domain'],
+                        $site['ssl_challenge_type'] ?? 'http-01',
+                        $site['cf_api_token'] ?? null,
+                        $site['cf_zone_id'] ?? null
+                    );
+                }
             }
             
             sendResponse(['success' => true, 'message' => 'Site updated']);

@@ -28,6 +28,18 @@ $cfApiToken = getenv('CLOUDFLARE_API_TOKEN') ?: null;
 $cfApiKey = getenv('CLOUDFLARE_API_KEY') ?: null;
 $cfEmail = getenv('CLOUDFLARE_EMAIL') ?: null;
 
+// Trim whitespace from credentials
+if ($cfApiToken) {
+    $cfApiToken = trim($cfApiToken);
+    error_log("CF API Token length: " . strlen($cfApiToken));
+}
+if ($cfApiKey) {
+    $cfApiKey = trim($cfApiKey);
+}
+if ($cfEmail) {
+    $cfEmail = trim($cfEmail);
+}
+
 if (!$cfApiToken && (!$cfApiKey || !$cfEmail)) {
     http_response_code(400);
     echo json_encode([
@@ -166,10 +178,15 @@ function getCloudflareZoneId($domain, $apiToken, $apiKey, $email) {
     
     // Use API Token (preferred) or API Key + Email
     if ($apiToken) {
+        // Trim token and log details
+        $apiToken = trim($apiToken);
+        $tokenLength = strlen($apiToken);
+        error_log("CF: Using API Token for $domain (length: $tokenLength)");
         $headers[] = 'Authorization: Bearer ' . $apiToken;
     } else {
-        $headers[] = 'X-Auth-Key: ' . $apiKey;
-        $headers[] = 'X-Auth-Email: ' . $email;
+        error_log("CF: Using API Key + Email for $domain");
+        $headers[] = 'X-Auth-Key: ' . trim($apiKey);
+        $headers[] = 'X-Auth-Email: ' . trim($email);
     }
     
     $ch = curl_init($url);
@@ -179,19 +196,44 @@ function getCloudflareZoneId($domain, $apiToken, $apiKey, $email) {
     
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
     curl_close($ch);
     
+    if ($curlError) {
+        error_log("Cloudflare API curl error for $domain: $curlError");
+        return null;
+    }
+    
     if ($httpCode !== 200) {
-        error_log("Cloudflare API error for $domain: HTTP $httpCode");
+        // Parse error response for better logging
+        $errorData = json_decode($response, true);
+        $errorMsg = isset($errorData['errors']) ? json_encode($errorData['errors']) : $response;
+        error_log("Cloudflare API error for $domain: HTTP $httpCode - Error: $errorMsg");
         return null;
     }
     
     $data = json_decode($response, true);
     
-    if (!$data || !$data['success'] || empty($data['result'])) {
+    if (!$data) {
+        error_log("Cloudflare API invalid JSON for $domain: $response");
         return null;
     }
     
-    // Return the first zone ID (should be exact match due to name parameter)
-    return $data['result'][0]['id'] ?? null;
+    if (!isset($data['success']) || !$data['success']) {
+        $errors = isset($data['errors']) ? json_encode($data['errors']) : 'unknown error';
+        error_log("Cloudflare API request failed for $domain: $errors");
+        return null;
+    }
+    
+    if (empty($data['result'])) {
+        error_log("Cloudflare API no zones found for $domain (account may not contain this zone)");
+        return null;
+    }
+    
+    // Return the first zone ID (Cloudflare returns exact match with name parameter)
+    $zoneId = $data['result'][0]['id'] ?? null;
+    if ($zoneId) {
+        error_log("Cloudflare zone found for $domain: $zoneId");
+    }
+    return $zoneId;
 }

@@ -75,6 +75,38 @@ fi
 echo "${RULE_COUNT}" > /etc/nginx/sites-enabled/.modsec_stats
 echo "✅ Found ${RULE_COUNT} ModSecurity rules"
 
+# Generate missing certificates with snakeoil fallback
+echo "🔐 Checking for missing SSL certificates..."
+for conf_file in /etc/nginx/sites-enabled/*.conf; do
+    if [ -f "$conf_file" ]; then
+        # Extract domain from filename
+        domain=$(basename "$conf_file" .conf)
+        
+        # Skip if domain is _ or contains .local
+        if [ "$domain" = "_" ] || echo "$domain" | grep -q "\.local"; then
+            continue
+        fi
+        
+        # Check if certificate is referenced in config and missing
+        if grep -q "ssl_certificate.*$domain" "$conf_file"; then
+            cert_path="/etc/nginx/certs/$domain/fullchain.pem"
+            if [ ! -f "$cert_path" ]; then
+                echo "⚠️  Missing certificate for $domain, generating snakeoil..."
+                mkdir -p "/etc/nginx/certs/$domain"
+                openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+                    -keyout "/etc/nginx/certs/$domain/key.pem" \
+                    -out "/etc/nginx/certs/$domain/fullchain.pem" \
+                    -subj "/CN=$domain" 2>/dev/null
+                if [ $? -eq 0 ]; then
+                    echo "✅ Created snakeoil certificate for $domain"
+                else
+                    echo "❌ Failed to create certificate for $domain"
+                fi
+            fi
+        fi
+    fi
+done
+
 # Test NGINX configuration
 echo "🧪 Testing NGINX configuration..."
 nginx -t

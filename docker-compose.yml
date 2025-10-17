@@ -63,6 +63,36 @@ services:
       - waf-network
     restart: unless-stopped
 
+  migration-runner:
+    image: mariadb:latest
+    container_name: waf-migration-runner
+    command: >
+      sh -c '
+      echo "Waiting for MariaDB to be ready..." &&
+      sleep 5 &&
+      echo "Applying migrations..." &&
+      for migration in /migrations/*-migration-*.sql; do
+        if [ -f "$$migration" ]; then
+          echo "  → Applying: $$(basename $$migration)" &&
+          mariadb -h mariadb -u waf_user -p$$DB_PASSWORD waf_db < "$$migration" 2>&1 | grep -v "Warning: Using a password" || true
+        fi
+      done &&
+      echo "✅ Migrations completed!" &&
+      echo "Verifying schema..." &&
+      mariadb -h mariadb -u waf_user -p$$DB_PASSWORD waf_db -e "SELECT COUNT(*) as column_count FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = '"'"'waf_db'"'"' AND TABLE_NAME = '"'"'sites'"'"';" 2>&1 | grep -v "Warning" &&
+      echo "Schema verification complete!"
+      '
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD:-changeme}
+    volumes:
+      # Mount local migration files
+      - ./mariadb/init:/migrations:ro
+    networks:
+      - waf-network
+    depends_on:
+      - mariadb
+    restart: "no"
+
   dashboard:
     build:
       context: ./dashboard
@@ -77,12 +107,13 @@ services:
       - waf-fail2ban:/etc/fail2ban
       - waf-nginx-cache:/var/cache/nginx
       - ./fail2ban-socket:/var/run/fail2ban
-      #- /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - waf-network
     restart: unless-stopped
     depends_on:
       - mariadb
+      - migration-runner
     environment:
       TZ: ${TZ:-Europe/Berlin}
       DB_HOST: mariadb
@@ -110,6 +141,11 @@ services:
     environment:
       - ACME_SH_EMAIL=${ACME_EMAIL:-admin@example.com}
       - TZ=${TZ:-Europe/Berlin}
+      # Cloudflare credentials for DNS-01 challenge
+      # acme.sh expects CF_Token (API Token) or CF_Key + CF_Email (Global API Key)
+      - CF_Token=${CLOUDFLARE_API_TOKEN:-}
+      - CF_Key=${CF_API_KEY:-}
+      - CF_Email=${CF_EMAIL:-}
     command: daemon
     restart: unless-stopped
 

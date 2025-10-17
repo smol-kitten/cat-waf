@@ -6,7 +6,8 @@ RUN apk add --no-cache \
     supervisor \
     mysql-client \
     curl \
-    bash
+    bash \
+    docker-cli
 
 # Install PHP extensions
 RUN docker-php-ext-install pdo pdo_mysql mysqli

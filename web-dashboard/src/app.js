@@ -1155,6 +1155,57 @@ window.renewCertificate = async (domain) => {
     }
 };
 
+window.renewAllCertificates = async () => {
+    if (!confirm('Process ALL SSL certificates?\n\nThis will renew existing certificates and issue new ones for domains that don\'t have them yet.\n\nThis may take several minutes.\n\nContinue?')) {
+        return;
+    }
+    
+    showToast('Processing certificates for all sites...', 'info');
+    
+    try {
+        const response = await apiRequest('/certificates/renew-all', {
+            method: 'POST'
+        });
+        
+        if (response.success) {
+            // Count issued vs renewed
+            const issued = response.results.filter(r => r.status === 'success' && r.action === 'issued').length;
+            const renewed = response.results.filter(r => r.status === 'success' && r.action === 'renewed').length;
+            
+            let message = `Processed ${response.succeeded} certificates`;
+            if (issued > 0 && renewed > 0) {
+                message += ` (${issued} issued, ${renewed} renewed)`;
+            } else if (issued > 0) {
+                message += ` (${issued} issued)`;
+            } else if (renewed > 0) {
+                message += ` (${renewed} renewed)`;
+            }
+            if (response.failed > 0) {
+                message += `, ${response.failed} failed`;
+            }
+            
+            showToast(message, response.failed > 0 ? 'warning' : 'success');
+            
+            // Show detailed results
+            if (response.results && response.results.length > 0) {
+                console.log('Certificate processing results:', response.results);
+                const failedSites = response.results.filter(r => r.status === 'failed');
+                if (failedSites.length > 0) {
+                    console.error('Failed operations:', failedSites);
+                    setTimeout(() => {
+                        alert(`Failed to process:\n${failedSites.map(s => `- ${s.domain}: ${s.error || s.reason}`).join('\n')}`);
+                    }, 1000);
+                }
+            }
+            
+            loadCertificateStatus();
+        }
+    } catch (error) {
+        console.error('Error processing certificates:', error);
+        showToast(`Failed to process certificates: ${error.message}`, 'error');
+    }
+};
+
 window.revokeCertificate = async (domain) => {
     if (!confirm(`⚠️ DANGER: Revoke SSL certificate for ${domain}?\n\nThis action cannot be undone and will immediately disable HTTPS for this domain.`)) {
         return;
