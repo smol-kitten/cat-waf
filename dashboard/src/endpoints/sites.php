@@ -109,7 +109,7 @@ function handleSites($method, $params, $db) {
                 $data['compression_types'] ?? 'text/html text/css text/javascript application/json application/xml',
                 $data['enable_caching'] ?? 1,
                 $data['cache_duration'] ?? 3600,
-                $data['cache_static_files'] ?? 1,
+                $data['cache_static_files'] ?? 0,
                 $data['enable_image_optimization'] ?? 0,
                 $data['image_quality'] ?? 85,
                 $data['image_max_width'] ?? 1920,
@@ -544,14 +544,30 @@ function generateSiteConfig($siteId, $siteData) {
     $isDefaultCatchall = ($domain === '_');
     
     if ($isDefaultCatchall) {
-        // Minimal default server - just return 444 (close connection) for unknown hosts/IP access
+        // Default server for IP access and unknown hosts - show default_backend
         $config .= "server {\n";
         $config .= "    listen 80 default_server;\n";
         $config .= "    listen [::]:80 default_server;\n";
         $config .= "    server_name _;\n\n";
-        $config .= "    # Return 444 (close connection) for IP/unknown host access\n";
-        $config .= "    # This prevents invalid redirects to https://_/ or exposing backend\n";
-        $config .= "    return 444;\n";
+        $config .= "    # Check if IP is banned\n";
+        $config .= "    if (\$ban) {\n";
+        $config .= "        return 403;\n";
+        $config .= "    }\n\n";
+        $config .= "    # Rate limiting\n";
+        $config .= "    limit_req zone=general burst=20 nodelay;\n";
+        $config .= "    limit_conn addr 10;\n\n";
+        $config .= "    location / {\n";
+        $config .= "        proxy_pass http://default_backend;\n";
+        $config .= "        proxy_set_header Host \$host;\n";
+        $config .= "        proxy_set_header X-Real-IP \$remote_addr;\n";
+        $config .= "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;\n";
+        $config .= "        proxy_set_header X-Forwarded-Proto \$scheme;\n";
+        $config .= "    }\n\n";
+        $config .= "    # ACME challenge for Let's Encrypt\n";
+        $config .= "    location ^~ /.well-known/acme-challenge/ {\n";
+        $config .= "        root /var/www/certbot;\n";
+        $config .= "        default_type \"text/plain\";\n";
+        $config .= "    }\n";
         $config .= "}\n\n";
         
         // No HTTPS server for default catch-all
@@ -799,7 +815,7 @@ function generateSiteConfig($siteId, $siteData) {
 }
 
 function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_countries, $rate_limit, $custom_config,
-                               $enable_caching = true, $cache_duration = 3600, $cache_static = true,
+                               $enable_caching = true, $cache_duration = 3600, $cache_static = false,
                                $enable_waf_headers = true, $enable_telemetry = true, $custom_headers = '',
                                $enable_basic_auth = false, $basic_auth_username = '', $basic_auth_password = '',
                                $enable_image_opt = false, $image_quality = 85, $enable_bot_protection = true,
@@ -926,7 +942,8 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
     }
     
     // Static file caching
-    if ($cache_static && $enable_caching) {
+    //Disabled for now to avoid 404´s on all content that is supposed to be cahced
+    /*if ($cache_static && $enable_caching) {
         $cache_zone_name = preg_replace('/[^a-z0-9_]/', '_', strtolower($domain)) . '_cache';
         $static_cache_duration = $cache_duration * 10; // Cache static files 10x longer
         $block .= "    # Static file caching\n";
@@ -967,7 +984,7 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
         $block .= "        expires {$static_cache_duration}s;\n";
         $block .= "        add_header Cache-Control \"public, immutable\";\n";
         $block .= "    }\n\n";
-    }
+    }*/
     
     // Image optimization proxy (if enabled)
     if ($enable_image_opt) {
@@ -989,7 +1006,8 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
             // Bypass for Cloudflare if enabled
             if ($challenge_bypass_cf) {
                 $block .= "        # Bypass challenge for Cloudflare\n";
-                $block .= "        if (\$http_cf_visitor) {\n";
+                $block .= "        # Check CF-Connecting-IP header instead of CF-Visitor to preserve Host header\n";
+                $block .= "        if (\$http_cf_connecting_ip != \"\") {\n";
                 $block .= "            set \$challenge_passed 1;\n";
                 $block .= "        }\n\n";
             }
@@ -1025,7 +1043,8 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
         // Bypass for Cloudflare if enabled
         if ($challenge_bypass_cf) {
             $block .= "        # Bypass challenge for Cloudflare\n";
-            $block .= "        if (\$http_cf_visitor) {\n";
+            $block .= "        # Check CF-Connecting-IP header instead of CF-Visitor to preserve Host header\n";
+            $block .= "        if (\$http_cf_connecting_ip != \"\") {\n";
             $block .= "            set \$challenge_passed 1;\n";
             $block .= "        }\n\n";
         }
@@ -1095,19 +1114,23 @@ function removeSiteConfig($siteId) {
         $domain = $site['domain'];
         $config_path = "/etc/nginx/sites-enabled/{$domain}.conf";
         
-        if (file_exists($config_path)) {
-            unlink($config_path);
+        // Remove config from nginx container using docker exec
+        $removeCmd = "docker exec waf-nginx rm -f {$config_path} 2>&1";
+        exec($removeCmd, $removeOutput, $removeReturn);
+        
+        if ($removeReturn === 0) {
             error_log("Removed config for {$domain}");
-            
-            // Reload NGINX
-            exec("docker exec waf-nginx nginx -s reload 2>&1");
+        } else {
+            error_log("Failed to remove config for {$domain}: " . implode("\n", $removeOutput));
         }
+        
+        // Reload NGINX
+        exec("docker exec waf-nginx nginx -s reload 2>&1");
         
         // Remove htpasswd if exists
         $htpasswd_path = "/etc/nginx/htpasswd/{$domain}";
-        if (file_exists($htpasswd_path)) {
-            unlink($htpasswd_path);
-        }
+        $htpasswdCmd = "docker exec waf-nginx rm -f {$htpasswd_path} 2>&1";
+        exec($htpasswdCmd);
     }
 }
 

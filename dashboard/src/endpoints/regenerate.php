@@ -38,15 +38,33 @@ function regenerateAllConfigs($db) {
     
     $success = 0;
     $failed = 0;
+    $hasCatchall = false;
     
     foreach ($sites as $site) {
         try {
             generateSiteConfig($site['id'], $site);
             $success++;
+            
+            // Check if we have a catch-all site
+            if ($site['domain'] === '_') {
+                $hasCatchall = true;
+            }
         } catch (Exception $e) {
             error_log("Failed to regenerate config for site {$site['domain']}: " . $e->getMessage());
             $failed++;
         }
+    }
+    
+    // If no catch-all "_" site exists, copy default.conf to nginx
+    if (!$hasCatchall) {
+        error_log("No catch-all site found, ensuring default.conf is loaded");
+        $copyCmd = "docker exec waf-nginx sh -c 'test -f /etc/nginx/conf.d/default.conf || cp /etc/nginx/conf.d/default.conf.backup /etc/nginx/conf.d/default.conf' 2>&1";
+        exec($copyCmd);
+    } else {
+        // If catch-all exists, remove default.conf to avoid conflicts
+        error_log("Catch-all site exists, removing default.conf if present");
+        $removeCmd = "docker exec waf-nginx rm -f /etc/nginx/conf.d/default.conf 2>&1";
+        exec($removeCmd);
     }
     
     // Trigger reload

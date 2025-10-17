@@ -80,7 +80,11 @@ switch ($method) {
 function getCertificateInfo($domain) {
     $certPath = "/etc/nginx/certs/{$domain}/fullchain.pem";
     
-    if (!file_exists($certPath)) {
+    // Check if certificate exists in nginx container
+    $checkCmd = "docker exec waf-nginx test -f {$certPath} && echo 'exists' || echo 'not_found'";
+    $exists = trim(shell_exec($checkCmd));
+    
+    if ($exists !== 'exists') {
         http_response_code(404);
         echo json_encode([
             'exists' => false,
@@ -90,8 +94,8 @@ function getCertificateInfo($domain) {
         return;
     }
     
-    // Read certificate and extract info
-    $certData = file_get_contents($certPath);
+    // Read certificate from nginx container and extract info
+    $certData = shell_exec("docker exec waf-nginx cat {$certPath}");
     $cert = openssl_x509_parse($certData);
     
     if (!$cert) {

@@ -71,27 +71,31 @@ while (true) {
         while (($line = fgets($handle)) !== false) {
             $lastPos = ftell($handle);
         
-            // Parse nginx log line with enhanced format
-        // Format: $host $remote_addr - [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" rt=$request_time uct="$upstream_connect_time" uht="$upstream_header_time" urt="$upstream_response_time" cs=$upstream_cache_status ua="$upstream_addr"
-        $pattern = '/^(\S+) (\S+) - \[([^\]]+)\] "([^"]*)" (\d+) (\d+) "([^"]*)" "([^"]*)"(?:\s+rt=([\d.]+))?(?:\s+uct="([^"]*)")?(?:\s+uht="([^"]*)")?(?:\s+urt="([^"]*)")?(?:\s+cs=(\S+))?(?:\s+ua="([^"]*)")?.*/s';
+            // Parse nginx log line with enhanced format including X-Real-IP
+        // Format: $host $http_x_real_ip $remote_addr - [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" rt=$request_time uct="$upstream_connect_time" uht="$upstream_header_time" urt="$upstream_response_time" cs=$upstream_cache_status ua="$upstream_addr"
+        $pattern = '/^(\S+) (\S+) (\S+) - \[([^\]]+)\] "([^"]*)" (\d+) (\d+) "([^"]*)" "([^"]*)"(?:\s+rt=([\d.]+))?(?:\s+uct="([^"]*)")?(?:\s+uht="([^"]*)")?(?:\s+urt="([^"]*)")?(?:\s+cs=(\S+))?(?:\s+ua="([^"]*)")?.*/s';
         
         if (preg_match($pattern, $line, $matches)) {
             $host = $matches[1];
-            $remoteAddr = $matches[2];
-            $timeLocal = $matches[3];
-            $request = $matches[4];
-            $status = (int)$matches[5];
-            $bodyBytes = (int)$matches[6];
-            $referer = $matches[7];
-            $userAgent = $matches[8];
+            $xRealIp = $matches[2];
+            $remoteAddr = $matches[3];
+            $timeLocal = $matches[4];
+            $request = $matches[5];
+            $status = (int)$matches[6];
+            $bodyBytes = (int)$matches[7];
+            $referer = $matches[8];
+            $userAgent = $matches[9];
+            
+            // Use X-Real-IP if available (real client IP), otherwise fall back to remote_addr
+            $clientIp = ($xRealIp !== '-' && $xRealIp !== '') ? $xRealIp : $remoteAddr;
             
             // Extract enhanced telemetry fields (if available)
-            $requestTime = isset($matches[9]) && $matches[9] !== '' ? (float)$matches[9] : null;
-            $upstreamConnectTime = isset($matches[10]) && $matches[10] !== '' && $matches[10] !== '-' ? (float)$matches[10] : null;
-            $upstreamHeaderTime = isset($matches[11]) && $matches[11] !== '' && $matches[11] !== '-' ? (float)$matches[11] : null;
-            $upstreamResponseTime = isset($matches[12]) && $matches[12] !== '' && $matches[12] !== '-' ? (float)$matches[12] : null;
-            $cacheStatus = isset($matches[13]) && $matches[13] !== '' && $matches[13] !== '-' ? $matches[13] : null;
-            $upstreamAddr = isset($matches[14]) && $matches[14] !== '' && $matches[14] !== '-' ? $matches[14] : 'unknown';
+            $requestTime = isset($matches[10]) && $matches[10] !== '' ? (float)$matches[10] : null;
+            $upstreamConnectTime = isset($matches[11]) && $matches[11] !== '' && $matches[11] !== '-' ? (float)$matches[11] : null;
+            $upstreamHeaderTime = isset($matches[12]) && $matches[12] !== '' && $matches[12] !== '-' ? (float)$matches[12] : null;
+            $upstreamResponseTime = isset($matches[13]) && $matches[13] !== '' && $matches[13] !== '-' ? (float)$matches[13] : null;
+            $cacheStatus = isset($matches[14]) && $matches[14] !== '' && $matches[14] !== '-' ? $matches[14] : null;
+            $upstreamAddr = isset($matches[15]) && $matches[15] !== '' && $matches[15] !== '-' ? $matches[15] : 'unknown';
 
             // Parse request
             $requestParts = explode(' ', $request);
@@ -130,7 +134,7 @@ while (true) {
                 
                 $stmt->execute([
                     $host,
-                    $remoteAddr,
+                    $clientIp,
                     $uri,
                     $method,
                     $status,
@@ -143,7 +147,7 @@ while (true) {
                 // Record bot detection if bot identified
                 if ($botType !== 'human') {
                     try {
-                        echo "[DEBUG] Bot detected: type=$botType, UA=$userAgent\n";
+                        echo "[DEBUG] Bot detected: type=$botType, UA=$userAgent, IP=$clientIp\n";
                         
                         $botStmt = $pdo->prepare("
                             INSERT INTO bot_detections (
@@ -155,7 +159,7 @@ while (true) {
                         $action = ($status == 403) ? 'blocked' : 'allowed';
                         
                         $botStmt->execute([
-                            $remoteAddr,
+                            $clientIp,
                             $userAgent,
                             $botType,
                             $action,
@@ -190,7 +194,7 @@ while (true) {
                             $uri,
                             $method,
                             $status,
-                            $remoteAddr,
+                            $clientIp,
                             $bodyBytes,
                             $responseTime,
                             $cacheStatus,

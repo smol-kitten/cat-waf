@@ -4,6 +4,8 @@ const API_TOKEN = localStorage.getItem('api_token') || '';
 let siteId = null;
 let siteData = {};
 let allSites = [];
+let formStateBackup = null;
+let lastLoadedData = null;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -17,8 +19,9 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
     }
     
-    // Setup tabs
+    // Setup tabs with reload on change
     setupTabs();
+    setupTabReload();
     
     // Setup range sliders
     setupRangeSliders();
@@ -178,19 +181,68 @@ function setupBackendsTab() {
 }
 
 // Setup Conditional Displays
+// Debounce helper
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
 function setupConditionalDisplays() {
+    // Add global debouncing for ALL checkboxes to prevent API spam
+    document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+        let lastChangeTime = 0;
+        const originalHandler = checkbox.onchange;
+        
+        checkbox.addEventListener('change', debounce((e) => {
+            const now = Date.now();
+            if (now - lastChangeTime < 300) {
+                e.stopImmediatePropagation();
+                return;
+            }
+            lastChangeTime = now;
+        }, 100), true);
+    });
+    
+    // Basic Auth - validate credentials when toggling
+    const enableBasicAuth = document.getElementById('enable_basic_auth');
+    const authUsername = document.getElementById('auth_username');
+    const authPassword = document.getElementById('auth_password');
+    
+    if (enableBasicAuth) {
+        // Debounced validation
+        const validateAuth = debounce(() => {
+            if (enableBasicAuth.checked) {
+                const username = authUsername?.value || '';
+                if (!username || username.trim() === '') {
+                    enableBasicAuth.checked = false;
+                    showToast('warning', 'Basic auth requires a username');
+                }
+            }
+        }, 500);
+        
+        enableBasicAuth.addEventListener('change', validateAuth);
+    }
+    
     // SSL Challenge Type - show Cloudflare fields when dns-01 is selected
     const sslChallengeType = document.getElementById('ssl_challenge_type');
     const cloudflareSettings = document.getElementById('cloudflare-settings');
     
     if (sslChallengeType && cloudflareSettings) {
-        sslChallengeType.addEventListener('change', (e) => {
+        const handleChallengeType = debounce((e) => {
             if (e.target.value === 'dns-01') {
                 cloudflareSettings.style.display = 'block';
             } else {
                 cloudflareSettings.style.display = 'none';
             }
-        });
+        }, 300);
+        sslChallengeType.addEventListener('change', handleChallengeType);
     }
     
     // Challenge Mode - show challenge settings when enabled
@@ -198,13 +250,14 @@ function setupConditionalDisplays() {
     const challengeSettings = document.getElementById('challenge-settings');
     
     if (challengeEnabled && challengeSettings) {
-        challengeEnabled.addEventListener('change', (e) => {
+        const handleChallengeEnabled = debounce((e) => {
             if (e.target.checked) {
                 challengeSettings.style.display = 'block';
             } else {
                 challengeSettings.style.display = 'none';
             }
-        });
+        }, 300);
+        challengeEnabled.addEventListener('change', handleChallengeEnabled);
     }
     
     // Challenge Difficulty - update value display
@@ -220,7 +273,7 @@ function setupConditionalDisplays() {
 }
 
 // Load Site Data
-async function loadSiteData() {
+async function loadSiteData(silent = false) {
     try {
         const response = await fetch(`${API_BASE_URL}/sites/${siteId}`, {
             headers: {
@@ -234,14 +287,46 @@ async function loadSiteData() {
         
         const data = await response.json();
         siteData = data.site;
+        lastLoadedData = JSON.parse(JSON.stringify(siteData)); // Deep copy
         
         populateForm(siteData);
         updateHeader(siteData);
+        updateBackendSummary();
         
-        showToast('success', 'Site loaded successfully');
+        if (!silent) {
+            showToast('success', 'Site loaded successfully');
+        }
     } catch (error) {
         console.error('Error loading site:', error);
-        showToast('error', 'Failed to load site data');
+        if (!silent) {
+            showToast('error', 'Failed to load site data');
+        }
+    }
+}
+
+// Setup tab reload on change
+function setupTabReload() {
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            // Reload data silently when switching tabs to ensure fresh state
+            await loadSiteData(true);
+        });
+    });
+}
+
+// Update backend summary in General tab
+function updateBackendSummary() {
+    const summaryEl = document.getElementById('backend-summary');
+    if (!summaryEl) return;
+    
+    if (backends.length === 0) {
+        summaryEl.innerHTML = '<span style="color: #e74c3c;">⚠️ No backends configured - site will not work!</span>';
+    } else if (backends.length === 1) {
+        summaryEl.innerHTML = `<span style="color: #27ae60;">✅ 1 backend: <code>${backends[0].address || 'not set'}</code></span>`;
+    } else {
+        const method = document.getElementById('lb_method')?.value || 'round_robin';
+        const methodName = method.replace('_', ' ');
+        summaryEl.innerHTML = `<span style="color: #27ae60;">✅ ${backends.length} backends (${methodName})</span>`;
     }
 }
 
@@ -281,7 +366,7 @@ function populateForm(data) {
     document.getElementById('compression_types').value = data.compression_types || 'text/html text/css text/javascript application/json application/xml';
     document.getElementById('enable_caching').checked = data.enable_caching !== 0;
     document.getElementById('cache_duration').value = data.cache_duration || 3600;
-    document.getElementById('cache_static_files').checked = data.cache_static_files !== 0;
+    document.getElementById('cache_static_files').checked = false; // Disabled - causes 404s
     document.getElementById('cache_max_size').value = data.cache_max_size || '1g';
     document.getElementById('cache_path').value = data.cache_path || '/var/cache/nginx';
     document.getElementById('enable_image_optimization').checked = data.enable_image_optimization == 1;
@@ -321,7 +406,13 @@ function populateForm(data) {
     // Security.txt
     document.getElementById('security_txt').value = data.security_txt || '';
     
-    // Backends
+    // Load balancing
+    document.getElementById('lb_method').value = data.lb_method || 'round_robin';
+    document.getElementById('health_check_enabled').checked = data.health_check_enabled == 1;
+    document.getElementById('health_check_interval').value = data.health_check_interval || 10;
+    document.getElementById('health_check_path').value = data.health_check_path || '/health';
+    
+    // Backends - migrate from backend_url if needed
     if (data.backends) {
         try {
             backends = JSON.parse(data.backends);
@@ -339,6 +430,7 @@ function populateForm(data) {
             }
             backendIdCounter = backends.length > 0 ? Math.max(...backends.map(b => b.id || 0)) + 1 : 0;
             loadBackends();
+            updateBackendSummary();
         } catch (e) {
             console.error('Error parsing backends:', e);
             backends = [];
@@ -409,8 +501,30 @@ function updateHeader(data) {
 
 // Save Site
 async function saveSite() {
+    // Add visual saving indicator
+    const saveBtn = document.querySelector('.btn-primary[onclick="saveSite()"]');
+    const originalText = saveBtn?.textContent || 'Save Site';
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.textContent = '💾 Saving...';
+        saveBtn.style.opacity = '0.6';
+    }
+    
+    // Backup current state before saving
+    backupFormState();
+    
     try {
         const formData = collectFormData();
+        
+        // Validate backends
+        if (!formData.backends || formData.backends.length === 0) {
+            throw new Error('At least one backend server is required');
+        }
+        
+        const invalidBackend = formData.backends.find(b => !b.address || b.address.trim() === '');
+        if (invalidBackend) {
+            throw new Error('All backend servers must have an address configured');
+        }
         
         const response = await fetch(`${API_BASE_URL}/sites/${siteId}`, {
             method: 'PUT',
@@ -428,12 +542,49 @@ async function saveSite() {
         
         showToast('success', '✅ Site saved successfully! Config will reload in ~5 seconds.');
         
-        // Reload site data to get updated values
-        setTimeout(() => loadSiteData(), 1000);
+        // Reload site data to get updated values from server
+        setTimeout(() => loadSiteData(true), 1000);
         
     } catch (error) {
         console.error('Error saving site:', error);
-        showToast('error', `Failed to save: ${error.message}`);
+        showToast('error', `❌ Failed to save: ${error.message}`, 5000);
+        
+        // Visual error indicator
+        const modalHeader = document.querySelector('.modal-header h2');
+        if (modalHeader) {
+            const originalColor = modalHeader.style.color;
+            modalHeader.style.color = '#e74c3c';
+            setTimeout(() => { modalHeader.style.color = originalColor; }, 3000);
+        }
+        
+        // Restore previous state on error
+        restoreFormState();
+    } finally {
+        // Always restore button state
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.textContent = originalText;
+            saveBtn.style.opacity = '1';
+        }
+    }
+}
+
+// Backup current form state
+function backupFormState() {
+    updateBackendFromUI();
+    formStateBackup = {
+        backends: JSON.parse(JSON.stringify(backends)),
+        backendIdCounter: backendIdCounter
+    };
+}
+
+// Restore form state from backup
+function restoreFormState() {
+    if (formStateBackup) {
+        backends = JSON.parse(JSON.stringify(formStateBackup.backends));
+        backendIdCounter = formStateBackup.backendIdCounter;
+        loadBackends();
+        showToast('info', 'Form state restored to last successful save');
     }
 }
 
@@ -508,7 +659,13 @@ function collectFormData() {
     const authUsername = document.getElementById('auth_username').value;
     const authPassword = document.getElementById('auth_password').value;
     
-    if (enableBasicAuth && authUsername) {
+    // Auto-disable basic auth if credentials are missing
+    if (enableBasicAuth && (!authUsername || authUsername.trim() === '')) {
+        document.getElementById('enable_basic_auth').checked = false;
+        showToast('warning', 'Basic auth disabled - username is required');
+    }
+    
+    if (enableBasicAuth && authUsername && authUsername.trim() !== '') {
         const customConfig = {
             basic_auth: {
                 username: authUsername
@@ -520,15 +677,15 @@ function collectFormData() {
         data.custom_config = JSON.stringify(customConfig);
     }
     
-    // Backends - prioritize backends array, fallback to backend_url for backward compatibility
+    // Backends - always use backends array
     updateBackendFromUI(); // Make sure we have latest data
-    if (backends.length > 0) {
-        data.backends = JSON.stringify(backends);
-        // Don't send backend_url if using backends
-    } else {
-        // No backends configured, use single backend_url
-        data.backend_url = document.getElementById('backend_url').value;
+    data.backends = backends;
+    
+    // Set backend_url from first backend for backward compatibility
+    if (backends.length > 0 && backends[0].address) {
+        data.backend_url = backends[0].address;
     }
+    
     data.lb_method = document.getElementById('lb_method').value;
     data.hash_key = document.getElementById('hash_key')?.value || '$request_uri';
     data.health_check_enabled = document.getElementById('health_check_enabled').checked ? 1 : 0;
@@ -549,9 +706,12 @@ function loadBackends() {
     backendsList.innerHTML = '';
     
     if (backends.length === 0) {
-        backendsList.innerHTML = '<p style="color: #666; text-align: center; padding: 2rem;">No backend servers configured. Add one to get started.</p>';
+        backendsList.innerHTML = '<div class="warning-box" style="text-align: center; padding: 2rem;"><p>⚠️ <strong>No backend servers configured</strong></p><p style="color: #666; margin-top: 0.5rem;">Your site needs at least one backend server to function. Click "Add Backend Server" below to get started.</p></div>';
+        updateBackendSummary();
         return;
     }
+    
+    updateBackendSummary();
     
     backends.forEach((backend, index) => {
         const backendCard = document.createElement('div');
@@ -640,9 +800,15 @@ function addBackend() {
     };
     backends.push(newBackend);
     loadBackends();
+    showToast('info', 'Backend added. Configure and save changes.');
 }
 
 function removeBackend(id) {
+    if (backends.length === 1) {
+        showToast('error', 'Cannot remove the last backend. Sites need at least one backend server.');
+        return;
+    }
+    
     if (confirm('Are you sure you want to remove this backend server?')) {
         backends = backends.filter(b => b.id !== id);
         loadBackends();
@@ -680,7 +846,7 @@ async function testSite() {
 }
 
 // Toast Notifications
-function showToast(type, message) {
+function showToast(type, message, duration = 3000) {
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
     toast.innerHTML = `
@@ -700,7 +866,7 @@ function showToast(type, message) {
     setTimeout(() => {
         toast.classList.remove('toast-show');
         setTimeout(() => toast.remove(), 300);
-    }, 5000);
+    }, duration);
 }
 
 // Certificate Status Check

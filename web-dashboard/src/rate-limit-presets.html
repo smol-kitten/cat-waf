@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rate Limit Presets - WAF Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>⚙️ Rate Limit Presets</h1>
+            <button class="btn-secondary" onclick="window.location.href='dashboard.html'">← Back to Dashboard</button>
+        </div>
+
+        <div class="content">
+            <div class="settings-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <h3>📊 Rate Limit Presets</h3>
+                    <button class="btn-primary" onclick="addPreset()">➕ Add Preset</button>
+                </div>
+
+                <div id="presets-list" style="display: flex; flex-direction: column; gap: 1rem;">
+                    <!-- Presets will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="toast.js"></script>
+    <script>
+        const API_BASE = 'http://localhost:8080/api';
+        let presets = [];
+
+        // Default presets
+        const defaultPresets = [
+            { name: 'general', rate: 10, burst: 20, description: 'General purpose rate limit' },
+            { name: 'strict', rate: 5, burst: 10, description: 'Strict rate limit for high-security' },
+            { name: 'api', rate: 20, burst: 40, description: 'Higher limit for API endpoints' },
+            { name: 'static', rate: 50, burst: 100, description: 'High limit for static assets' }
+        ];
+
+        async function loadPresets() {
+            try {
+                const response = await fetch(`${API_BASE}/settings`);
+                const data = await response.json();
+                
+                // Load from settings or use defaults
+                presets = data.rate_limit_presets ? JSON.parse(data.rate_limit_presets) : defaultPresets;
+                renderPresets();
+            } catch (error) {
+                console.error('Error loading presets:', error);
+                presets = defaultPresets;
+                renderPresets();
+            }
+        }
+
+        function renderPresets() {
+            const container = document.getElementById('presets-list');
+            container.innerHTML = '';
+
+            presets.forEach((preset, index) => {
+                const presetDiv = document.createElement('div');
+                presetDiv.className = 'preset-item';
+                presetDiv.style.cssText = 'background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem;';
+                
+                presetDiv.innerHTML = `
+                    <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 3fr auto; gap: 1rem; align-items: center;">
+                        <div>
+                            <label style="font-size: 0.85em; color: var(--text-muted);">Preset Name</label>
+                            <input type="text" class="form-input" value="${preset.name}" 
+                                   onchange="updatePreset(${index}, 'name', this.value)" 
+                                   placeholder="preset-name"
+                                   ${['general', 'strict', 'api'].includes(preset.name) ? 'disabled' : ''}>
+                        </div>
+                        <div>
+                            <label style="font-size: 0.85em; color: var(--text-muted);">Rate (req/s)</label>
+                            <input type="number" class="form-input" value="${preset.rate}" 
+                                   onchange="updatePreset(${index}, 'rate', parseInt(this.value))" 
+                                   min="1" max="1000">
+                        </div>
+                        <div>
+                            <label style="font-size: 0.85em; color: var(--text-muted);">Burst</label>
+                            <input type="number" class="form-input" value="${preset.burst}" 
+                                   onchange="updatePreset(${index}, 'burst', parseInt(this.value))" 
+                                   min="1" max="2000">
+                        </div>
+                        <div>
+                            <label style="font-size: 0.85em; color: var(--text-muted);">Description</label>
+                            <input type="text" class="form-input" value="${preset.description || ''}" 
+                                   onchange="updatePreset(${index}, 'description', this.value)" 
+                                   placeholder="Optional description">
+                        </div>
+                        <div>
+                            ${!['general', 'strict', 'api'].includes(preset.name) ? 
+                                `<button class="btn-secondary" onclick="removePreset(${index})" style="background: #e74c3c;">🗑️</button>` : 
+                                `<span style="color: var(--text-muted); font-size: 0.85em;">Protected</span>`
+                            }
+                        </div>
+                    </div>
+                `;
+                
+                container.appendChild(presetDiv);
+            });
+
+            // Add save button
+            const saveDiv = document.createElement('div');
+            saveDiv.style.cssText = 'margin-top: 1rem; text-align: right;';
+            saveDiv.innerHTML = `<button class="btn-primary" onclick="savePresets()">💾 Save All Presets</button>`;
+            container.appendChild(saveDiv);
+        }
+
+        function addPreset() {
+            presets.push({
+                name: `custom-${Date.now()}`,
+                rate: 15,
+                burst: 30,
+                description: 'Custom rate limit'
+            });
+            renderPresets();
+        }
+
+        function updatePreset(index, field, value) {
+            presets[index][field] = value;
+        }
+
+        function removePreset(index) {
+            if (confirm(`Remove preset "${presets[index].name}"?`)) {
+                presets.splice(index, 1);
+                renderPresets();
+            }
+        }
+
+        async function savePresets() {
+            try {
+                const response = await fetch(`${API_BASE}/settings`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        rate_limit_presets: JSON.stringify(presets)
+                    })
+                });
+
+                if (response.ok) {
+                    showToast('success', 'Rate limit presets saved successfully!');
+                } else {
+                    throw new Error('Failed to save presets');
+                }
+            } catch (error) {
+                console.error('Error saving presets:', error);
+                showToast('error', 'Failed to save presets');
+            }
+        }
+
+        // Load presets on page load
+        loadPresets();
+    </script>
+</body>
+</html>
