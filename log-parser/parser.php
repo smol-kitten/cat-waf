@@ -98,6 +98,9 @@ while (true) {
             $method = $requestParts[0] ?? '';
             $uri = $requestParts[1] ?? '';
             $protocol = $requestParts[2] ?? '';
+            
+            // Truncate and redact sensitive data from URI
+            $uri = sanitizeUri($uri);
 
             // Parse time - nginx format: 16/Jan/2025:02:00:00 +0200
             $timestamp = strtotime(str_replace('/', ' ', $timeLocal));
@@ -218,6 +221,68 @@ while (true) {
     
     // Wait before checking for new logs
     sleep(2);
+}
+
+/**
+ * Sanitize URI by truncating and redacting sensitive parameters
+ * @param string $uri The original URI
+ * @return string Sanitized URI
+ */
+function sanitizeUri($uri) {
+    // Parse URI into components
+    $parts = parse_url($uri);
+    if (!$parts) {
+        return substr($uri, 0, 255); // Fallback truncation
+    }
+    
+    $path = $parts['path'] ?? '/';
+    $query = $parts['query'] ?? '';
+    
+    // Truncate path if too long (keep first 200 chars)
+    if (strlen($path) > 200) {
+        $path = substr($path, 0, 200) . '...[truncated]';
+    }
+    
+    // Redact sensitive query parameters
+    if (!empty($query)) {
+        parse_str($query, $params);
+        $redacted = [];
+        
+        foreach ($params as $key => $value) {
+            // Check if parameter name contains sensitive keywords
+            $keyLower = strtolower($key);
+            if (preg_match('/(token|key|password|secret|auth|api[_-]?key|access[_-]?token|jwt|bearer)/i', $keyLower)) {
+                // Redact the value but keep first/last 4 chars if long enough
+                if (strlen($value) > 12) {
+                    $redacted[$key] = substr($value, 0, 4) . '...[REDACTED]...' . substr($value, -4);
+                } else {
+                    $redacted[$key] = '[REDACTED]';
+                }
+            } else {
+                // Keep parameter but truncate if too long
+                if (strlen($value) > 100) {
+                    $redacted[$key] = substr($value, 0, 100) . '...[truncated]';
+                } else {
+                    $redacted[$key] = $value;
+                }
+            }
+        }
+        
+        $query = http_build_query($redacted);
+    }
+    
+    // Reconstruct URI
+    $sanitized = $path;
+    if (!empty($query)) {
+        $sanitized .= '?' . $query;
+    }
+    
+    // Final length check (database column limit)
+    if (strlen($sanitized) > 500) {
+        $sanitized = substr($sanitized, 0, 500) . '...[truncated]';
+    }
+    
+    return $sanitized;
 }
 
 // Parse ModSecurity audit log

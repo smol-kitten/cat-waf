@@ -1,6 +1,6 @@
 # CatWAF TODO List
 
-## ✅ Completed (Oct 15-16, 2025)
+## ✅ Completed (Oct 15-17, 2025)
 
 ### Phase 1: UI & Navigation
 - [x] Fix toggle/checkbox visibility (color scheme fix)
@@ -33,6 +33,39 @@
   - Uses `docker exec waf-nginx` to count rules from dashboard container
   - Stats endpoint now shows actual rule count
 - [x] Regenerate All Configs API
+
+### Phase 4: Certificate Automation (Oct 16-17, 2025)
+- [x] Import/Export sites (merge/skip/replace modes)
+- [x] HTTP redirect control (disable_http_redirect)
+- [x] Cloudflare rate limit bypass
+- [x] Cloudflare zone auto-detection
+- [x] Migration system for prebuilt deployments
+- [x] Certificate management (issue/renew/revoke)
+- [x] Bulk certificate processing (auto-issue/renew)
+- [x] Startup certificate safety checks
+- [x] Environment-based credentials
+- [x] Docker socket integration
+- [x] Special domain handling (_, *.local)
+- [x] Frontend error handling for certificates
+
+### Phase 5: Security & Telemetry (Oct 17, 2025)
+- [x] **URL Truncation & Sanitization**
+  - Paths truncated at 200 chars
+  - Query params truncated at 100 chars
+  - Total URI limited to 500 chars
+  - Prevents database bloat from very long URLs
+- [x] **Sensitive Parameter Redaction**
+  - Auto-detect: token, key, password, secret, auth, jwt, bearer
+  - Redacts values: `[REDACTED]` or `abcd...[REDACTED]...xyz`
+  - Keeps first/last 4 chars for troubleshooting
+  - GDPR/Privacy compliance
+- [x] **Enhanced Telemetry Display**
+  - Added hostname/domain column to Slowest Endpoints
+  - Shows which site has performance issues
+  - Groups by domain + URI
+  - Tooltip shows full URL on hover
+- [x] Documentation: SECURITY-LOGGING.md
+- [x] Test script: scripts/test-url-sanitization.ps1
 
 ## 🚧 In Progress
 

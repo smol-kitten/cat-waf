@@ -80,6 +80,7 @@ function handleTelemetry($method, $params, $db) {
             try {
                 $stmt = $db->prepare("
                     SELECT 
+                        domain,
                         uri as path,
                         AVG(response_time) as avg_response,
                         COUNT(*) as request_count,
@@ -89,7 +90,7 @@ function handleTelemetry($method, $params, $db) {
                     WHERE timestamp > DATE_SUB(NOW(), INTERVAL 24 HOUR)
                     AND response_time IS NOT NULL
                     AND response_time > 0
-                    GROUP BY uri
+                    GROUP BY domain, uri
                     ORDER BY avg_response DESC
                     LIMIT ?
                 ");
@@ -100,6 +101,7 @@ function handleTelemetry($method, $params, $db) {
                 // Format the results (convert to milliseconds)
                 $formatted = array_map(function($row) {
                     return [
+                        'domain' => $row['domain'] ?? 'unknown',
                         'path' => $row['path'] ?? '/',
                         'avg_response' => round(($row['avg_response'] ?? 0) * 1000, 1),
                         'p95' => round(($row['p95'] ?? 0) * 1000, 1),

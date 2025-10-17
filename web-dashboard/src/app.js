@@ -1988,23 +1988,32 @@ async function loadSlowestEndpoints() {
         const tbody = document.getElementById('slowestEndpointsBody');
         
         if (!response || response.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">No data available</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No data available</td></tr>';
             return;
         }
         
-        tbody.innerHTML = response.map(endpoint => `
+        tbody.innerHTML = response.map(endpoint => {
+            // Truncate path if too long for display
+            let displayPath = endpoint.path;
+            if (displayPath.length > 80) {
+                displayPath = displayPath.substring(0, 80) + '...';
+            }
+            
+            return `
             <tr>
-                <td><code>${endpoint.path}</code></td>
+                <td><strong>${endpoint.domain || 'unknown'}</strong></td>
+                <td><code title="${endpoint.path}">${displayPath}</code></td>
                 <td>${endpoint.avg_response}ms</td>
                 <td>${endpoint.p95}ms</td>
                 <td>${endpoint.p99}ms</td>
                 <td>${endpoint.request_count}</td>
             </tr>
-        `).join('');
+            `;
+        }).join('');
     } catch (error) {
         console.error('Error loading slowest endpoints:', error);
         document.getElementById('slowestEndpointsBody').innerHTML = 
-            '<tr><td colspan="5" style="text-align: center; color: #ef4444;">Error loading data</td></tr>';
+            '<tr><td colspan="6" style="text-align: center; color: #ef4444;">Error loading data</td></tr>';
     }
 }
 

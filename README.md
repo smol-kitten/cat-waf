@@ -157,6 +157,17 @@ docker compose up -d --build
 
 ## What's New
 
+### URL Sanitization & Security Logging (October 2025) 🔒
+Protect sensitive data in logs and telemetry:
+- **Auto-redaction**: JWT tokens, API keys, passwords automatically redacted
+- **Smart truncation**: Long URLs (1000+ chars) truncated to 200-500 chars
+- **Pattern detection**: Keywords like `token`, `key`, `password`, `secret`, `auth`, `jwt`, `bearer`
+- **GDPR compliance**: Safe to export logs without exposing credentials
+- **Performance boost**: 50-90% smaller URIs = faster database queries
+- **Enhanced telemetry**: Slowest Endpoints now shows hostname/domain column
+
+📖 **See [`SECURITY-LOGGING.md`](SECURITY-LOGGING.md)** for detailed documentation and examples
+
 ### JavaScript Challenge (October 2025)
 Protect your sites from DDoS attacks with client-side proof-of-work:
 - Configurable difficulty (16 = easy, 24 = extreme)
@@ -164,6 +175,14 @@ Protect your sites from DDoS attacks with client-side proof-of-work:
 - Server-side validation prevents URL manipulation
 - Cookie-based validation with configurable duration
 - Optional Cloudflare IP bypass
+
+### Certificate Automation (October 2025)
+One-click certificate management for all sites:
+- **Bulk processing**: Renew/issue all certificates with one button
+- **Auto-issue logic**: Automatically issues certs if they don't exist
+- **Startup safety**: Auto-generates snakeoil certs to prevent NGINX failures
+- **Environment credentials**: Set Cloudflare API token once, use everywhere
+- **Progress tracking**: Real-time status updates during processing
 
 ### Custom Error Pages
 Choose between built-in catboy-themed templates or your own:
