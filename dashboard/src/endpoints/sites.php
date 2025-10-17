@@ -593,6 +593,27 @@ function generateSiteConfig($siteId, $siteData) {
         // SSL configuration
         $ssl_challenge_type = $siteData['ssl_challenge_type'] ?? 'http-01';
         
+        // Check if certificate files exist, generate snakeoil if missing
+        $certPath = "/etc/nginx/certs/{$domain}/fullchain.pem";
+        $keyPath = "/etc/nginx/certs/{$domain}/key.pem";
+        
+        if (!file_exists($certPath) || !file_exists($keyPath)) {
+            // Generate snakeoil certificate if missing
+            error_log("Certificate missing for {$domain}, generating snakeoil...");
+            $certDir = "/etc/nginx/certs/{$domain}";
+            $snakeoilCmd = sprintf(
+                "docker exec waf-nginx sh -c 'mkdir -p %s && openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout %s/key.pem -out %s/fullchain.pem -subj \"/CN=%s\"' 2>&1",
+                escapeshellarg($certDir),
+                escapeshellarg($certDir),
+                escapeshellarg($certDir),
+                escapeshellarg($domain)
+            );
+            exec($snakeoilCmd, $snakeoilOutput, $snakeoilReturn);
+            if ($snakeoilReturn !== 0) {
+                error_log("Failed to generate snakeoil cert for {$domain}: " . implode("\n", $snakeoilOutput));
+            }
+        }
+        
         if ($ssl_challenge_type === 'snakeoil') {
             // Use self-signed snakeoil certificate
             $config .= "    ssl_certificate /etc/nginx/certs/{$domain}/fullchain.pem;\n";

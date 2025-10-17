@@ -155,6 +155,11 @@ try {
             handleChallenge($method, array_slice($uri, 1), $db);
             break;
             
+        case 'custom-block-rules':
+            require_once 'endpoints/custom-block-rules.php';
+            handleCustomBlockRules($method, array_slice($uri, 1), $db);
+            break;
+            
         default:
             http_response_code(404);
             echo json_encode(['error' => 'Endpoint not found']);

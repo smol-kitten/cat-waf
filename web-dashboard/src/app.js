@@ -886,15 +886,18 @@ async function loadLogs() {
 async function loadSettings() {
     try {
         const response = await apiRequest('/settings');
-        const settingsArray = response?.settings || [];
+        let settingsData = response?.settings || {};
         
-        // Convert array to object
-        const settings = {};
-        settingsArray.forEach(s => {
-            if (s.setting_key && s.setting_value !== undefined) {
-                settings[s.setting_key] = s.setting_value;
-            }
-        });
+        // If settings is an array, convert to object (backwards compatibility)
+        let settings = settingsData;
+        if (Array.isArray(settingsData)) {
+            settings = {};
+            settingsData.forEach(s => {
+                if (s.setting_key && s.setting_value !== undefined) {
+                    settings[s.setting_key] = s.setting_value;
+                }
+            });
+        }
         
         // Populate settings form
         Object.keys(settings).forEach(key => {
@@ -910,6 +913,9 @@ async function loadSettings() {
         
         // Load certificate status
         loadCertificateStatus();
+        
+        // Load custom block rules
+        loadBlockRules();
     } catch (error) {
         console.error('Error loading settings:', error);
     }
@@ -3951,3 +3957,156 @@ window.detectCloudflareZones = async function(siteId = null, force = false) {
         Toast.show(`❌ ${error.message}`, 'error');
     }
 };
+
+// ============================================
+// Custom Block Rules Functions
+// ============================================
+
+async function loadBlockRules() {
+    try {
+        const rules = await apiRequest('/custom-block-rules');
+        const tbody = document.getElementById('blockRulesBody');
+        
+        if (!rules || rules.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">No custom block rules yet. Click "Add Rule" to create one.</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = rules.map(rule => `
+            <tr>
+                <td>
+                    <label class="toggle" style="display: inline-block;">
+                        <input type="checkbox" ${rule.enabled ? 'checked' : ''} onchange="toggleBlockRule(${rule.id}, this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </td>
+                <td><strong>${escapeHtml(rule.name)}</strong></td>
+                <td><code>${escapeHtml(rule.pattern)}</code></td>
+                <td><span class="badge badge-${rule.pattern_type}">${rule.pattern_type}</span></td>
+                <td><span class="badge badge-${rule.severity.toLowerCase()}">${rule.severity}</span></td>
+                <td><code>${rule.rule_id}</code></td>
+                <td>
+                    <button class="btn-icon" onclick="editBlockRule(${rule.id})" title="Edit">
+                        <span>✏️</span>
+                    </button>
+                    <button class="btn-icon" onclick="deleteBlockRule(${rule.id})" title="Delete">
+                        <span>🗑️</span>
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+    } catch (error) {
+        console.error('Error loading block rules:', error);
+        Toast.show('Failed to load block rules', 'error');
+    }
+}
+
+function showAddBlockRuleModal() {
+    document.getElementById('blockRuleModalTitle').textContent = 'Add Block Rule';
+    document.getElementById('blockRuleId').value = '';
+    document.getElementById('blockRuleName').value = '';
+    document.getElementById('blockRulePattern').value = '';
+    document.getElementById('blockRulePatternType').value = 'exact';
+    document.getElementById('blockRuleSeverity').value = 'CRITICAL';
+    document.getElementById('blockRuleMessage').value = 'Access to this path is forbidden';
+    document.getElementById('blockRuleEnabled').checked = true;
+    
+    openModal('blockRuleModal');
+}
+
+async function editBlockRule(id) {
+    try {
+        const rules = await apiRequest('/custom-block-rules');
+        const rule = rules.find(r => r.id === id);
+        
+        if (!rule) {
+            Toast.show('Rule not found', 'error');
+            return;
+        }
+        
+        document.getElementById('blockRuleModalTitle').textContent = 'Edit Block Rule';
+        document.getElementById('blockRuleId').value = rule.id;
+        document.getElementById('blockRuleName').value = rule.name;
+        document.getElementById('blockRulePattern').value = rule.pattern;
+        document.getElementById('blockRulePatternType').value = rule.pattern_type;
+        document.getElementById('blockRuleSeverity').value = rule.severity;
+        document.getElementById('blockRuleMessage').value = rule.block_message;
+        document.getElementById('blockRuleEnabled').checked = rule.enabled;
+        
+        openModal('blockRuleModal');
+    } catch (error) {
+        console.error('Error loading block rule:', error);
+        Toast.show('Failed to load rule details', 'error');
+    }
+}
+
+async function saveBlockRule() {
+    const id = document.getElementById('blockRuleId').value;
+    const name = document.getElementById('blockRuleName').value.trim();
+    const pattern = document.getElementById('blockRulePattern').value.trim();
+    const patternType = document.getElementById('blockRulePatternType').value;
+    const severity = document.getElementById('blockRuleSeverity').value;
+    const message = document.getElementById('blockRuleMessage').value.trim();
+    const enabled = document.getElementById('blockRuleEnabled').checked;
+    
+    if (!name || !pattern) {
+        Toast.show('Name and pattern are required', 'error');
+        return;
+    }
+    
+    try {
+        const data = {
+            name,
+            pattern,
+            pattern_type: patternType,
+            severity,
+            block_message: message,
+            enabled: enabled ? 1 : 0
+        };
+        
+        if (id) {
+            // Update existing rule
+            await apiRequest(`/custom-block-rules/${id}`, 'PUT', data);
+            Toast.show('Block rule updated successfully', 'success');
+        } else {
+            // Create new rule
+            await apiRequest('/custom-block-rules', 'POST', data);
+            Toast.show('Block rule created successfully', 'success');
+        }
+        
+        closeModal('blockRuleModal');
+        await loadBlockRules();
+    } catch (error) {
+        console.error('Error saving block rule:', error);
+        Toast.show(error.message || 'Failed to save block rule', 'error');
+    }
+}
+
+async function toggleBlockRule(id, enabled) {
+    try {
+        await apiRequest(`/custom-block-rules/${id}`, 'PUT', { enabled: enabled ? 1 : 0 });
+        Toast.show(`Rule ${enabled ? 'enabled' : 'disabled'}`, 'success');
+        // Reload to update the rules
+        await loadBlockRules();
+    } catch (error) {
+        console.error('Error toggling block rule:', error);
+        Toast.show('Failed to toggle rule', 'error');
+        // Reload to reset the toggle state
+        await loadBlockRules();
+    }
+}
+
+async function deleteBlockRule(id) {
+    if (!confirm('Are you sure you want to delete this block rule? This will regenerate the ModSecurity rules.')) {
+        return;
+    }
+    
+    try {
+        await apiRequest(`/custom-block-rules/${id}`, 'DELETE');
+        Toast.show('Block rule deleted successfully', 'success');
+        await loadBlockRules();
+    } catch (error) {
+        console.error('Error deleting block rule:', error);
+        Toast.show('Failed to delete block rule', 'error');
+    }
+}
