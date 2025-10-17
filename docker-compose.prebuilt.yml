@@ -25,9 +25,6 @@ services:
     networks:
       - waf-network
     restart: unless-stopped
-    depends_on:
-      - dashboard
-      - fail2ban
     healthcheck:
       test: ["CMD", "nginx", "-t"]
       interval: 30s
@@ -53,6 +50,10 @@ services:
     restart: unless-stopped
     depends_on:
       mariadb:
+        condition: service_healthy
+      log-parser:
+        condition: service_healthy
+      nginx:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "php-fpm", "-t"]
@@ -111,8 +112,6 @@ services:
     networks:
       - waf-network
     restart: unless-stopped
-    depends_on:
-      - nginx
 
   log-parser:
     image: ghcr.io/smol-kitten/cat-waf-log-parser:latest

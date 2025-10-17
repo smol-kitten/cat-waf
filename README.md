@@ -17,9 +17,11 @@ A production-ready Web Application Firewall with NGINX + ModSecurity v3, automat
 
 ### Option 1: Pre-Built Images (Fastest - 2 minutes)
 ```bash
-git clone https://github.com/smol-kitten/cat-waf
+wget https://raw.githubusercontent.com/smol-kitten/cat-waf/refs/heads/main/docker-compose.prebuilt.yml -O docker-compose.yml
+wget https://raw.githubusercontent.com/smol-kitten/cat-waf/refs/heads/main/.env.example -O .env
+nano .env  # Set DASHBOARD_API_KEY, DB_PASSWORD, ACME_EMAIL
 cd cat-waf
-docker-compose -f docker-compose.prebuilt.yml up -d
+docker compose -f docker-compose.yml up -d
 ```
 📖 **See [`QUICKSTART.md`](QUICKSTART.md) for detailed instructions**
 
