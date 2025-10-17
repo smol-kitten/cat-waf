@@ -5,6 +5,8 @@ services:
   nginx:
     image: ghcr.io/smol-kitten/cat-waf-nginx:latest
     container_name: waf-nginx
+    environment:
+      - TZ=${TZ:-Europe/Berlin}
     ports:
       - "80:80"
       - "443:443"
@@ -38,11 +40,12 @@ services:
     image: ghcr.io/smol-kitten/cat-waf-dashboard:latest
     container_name: waf-dashboard
     environment:
+      TZ: ${TZ:-Europe/Berlin}
       DB_HOST: mariadb
       DB_NAME: waf_db
       DB_USER: waf_user
-      DB_PASS: waf_secure_password_2024
-      API_KEY: your-super-secret-api-key-change-this
+      DB_PASSWORD: ${DB_PASSWORD:-changeme}
+      DASHBOARD_API_KEY: ${DASHBOARD_API_KEY:-change-this-default-token}
     volumes:
       - ./nginx/sites-enabled:/etc/nginx/sites-enabled
       - ./logs/modsec:/var/log/modsec
@@ -70,6 +73,10 @@ services:
     restart: unless-stopped
     depends_on:
       - dashboard
+    environment:
+      API_URL: http://dashboard:80
+      DASHBOARD_API_KEY: ${DASHBOARD_API_KEY:-change-this-default-token}
+      TZ: ${TZ:-Europe/Berlin}
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
       interval: 30s
@@ -80,10 +87,11 @@ services:
     image: mariadb:11.8.2
     container_name: waf-mariadb
     environment:
-      MYSQL_ROOT_PASSWORD: root_password_2024_change_this
+      TZ: ${TZ:-Europe/Berlin}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-changeme}
       MYSQL_DATABASE: waf_db
       MYSQL_USER: waf_user
-      MYSQL_PASSWORD: waf_secure_password_2024
+      MYSQL_PASSWORD: ${DB_PASSWORD:-changeme}
     volumes:
       - ./mariadb/init:/docker-entrypoint-initdb.d
       - ./data/mysql:/var/lib/mysql
@@ -117,10 +125,6 @@ services:
   default-backend:
     image: nginx:alpine
     container_name: waf-default-backend
-    #volumes:
-    #  # Static content from host
-    #  - ./backends/default:/usr/share/nginx/html:ro
-    #load default backend content from git upon startup https://raw.githubusercontent.com/smol-kitten/cat-waf/refs/heads/main/backends/default/index.html
     command: /bin/sh -c "apk add --no-cache wget && wget https://raw.githubusercontent.com/smol-kitten/cat-waf/refs/heads/main/backends/default/index.html -O /usr/share/nginx/html/index.html && nginx -g 'daemon off;'"
     networks:
       - waf-network
@@ -138,6 +142,7 @@ services:
       - waf-network
     environment:
       - ACME_SH_EMAIL=${ACME_EMAIL:-admin@example.com}
+      - TZ=${TZ:-Europe/Berlin}
     command: daemon
     restart: unless-stopped
 
@@ -145,10 +150,11 @@ services:
     image: ghcr.io/smol-kitten/cat-waf-log-parser:latest
     container_name: waf-log-parser
     environment:
+      TZ: ${TZ:-Europe/Berlin}
       DB_HOST: mariadb
       DB_NAME: waf_db
       DB_USER: waf_user
-      DB_PASS: waf_secure_password_2024
+      DB_PASSWORD: ${DB_PASSWORD:-changeme}
     volumes:
       - ./logs/nginx:/var/log/nginx:ro
       - ./logs/modsec:/var/log/modsec:ro
