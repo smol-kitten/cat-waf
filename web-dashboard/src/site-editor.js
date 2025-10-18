@@ -368,11 +368,6 @@ function populateForm(data) {
     document.getElementById('compression_level').value = data.compression_level || 6;
     document.getElementById('compression_level_value').textContent = data.compression_level || 6;
     document.getElementById('compression_types').value = data.compression_types || 'text/html text/css text/javascript application/json application/xml';
-    document.getElementById('enable_caching').checked = data.enable_caching !== 0;
-    document.getElementById('cache_duration').value = data.cache_duration || 3600;
-    document.getElementById('cache_static_files').checked = false; // Disabled - causes 404s
-    document.getElementById('cache_max_size').value = data.cache_max_size || '1g';
-    document.getElementById('cache_path').value = data.cache_path || '/var/cache/nginx';
     document.getElementById('enable_image_optimization').checked = data.enable_image_optimization == 1;
     document.getElementById('image_quality').value = data.image_quality || 85;
     document.getElementById('image_quality_value').textContent = data.image_quality || 85;
@@ -627,11 +622,6 @@ function collectFormData() {
         enable_brotli: document.getElementById('enable_brotli').checked ? 1 : 0,
         compression_level: parseInt(document.getElementById('compression_level').value),
         compression_types: document.getElementById('compression_types').value,
-        enable_caching: document.getElementById('enable_caching').checked ? 1 : 0,
-        cache_duration: parseInt(document.getElementById('cache_duration').value),
-        cache_static_files: document.getElementById('cache_static_files').checked ? 1 : 0,
-        cache_max_size: document.getElementById('cache_max_size').value,
-        cache_path: document.getElementById('cache_path').value,
         enable_image_optimization: document.getElementById('enable_image_optimization').checked ? 1 : 0,
         image_quality: parseInt(document.getElementById('image_quality').value),
         image_max_width: parseInt(document.getElementById('image_max_width').value),

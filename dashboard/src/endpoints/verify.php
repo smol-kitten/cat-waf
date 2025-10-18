@@ -141,18 +141,6 @@ if (isset($input['load_balancing_enabled']) && $input['load_balancing_enabled'])
     }
 }
 
-// 6. Check caching configuration
-if (isset($input['caching_enabled']) && $input['caching_enabled']) {
-    $cacheTtl = $input['cache_ttl'] ?? 0;
-    
-    if ($cacheTtl <= 0) {
-        $warnings[] = [
-            'type' => 'warning',
-            'category' => 'caching',
-            'message' => 'Caching is enabled but TTL is 0 or not set'
-        ];
-    }
-}
 
 // 7. Check wildcard subdomain conflicts
 if (isset($input['wildcard_subdomains']) && $input['wildcard_subdomains']) {

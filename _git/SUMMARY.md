@@ -171,13 +171,11 @@ A **production-ready Web Application Firewall** with:
 - ✅ Response time tracking (avg, P95, P99)
 - ✅ Backend performance comparison
 - ✅ Slowest endpoint analysis
-- ✅ Cache status headers (HIT/MISS)
 - ✅ GoAccess real-time analytics
 - ✅ Access log viewer
 - ✅ Bot detection tracking
 
 **What's Planned:**
-- 📋 Cache hit rate calculation
 - 📋 Historical trend tracking
 - 📋 Email notifications (templates ready)
 - 📋 Slack/Discord webhooks

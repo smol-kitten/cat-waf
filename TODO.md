@@ -6,7 +6,6 @@
 - [x] Fix toggle/checkbox visibility (color scheme fix)
 - [x] Remove duplicate HTTP headers
 - [x] Remove X-Backend-Server header exposure
-- [x] Fix cache.php routing errors
 - [x] JavaScript Challenge for DDoS Protection
 - [x] GeoIP Blocking UI
 - [x] Site editor integration (no separate HTML files)
@@ -60,11 +59,6 @@
   - Added `real_ip_header X-Forwarded-For`
   - Trust Docker networks (172.16.0.0/12, 10.0.0.0/8, 192.168.0.0/16)
   - Enabled `real_ip_recursive` for multi-proxy chains
-- [x] **Cache Statistics Optimization**
-  - Created `nginx/cache-stats.sh` script
-  - Replaced 100+ docker exec calls with single script execution
-  - BusyBox-compatible commands (find + stat)
-  - Integrated into dashboard cache endpoint
 - [x] Special domain handling (_, *.local)
 - [x] Frontend error handling for certificates
 
@@ -125,10 +119,7 @@
 
 ### ~~Telemetry & Monitoring~~ ✅ COMPLETED
 - [x] **Fixed telemetry backend tracking** - Slowest endpoints now show hostname/domain
-- [x] **Cache stats working** - Backend calculates hit/miss rates correctly (1-hour window)
 - [x] **Data cleanup buttons** - Delete old logs and telemetry data with configurable age
-- [x] **Cache items listing** - Fixed backend to enumerate actual nginx cache files with BusyBox-compatible commands
-- [x] **Cache hit/miss display** - Frontend correctly shows rates from request_telemetry over last 1 hour
 - [x] **Bot Activity Chart fix** - Changed to show all available bot data instead of empty "last 24h from now" window
 - [x] **Security Events table scrolling** - Added max-height: 500px with sticky headers for long tables
 
@@ -150,11 +141,7 @@
 - [ ] IP reputation integration (AbuseIPDB)
 
 ### Performance
-- [ ] Per-site cache zones
-- [ ] Cache bypass rules
 - [ ] Dynamic compression optimization
-- [ ] **NGINX API Module** - Replace docker exec with ngx_http_api_module for 50x faster cache stats (see CACHE-IMPROVEMENTS.md)
-- [ ] **Configurable cache mount** - Allow users to specify host path, NFS, or S3 for cache storage
 
 ### Monitoring
 - [ ] Real-time log streaming

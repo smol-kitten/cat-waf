@@ -6,6 +6,50 @@
 
 require_once __DIR__ . '/../config.php';
 
+// Check if backup access is restricted to local IPs
+function isBackupAllowed() {
+    $db = getDB();
+    
+    // Check if local-only restriction is enabled
+    $stmt = $db->prepare("SELECT setting_value FROM settings WHERE setting_key = 'backup_local_only'");
+    $stmt->execute();
+    $result = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    $localOnly = $result && $result['setting_value'] === '1';
+    
+    if (!$localOnly) {
+        return true; // No restriction
+    }
+    
+    // Get client IP
+    $clientIP = $_SERVER['REMOTE_ADDR'];
+    
+    // Allow local/private IPs
+    $allowedPatterns = [
+        '/^127\./',           // 127.0.0.0/8
+        '/^10\./',            // 10.0.0.0/8
+        '/^172\.(1[6-9]|2[0-9]|3[01])\./', // 172.16.0.0/12
+        '/^192\.168\./',      // 192.168.0.0/16
+        '/^::1$/',            // IPv6 localhost
+        '/^fe80:/',           // IPv6 link-local
+    ];
+    
+    foreach ($allowedPatterns as $pattern) {
+        if (preg_match($pattern, $clientIP)) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+// Check access before processing
+if (!isBackupAllowed()) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Backup access restricted to local network only']);
+    exit;
+}
+
 header('Content-Type: application/json');
 
 $method = $_SERVER['REQUEST_METHOD'];

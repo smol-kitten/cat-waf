@@ -99,13 +99,12 @@ function handleSites($method, $params, $db) {
                     enable_rate_limit, custom_rate_limit, enable_geoip_blocking,
                     blocked_countries, allowed_countries, custom_config, ssl_enabled,
                     ssl_challenge_type, cf_api_token, cf_zone_id,
-                    enable_gzip, enable_brotli, compression_level, compression_types,
-                    enable_caching, cache_duration, cache_static_files, 
+                    enable_gzip, enable_brotli, compression_level, compression_types,                     
                     enable_image_optimization, image_quality, image_max_width,
                     enable_waf_headers, enable_telemetry, custom_headers, ip_whitelist,
                     wildcard_subdomains, disable_http_redirect, cf_bypass_ratelimit,
                     cf_custom_rate_limit, cf_rate_limit_burst)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             
             $stmt->execute([
@@ -131,8 +130,6 @@ function handleSites($method, $params, $db) {
                 $data['compression_level'] ?? 6,
                 $data['compression_types'] ?? 'text/html text/css text/javascript application/json application/xml',
                 $data['enable_caching'] ?? 1,
-                $data['cache_duration'] ?? 3600,
-                $data['cache_static_files'] ?? 0,
                 $data['enable_image_optimization'] ?? 0,
                 $data['image_quality'] ?? 85,
                 $data['image_max_width'] ?? 1920,
@@ -182,8 +179,7 @@ function handleSites($method, $params, $db) {
                 'enable_modsecurity', 'enable_geoip_blocking', 'blocked_countries', 
                 'allowed_countries', 'custom_config', 'ssl_enabled', 'ssl_cert_path', 
                 'ssl_key_path', 'ssl_redirect', 'enable_gzip', 'enable_brotli', 
-                'compression_level', 'compression_types', 'enable_caching', 'cache_duration', 
-                'cache_static_files', 'cache_max_size', 'cache_path', 'enable_image_optimization', 
+                'compression_level', 'compression_types', 'enable_caching', 'enable_image_optimization', 
                 'image_quality', 'image_max_width', 'image_webp_conversion', 'enable_waf_headers', 
                 'enable_telemetry', 'enable_bot_protection', 'bot_protection_level', 'custom_headers', 
                 'ip_whitelist', 'backends', 'lb_method', 'health_check_enabled', 
@@ -256,8 +252,7 @@ function handleSites($method, $params, $db) {
                 'enable_modsecurity', 'enable_geoip_blocking', 'blocked_countries', 
                 'allowed_countries', 'custom_config', 'ssl_enabled', 'ssl_cert_path', 
                 'ssl_key_path', 'ssl_redirect', 'enable_gzip', 'enable_brotli', 
-                'compression_level', 'compression_types', 'enable_caching', 'cache_duration', 
-                'cache_static_files', 'enable_image_optimization', 'image_quality', 
+                'compression_level', 'compression_types', 'enable_caching', 'enable_image_optimization', 'image_quality', 
                 'image_max_width', 'enable_waf_headers', 'enable_telemetry', 
                 'enable_bot_protection', 'custom_headers', 'ip_whitelist', 'backends',
                 'lb_method', 'health_check_enabled', 'health_check_interval', 'health_check_path',
@@ -436,8 +431,6 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
     $enable_brotli = $siteData['enable_brotli'] ?? 1;
     $compression_level = $siteData['compression_level'] ?? 6;
     $enable_caching = $siteData['enable_caching'] ?? 1;
-    $cache_duration = $siteData['cache_duration'] ?? 3600;
-    $cache_static = $siteData['cache_static_files'] ?? 1;
     $enable_image_opt = $siteData['enable_image_optimization'] ?? 0;
     $image_quality = $siteData['image_quality'] ?? 85;
     $enable_waf_headers = $siteData['enable_waf_headers'] ?? 1;
@@ -542,17 +535,6 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
     // Build NGINX config
     $config = "# Auto-generated config for {$domain}\n";
     $config .= "# Generated: " . date('Y-m-d H:i:s') . "\n\n";
-    
-    // Cache configuration (if enabled)
-    if ($enable_caching) {
-        $cache_zone_name = preg_replace('/[^a-z0-9_]/', '_', strtolower($domain)) . '_cache';
-        $cache_max_size = $siteData['cache_max_size'] ?? '100m';
-        $cache_path = $siteData['cache_path'] ?? '/var/cache/nginx';
-        $cache_path_full = "{$cache_path}/{$cache_zone_name}";
-        
-        $config .= "# Proxy cache zone\n";
-        $config .= "proxy_cache_path {$cache_path_full} levels=1:2 keys_zone={$cache_zone_name}:10m max_size={$cache_max_size} inactive=60m use_temp_path=off;\n\n";
-    }
     
     // Upstream definition with load balancing
     $config .= "upstream {$upstream_name} {\n";
@@ -678,8 +660,7 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
         if ($disable_http_redirect) {
             // Serve HTTP directly even with SSL enabled (backend handles redirect)
             $config .= generateLocationBlock($upstream_name, $domain, $modsec_enabled, $geoip_enabled, 
-                                               $blocked_countries, $rate_limit_zone, $custom_config,
-                                               $enable_caching, $cache_duration, $cache_static,
+                                               $blocked_countries, $rate_limit_zone, $custom_config,                                               
                                                $enable_waf_headers, $enable_telemetry, $custom_headers,
                                                $enable_basic_auth, $basic_auth_username, $basic_auth_password,
                                                $enable_image_opt, $image_quality, $enable_bot_protection,
@@ -695,7 +676,6 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
         // Serve HTTP directly
         $config .= generateLocationBlock($upstream_name, $domain, $modsec_enabled, $geoip_enabled, 
                                            $blocked_countries, $rate_limit_zone, $custom_config,
-                                           $enable_caching, $cache_duration, $cache_static,
                                            $enable_waf_headers, $enable_telemetry, $custom_headers,
                                            $enable_basic_auth, $basic_auth_username, $basic_auth_password,
                                            $enable_image_opt, $image_quality, $enable_bot_protection,
@@ -853,7 +833,6 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
         
         $config .= generateLocationBlock($upstream_name, $domain, $modsec_enabled, $geoip_enabled,
                                            $blocked_countries, $rate_limit_zone, $custom_config,
-                                           $enable_caching, $cache_duration, $cache_static,
                                            $enable_waf_headers, $enable_telemetry, $custom_headers,
                                            $enable_basic_auth, $basic_auth_username, $basic_auth_password,
                                            $enable_image_opt, $image_quality, $enable_bot_protection,
@@ -896,7 +875,6 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
 }
 
 function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_countries, $rate_limit, $custom_config,
-                               $enable_caching = true, $cache_duration = 3600, $cache_static = false,
                                $enable_waf_headers = true, $enable_telemetry = true, $custom_headers = '',
                                $enable_basic_auth = false, $basic_auth_username = '', $basic_auth_password = '',
                                $enable_image_opt = false, $image_quality = 85, $enable_bot_protection = true,
@@ -1022,51 +1000,7 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
         $block .= "\n";
     }
     
-    // Static file caching
-    //Disabled for now to avoid 404´s on all content that is supposed to be cahced
-    /*if ($cache_static && $enable_caching) {
-        $cache_zone_name = preg_replace('/[^a-z0-9_]/', '_', strtolower($domain)) . '_cache';
-        $static_cache_duration = $cache_duration * 10; // Cache static files 10x longer
-        $block .= "    # Static file caching\n";
-        $block .= "    location ~* \\.(jpg|jpeg|png|gif|ico|css|js|svg|woff|woff2|ttf|eot|webp|avif|mp4|webm)$ {\n";
-        
-        // Add JavaScript Challenge check for static files too
-        if ($challenge_enabled) {
-            $block .= "        # JavaScript Challenge Mode\n";
-            $block .= "        set \$challenge_passed 0;\n";
-            $block .= "        \n";
-            $block .= "        if (\$cookie_waf_challenge) {\n";
-            $block .= "            set \$challenge_passed 1;\n";
-            $block .= "        }\n";
-            $block .= "        if (\$cookie_waf_difficulty != '{$challenge_difficulty}') {\n";
-            $block .= "            set \$challenge_passed 0;\n";
-            $block .= "        }\n\n";
-            
-            // Bypass for Cloudflare if enabled
-            if ($challenge_bypass_cf) {
-                $block .= "        # Bypass challenge for Cloudflare\n";
-                $block .= "        if (\$http_cf_visitor) {\n";
-                $block .= "            set \$challenge_passed 1;\n";
-                $block .= "        }\n\n";
-            }
-            
-            $block .= "        # Redirect to challenge if not verified\n";
-            $block .= "        if (\$challenge_passed = 0) {\n";
-            $block .= "            return 302 /challenge.html?difficulty={$challenge_difficulty}&duration={$challenge_duration}&redirect=\$scheme://\$host\$request_uri;\n";
-            $block .= "        }\n\n";
-        }
-        
-        $block .= "        proxy_pass http://{$upstream};\n";
-        $block .= "        proxy_cache {$cache_zone_name};\n";
-        $block .= "        proxy_cache_valid 200 {$static_cache_duration}s;\n";
-        $block .= "        proxy_cache_key \$scheme\$proxy_host\$request_uri;\n";
-        $block .= "        proxy_cache_use_stale error timeout updating;\n";
-        $block .= "        add_header X-Cache-Status \$upstream_cache_status always;\n";
-        $block .= "        expires {$static_cache_duration}s;\n";
-        $block .= "        add_header Cache-Control \"public, immutable\";\n";
-        $block .= "    }\n\n";
-    }*/
-    
+      
     // Image optimization proxy (if enabled)
     if ($enable_image_opt) {
         $block .= "    # Image optimization\n";
@@ -1135,23 +1069,7 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
         $block .= "            return 302 /challenge.html?difficulty={$challenge_difficulty}&duration={$challenge_duration}&redirect=\$scheme://\$host\$request_uri;\n";
         $block .= "        }\n\n";
     }
-    
-    // Add cache directives if enabled
-    if ($enable_caching) {
-        $cache_zone_name = preg_replace('/[^a-z0-9_]/', '_', strtolower($domain)) . '_cache';
-        $block .= "        # Proxy caching\n";
-        $block .= "        proxy_cache {$cache_zone_name};\n";
-        $block .= "        proxy_cache_valid 200 302 {$cache_duration}s;\n";
-        $block .= "        proxy_cache_valid 404 1m;\n";
-        $block .= "        proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;\n";
-        $block .= "        proxy_cache_background_update on;\n";
-        $block .= "        proxy_cache_lock on;\n";
-        $block .= "        proxy_cache_key \$scheme\$proxy_host\$request_uri;\n";
-        $block .= "        proxy_cache_bypass \$http_pragma \$http_authorization;\n";
-        $block .= "        proxy_no_cache \$http_pragma \$http_authorization;\n";
-        $block .= "        add_header X-Cache-Status \$upstream_cache_status always;\n\n";
-    }
-    
+
     // If upstream backend expects HTTPS, use https:// scheme and enable proxy_ssl
     $use_https = isset($GLOBALS['upstream_https'][$upstream]) && $GLOBALS['upstream_https'][$upstream];
     $proxy_scheme = $use_https ? 'https' : 'http';

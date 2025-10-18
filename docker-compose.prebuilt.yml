@@ -18,7 +18,6 @@ services:
       # Data volumes (persistent across deployments)
       - waf-logs:/var/log
       - waf-certs:/etc/nginx/certs
-      - waf-nginx-cache:/var/cache/nginx
       - waf-fail2ban:/etc/fail2ban
     networks:
       - waf-network
@@ -44,7 +43,6 @@ services:
       # Configuration access (via volumes)
       - waf-nginx-sites:/etc/nginx/sites-enabled
       - waf-fail2ban:/etc/fail2ban
-      - waf-nginx-cache:/var/cache/nginx
       - fail2ban-socket:/var/run/fail2ban
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
@@ -255,9 +253,7 @@ volumes:
   # Fail2ban configuration and state
   waf-fail2ban:
     name: waf-fail2ban
-  # NGINX cache directory
-  waf-nginx-cache:
-    name: waf-nginx-cache
+
   # SSL/TLS certificates
   waf-certs:
     name: waf-certs

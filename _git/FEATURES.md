@@ -113,10 +113,6 @@ Last Updated: October 16, 2025
 ![IP Bans](_git/img/ipbans.png)
 *Manual and automated IP ban management*
 
-### Cache Management
-![Cache Management](_git/img/cachemanagement.png)
-*Cache statistics and purge controls*
-
 ### Performance Telemetry
 ![Telemetry](_git/img/telemetry.png)
 *Slow endpoints and response time analysis*
@@ -171,15 +167,6 @@ Last Updated: October 16, 2025
 - 🔧 Brotli support (module not installed, directives commented)
 - ✅ Default compression types (text/html, css, js, json, xml)
 
-### Caching
-- ✅ Browser cache headers
-- ✅ Cache duration configuration (seconds)
-- ✅ Per-site caching toggle
-- ✅ Static file cache control
-- 📋 Cache size limits
-- 📋 Cache path configuration
-- 📋 Cache purge functionality
-- 📋 Cache hit/miss statistics
 
 ---
 
@@ -226,13 +213,11 @@ Last Updated: October 16, 2025
 ### Telemetry System
 - ✅ Response time tracking
 - ✅ Backend server identification
-- ✅ Cache status headers (HIT/MISS)
 - ✅ Request ID tracking
 - ✅ Slowest endpoint analysis (P95, P99)
 - ✅ Backend performance grouping
 - ✅ Error rate tracking
 - ✅ URI pattern analysis
-- 🔧 Cache hit rate calculation (headers present, needs aggregation)
 
 ### Security Event Tracking
 - ✅ ModSecurity event logging
@@ -378,7 +363,6 @@ Last Updated: October 16, 2025
 - ✅ `X-Request-ID` unique identifier
 - ✅ `X-Response-Time` performance tracking
 - ✅ `X-Backend-Server` backend identification
-- ✅ `X-Cache-Status` cache hit/miss indicator
 - ✅ `Retry-After` header on 429 errors
 - ✅ Security headers (CSP, X-Frame-Options ready)
 
@@ -467,7 +451,6 @@ Last Updated: October 16, 2025
 - 🔧 Auto-ban service not running
 - 🔧 NGINX not auto-reloading on config changes
 - 🔧 Bot detections not populating database
-- 🔧 Cache hit rate not calculated
 
 ---
 

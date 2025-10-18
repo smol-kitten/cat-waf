@@ -19,7 +19,6 @@ function handleTelemetry($method, $params, $db) {
             $stats = [
                 'avg_response_time' => 0,
                 'requests_per_minute' => 0,
-                'cache_hit_rate' => 0,
                 'error_rate' => 0
             ];
             
@@ -43,20 +42,7 @@ function handleTelemetry($method, $params, $db) {
             $result = $stmt->fetch();
             $totalRequests = $result ? (int)$result['count'] : 0;
             $stats['requests_per_minute'] = $hours > 0 ? round($totalRequests / ($hours * 60), 0) : 0;
-            
-            // Cache hit rate
-            $stmt = $db->query("
-                SELECT 
-                    COUNT(*) as total,
-                    SUM(CASE WHEN cache_status = 'HIT' THEN 1 ELSE 0 END) as hits
-                FROM request_telemetry 
-                WHERE timestamp > DATE_SUB(NOW(), INTERVAL $hours HOUR)
-            ");
-            $result = $stmt->fetch();
-            if ($result && $result['total'] > 0) {
-                $stats['cache_hit_rate'] = round(($result['hits'] / $result['total']) * 100, 1);
-            }
-            
+       
             // Error rate (exclude NULL status codes)
             $stmt = $db->query("
                 SELECT 

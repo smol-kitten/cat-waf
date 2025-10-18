@@ -52,10 +52,7 @@
                     <span class="nav-icon">📊</span>
                     <span class="nav-text">Telemetry</span>
                 </a>
-                <a href="#" class="nav-item" data-page="cache">
-                    <span class="nav-icon">💾</span>
-                    <span class="nav-text">Cache</span>
-                </a>
+
                 <a href="#" class="nav-item" data-page="logs">
                     <span class="nav-icon">📝</span>
                     <span class="nav-text">Logs</span>
@@ -342,69 +339,6 @@
                     </div>
                 </div>
 
-                <!-- Cache Management Page -->
-                <div class="page" id="cache-page">
-                    <div class="page-header">
-                        <h2>💾 Cache Management</h2>
-                        <div class="header-actions">
-                            <button class="btn-danger" onclick="purgeAllCache()">🗑️ Purge All Cache</button>
-                            <button class="btn-secondary" onclick="loadCacheStats()">🔄 Refresh</button>
-                        </div>
-                    </div>
-                    
-                    <!-- Cache Stats -->
-                    <div class="stats-grid" style="margin-bottom: 2rem;">
-                        <div class="stat-card">
-                            <div class="stat-label">Total Cached Items</div>
-                            <div class="stat-value" id="cacheTotalItems">0</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-label">Cache Size</div>
-                            <div class="stat-value" id="cacheTotalSize">0 MB</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-label">Hit Rate</div>
-                            <div class="stat-value" id="cacheHitRate">0%</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-label">Miss Rate</div>
-                            <div class="stat-value" id="cacheMissRate">0%</div>
-                        </div>
-                    </div>
-                    
-                    <!-- Purge by Pattern -->
-                    <div class="settings-card" style="margin-bottom: 2rem;">
-                        <h3>Purge Cache by Pattern</h3>
-                        <div class="setting-item">
-                            <label>URL Pattern (wildcard * supported)</label>
-                            <div style="display: flex; gap: 0.5rem;">
-                                <input type="text" id="cachePattern" class="setting-input" placeholder="/api/*, *.jpg, /static/*" style="margin-bottom: 0;">
-                                <button class="btn-primary" onclick="purgeCachePattern()">Purge Pattern</button>
-                            </div>
-                            <small style="color: #666; margin-top: 0.5rem; display: block;">
-                                Examples: /api/* (all API), *.jpg (all JPG images), /static/* (all static files)
-                            </small>
-                        </div>
-                    </div>
-                    
-                    <!-- Cache Items Table -->
-                    <div class="settings-card">
-                        <h3>Cached Items</h3>
-                        <div class="filter-bar" style="margin-bottom: 1rem;">
-                            <input type="text" id="cacheSearchFilter" class="filter-input" placeholder="Search by URL..." onkeyup="filterCacheItems()">
-                            <select class="filter-select" id="cacheSortBy" onchange="sortCacheItems()">
-                                <option value="time">Sort by Time</option>
-                                <option value="size">Sort by Size</option>
-                                <option value="hits">Sort by Hits</option>
-                                <option value="url">Sort by URL</option>
-                            </select>
-                        </div>
-                        <div id="cacheItemsContainer">
-                            <p style="color: #666;">Loading cache items...</p>
-                        </div>
-                    </div>
-                </div>
-
                 <!-- Settings Page -->
                 <div class="page" id="settings-page">
                     <div class="page-header">
@@ -553,16 +487,27 @@
                         <!-- Backup & Restore Card -->
                         <div class="settings-card" style="grid-column: 1 / -1;">
                             <h3>💾 Backup & Restore</h3>
-                            <p style="color: #666; margin-bottom: 1.5rem;">
+                            <p style="color: #666; margin-bottom: 1rem;">
                                 Export your CatWAF configuration, sites, and data for backup or migration. Import from a previous backup to restore your setup.
                             </p>
+                            
+                            <!-- Security Setting -->
+                            <div style="background: #e3f2fd; border: 1px solid #2196f3; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem;">
+                                <label class="checkbox-label" style="display: flex; align-items: center; margin: 0;">
+                                    <input type="checkbox" id="backupLocalOnly" onchange="saveBackupSettings()">
+                                    <span>🔒 Restrict backup access to local network only (recommended for production)</span>
+                                </label>
+                                <p style="margin: 0.5rem 0 0 1.5rem; font-size: 0.85rem; color: #1565c0;">
+                                    When enabled, backup/import operations only work from 127.0.0.1, 10.x.x.x, 172.16-31.x.x, or 192.168.x.x
+                                </p>
+                            </div>
                             
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
                                 <!-- Export Section -->
                                 <div>
                                     <h4>📤 Export Backup</h4>
-                                    <div id="backupInfo" style="background: #f5f5f5; padding: 1rem; border-radius: 8px; margin: 1rem 0; font-size: 0.9rem;">
-                                        <p style="margin: 0.5rem 0;"><strong>Estimating backup size...</strong></p>
+                                    <div id="backupInfo" style="background: #f5f5f5; padding: 1rem; border-radius: 8px; margin: 1rem 0; font-size: 0.9rem; color: #333;">
+                                        <p style="margin: 0.5rem 0; color: #333;"><strong>Estimating backup size...</strong></p>
                                     </div>
                                     <p style="font-size: 0.85rem; color: #666; margin-bottom: 1rem;">
                                         Backup includes: sites, settings, telemetry (30 days), bot detections (30 days), security events (30 days), access logs (7 days), custom rules, and rate limit presets.
@@ -881,13 +826,6 @@
                         </div>
                         <div class="stat-card">
                             <div class="stat-header">
-                                <span class="stat-icon">💾</span>
-                                <span class="stat-label">Cache Hit Rate</span>
-                            </div>
-                            <div class="stat-value success" id="cacheHitRate">0%</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-header">
                                 <span class="stat-icon">🎯</span>
                                 <span class="stat-label">Error Rate</span>
                             </div>
@@ -1193,26 +1131,7 @@
                 <hr style="border-color: var(--border-color); margin: 1.5rem 0;">
                 <h4 style="color: var(--primary-color); margin-bottom: 1rem;">💾 Caching</h4>
                 
-                <div class="form-group">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="siteCaching" checked>
-                        <span>Enable Caching</span>
-                    </label>
-                </div>
-                
-                <div class="form-group">
-                    <label>Cache Duration (seconds)</label>
-                    <input type="number" id="siteCacheDuration" placeholder="3600" class="form-input" min="60" value="3600">
-                    <small style="color: var(--text-muted);">How long to cache responses (default: 1 hour)</small>
-                </div>
-                
-                <div class="form-group">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="siteCacheStatic" checked>
-                        <span>Cache Static Files (images, CSS, JS)</span>
-                    </label>
-                </div>
-                
+                                
                 <hr style="border-color: var(--border-color); margin: 1.5rem 0;">
                 <h4 style="color: var(--primary-color); margin-bottom: 1rem;">� JavaScript Challenge (DDoS Protection)</h4>
                 

@@ -145,11 +145,7 @@ try {
                 require_once 'endpoints/certificates.php';
             }
             break;
-            
-        case 'cache':
-            require_once 'endpoints/cache.php';
-            break;
-            
+                        
         case 'challenge':
             require_once 'endpoints/challenge.php';
             handleChallenge($method, array_slice($uri, 1), $db);

@@ -25,7 +25,6 @@ if (preg_match('#/cache/stats$#', $requestUri) || $pathSegment === 'stats') {
         echo json_encode(['error' => 'Method not allowed']);
         exit;
     }
-    getCacheStats();
     exit;
 }
 
@@ -63,78 +62,6 @@ if (preg_match('#/cache/purge$#', $requestUri)) {
 http_response_code(404);
 echo json_encode(['error' => 'Endpoint not found']);
 exit;
-
-function getCacheStats() {
-    // Get cache statistics from NGINX container using optimized cache-stats.sh script
-    $output = shell_exec("docker exec waf-nginx sh -c '/usr/local/bin/cache-stats.sh' 2>&1");
-    
-    if (empty($output)) {
-        echo json_encode([
-            'total_items' => 0,
-            'total_size' => 0,
-            'zones' => []
-        ]);
-        return;
-    }
-    
-    $cacheData = json_decode($output, true);
-    
-    if (!$cacheData || !isset($cacheData['total'])) {
-        echo json_encode([
-            'total_items' => 0,
-            'total_size' => 0,
-            'zones' => []
-        ]);
-        return;
-    }
-    
-    $totalSize = $cacheData['total']['size'];
-    $totalItems = $cacheData['total']['items'];
-    
-    // Get hit/miss stats from access logs
-    // Use global $db from index.php
-    global $db;
-    try {
-        $stmt = $db->query("
-            SELECT 
-                COUNT(*) as total,
-                SUM(CASE WHEN cache_status = 'HIT' THEN 1 ELSE 0 END) as hits,
-                SUM(CASE WHEN cache_status = 'MISS' THEN 1 ELSE 0 END) as misses
-            FROM request_telemetry 
-            WHERE timestamp > DATE_SUB(NOW(), INTERVAL 1 HOUR)
-        ");
-        $stats = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        $total = $stats['total'] ?? 0;
-        $hits = $stats['hits'] ?? 0;
-        $misses = $stats['misses'] ?? 0;
-        
-        $hitRate = $total > 0 ? ($hits / $total) * 100 : 0;
-        $missRate = $total > 0 ? ($misses / $total) * 100 : 0;
-        
-        echo json_encode([
-            'stats' => [
-                'total_items' => $totalItems,
-                'total_size' => $totalSize,
-                'hit_rate' => round($hitRate, 2),
-                'miss_rate' => round($missRate, 2),
-                'hits' => $hits,
-                'misses' => $misses,
-                'total_requests' => $total
-            ]
-        ]);
-    } catch (Exception $e) {
-        error_log("Error getting cache stats: " . $e->getMessage());
-        echo json_encode([
-            'stats' => [
-                'total_items' => $totalItems,
-                'total_size' => $totalSize,
-                'hit_rate' => 0,
-                'miss_rate' => 0
-            ]
-        ]);
-    }
-}
 
 function getCacheItems() {
     $cacheDir = '/var/cache/nginx';

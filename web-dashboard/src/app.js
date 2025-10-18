@@ -197,11 +197,6 @@ function navigateToPage(page) {
 }
 
 async function loadPageData(page) {
-    // Stop cache auto-refresh when leaving cache page
-    if (page !== 'cache') {
-        stopCacheStatsAutoRefresh();
-    }
-    
     switch(page) {
         case 'overview':
             await loadDashboardData();
@@ -227,10 +222,6 @@ async function loadPageData(page) {
             break;
         case 'analytics':
             await loadGoAccessData();
-            break;
-        case 'cache':
-            await loadCacheStats();
-            startCacheStatsAutoRefresh();
             break;
         case 'logs':
             await populateLogSiteFilter();
@@ -1683,11 +1674,6 @@ window.addSite = async () => {
     const brotliEnabled = document.getElementById('siteBrotli')?.checked;
     const compressionLevel = document.getElementById('siteCompressionLevel')?.value || 6;
     
-    // Caching
-    const cachingEnabled = document.getElementById('siteCaching')?.checked;
-    const cacheDuration = document.getElementById('siteCacheDuration')?.value || 3600;
-    const cacheStatic = document.getElementById('siteCacheStatic')?.checked;
-    
     // Image Optimization
     const imageOptEnabled = document.getElementById('siteImageOpt')?.checked;
     const imageQuality = document.getElementById('siteImageQuality')?.value || 85;
@@ -1728,13 +1714,10 @@ window.addSite = async () => {
                 allowed_countries: allowedCountries || null,
                 custom_config: Object.keys(customConfig).length > 0 ? JSON.stringify(customConfig) : null,
                 enabled: 1,
-                // New fields
+                // Compression & optimization
                 enable_gzip: gzipEnabled ? 1 : 0,
                 enable_brotli: brotliEnabled ? 1 : 0,
                 compression_level: parseInt(compressionLevel),
-                enable_caching: cachingEnabled ? 1 : 0,
-                cache_duration: parseInt(cacheDuration),
-                cache_static_files: cacheStatic ? 1 : 0,
                 enable_image_optimization: imageOptEnabled ? 1 : 0,
                 image_quality: parseInt(imageQuality),
                 enable_waf_headers: wafHeaders ? 1 : 0,
@@ -2160,8 +2143,6 @@ async function loadTelemetryData() {
             document.getElementById('avgResponseTime').textContent = 
                 stats.avg_response_time ? `${stats.avg_response_time}ms` : 'N/A';
             document.getElementById('requestsPerMinute').textContent = stats.requests_per_minute || '0';
-            document.getElementById('cacheHitRate').textContent = 
-                stats.cache_hit_rate ? `${stats.cache_hit_rate}%` : 'N/A';
             document.getElementById('errorRate').textContent = 
                 stats.error_rate ? `${stats.error_rate}%` : 'N/A';
         }
@@ -2373,229 +2354,6 @@ async function loadGoAccessData() {
 }
 
 // ============================================
-// Cache Management Page
-// ============================================
-let cacheItemsData = [];
-
-// Auto-refresh cache stats every 10 seconds
-let cacheStatsInterval = null;
-
-function startCacheStatsAutoRefresh() {
-    // Clear existing interval if any
-    if (cacheStatsInterval) {
-        clearInterval(cacheStatsInterval);
-    }
-    
-    // Start new interval
-    cacheStatsInterval = setInterval(() => {
-        loadCacheStats(true); // Silent refresh (no toast on error)
-    }, 10000);
-}
-
-function stopCacheStatsAutoRefresh() {
-    if (cacheStatsInterval) {
-        clearInterval(cacheStatsInterval);
-        cacheStatsInterval = null;
-    }
-}
-
-async function loadCacheStats(silent = false) {
-    try {
-        const response = await apiRequest('/cache/stats');
-        const stats = response?.stats || {};
-        
-        // Update stats cards with animation
-        updateStatWithAnimation('cacheTotalItems', stats.total_items || 0);
-        document.getElementById('cacheTotalSize').textContent = formatBytes(stats.total_size || 0);
-        document.getElementById('cacheHitRate').textContent = `${(stats.hit_rate || 0).toFixed(1)}%`;
-        document.getElementById('cacheMissRate').textContent = `${(stats.miss_rate || 0).toFixed(1)}%`;
-        
-        // Load cache items
-        await loadCacheItems();
-    } catch (error) {
-        console.error('Error loading cache stats:', error);
-        if (!silent) {
-            showToast('Failed to load cache statistics', 'error');
-        }
-    }
-}
-
-function updateStatWithAnimation(elementId, newValue) {
-    const element = document.getElementById(elementId);
-    if (!element) return;
-    
-    const oldValue = parseInt(element.textContent) || 0;
-    if (oldValue !== newValue) {
-        element.style.transition = 'all 0.3s';
-        element.style.transform = 'scale(1.1)';
-        element.style.color = '#fbbf24';
-        element.textContent = newValue;
-        
-        setTimeout(() => {
-            element.style.transform = 'scale(1)';
-            element.style.color = '';
-        }, 300);
-    } else {
-        element.textContent = newValue;
-    }
-}
-
-async function loadCacheItems() {
-    try {
-        const response = await apiRequest('/cache/items');
-        cacheItemsData = response?.items || [];
-        
-        renderCacheItems(cacheItemsData);
-    } catch (error) {
-        console.error('Error loading cache items:', error);
-        const container = document.getElementById('cacheItemsContainer');
-        if (container) {
-            container.innerHTML = '<p style="color: #ff6b6b;">Failed to load cache items</p>';
-        }
-    }
-}
-
-function renderCacheItems(items) {
-    const container = document.getElementById('cacheItemsContainer');
-    if (!container) return;
-    
-    if (items.length === 0) {
-        container.innerHTML = '<p style="color: #666; padding: 2rem; text-align: center;">No cached items found</p>';
-        return;
-    }
-    
-    let html = '<table class="data-table"><thead><tr>';
-    html += '<th>URL</th>';
-    html += '<th>Size</th>';
-    html += '<th>Age</th>';
-    html += '<th>Hits</th>';
-    html += '<th>Last Access</th>';
-    html += '<th>Actions</th>';
-    html += '</tr></thead><tbody>';
-    
-    items.forEach(item => {
-        html += '<tr>';
-        const url = item.url || item.key || 'Unknown';
-        const hitsDisplay = (item.hits === null || item.hits === undefined) ? 'N/A' : item.hits;
-        html += `<td><code>${escapeHtml(url)}</code></td>`;
-        html += `<td>${formatBytes(item.size)}</td>`;
-        html += `<td>${formatAge(item.age)}</td>`;
-        html += `<td><span class="badge badge-primary">${hitsDisplay}</span></td>`;
-        html += `<td>${item.last_access || 'N/A'}</td>`;
-        html += `<td><button class="btn-secondary btn-sm" onclick="purgeCacheItem('${escapeHtml(item.key)}')">Purge</button></td>`;
-        html += '</tr>';
-    });
-    
-    html += '</tbody></table>';
-    container.innerHTML = html;
-}
-
-function filterCacheItems() {
-    const searchText = document.getElementById('cacheSearchFilter').value.toLowerCase();
-    const filtered = cacheItemsData.filter(item => 
-        item.url.toLowerCase().includes(searchText)
-    );
-    renderCacheItems(filtered);
-}
-
-function sortCacheItems() {
-    const sortBy = document.getElementById('cacheSortBy').value;
-    const sorted = [...cacheItemsData];
-    
-    switch(sortBy) {
-        case 'time':
-            sorted.sort((a, b) => b.age - a.age);
-            break;
-        case 'size':
-            sorted.sort((a, b) => b.size - a.size);
-            break;
-        case 'hits':
-            sorted.sort((a, b) => (b.hits || 0) - (a.hits || 0));
-            break;
-        case 'url':
-            sorted.sort((a, b) => a.url.localeCompare(b.url));
-            break;
-    }
-    
-    renderCacheItems(sorted);
-}
-
-window.purgeAllCache = async () => {
-    if (!confirm('⚠️ Are you sure you want to purge ALL cached items?\n\nThis will temporarily increase load on backend servers as cache rebuilds.')) {
-        return;
-    }
-    
-    try {
-        showToast('Purging all cache...', 'info');
-        await apiRequest('/cache/purge', { method: 'POST' });
-        showToast('All cache purged successfully!', 'success');
-        await loadCacheStats();
-    } catch (error) {
-        console.error('Error purging cache:', error);
-        showToast('Failed to purge cache', 'error');
-    }
-};
-
-window.purgeCachePattern = async () => {
-    const pattern = document.getElementById('cachePattern').value.trim();
-    if (!pattern) {
-        showToast('Please enter a URL pattern', 'error');
-        return;
-    }
-    
-    if (!confirm(`Purge all cache items matching pattern: ${pattern}?`)) {
-        return;
-    }
-    
-    try {
-        showToast(`Purging cache for pattern: ${pattern}...`, 'info');
-        await apiRequest('/cache/purge', {
-            method: 'POST',
-            body: JSON.stringify({ pattern })
-        });
-        showToast(`Cache purged for pattern: ${pattern}`, 'success');
-        document.getElementById('cachePattern').value = '';
-        await loadCacheStats();
-    } catch (error) {
-        console.error('Error purging cache pattern:', error);
-        showToast('Failed to purge cache pattern', 'error');
-    }
-};
-
-window.purgeCacheItem = async (key) => {
-    try {
-        await apiRequest(`/cache/items/${encodeURIComponent(key)}`, {
-            method: 'DELETE'
-        });
-        showToast('Cache item purged', 'success');
-        await loadCacheStats();
-    } catch (error) {
-        console.error('Error purging cache item:', error);
-        showToast('Failed to purge cache item', 'error');
-    }
-};
-
-function formatBytes(bytes) {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-function formatAge(seconds) {
-    if (seconds < 60) return `${seconds}s`;
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
-    return `${Math.floor(seconds / 86400)}d`;
-}
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
 window.unbanIP = unbanIP;
 window.saveSettings = saveSettings;
 window.loadBans = loadBans;
@@ -2928,22 +2686,6 @@ function renderPerformanceTab() {
             </div>
         </div>
         
-        <div class="editor-panel">
-            <h3>⚡ Caching</h3>
-            <p>Cache static files in browser</p>
-            <div class="form-group">
-                <label class="checkbox-label">
-                    <input type="checkbox" id="edit_enable_caching" ${data.enable_caching !== 0 ? 'checked' : ''}>
-                    <span>Enable Static File Caching</span>
-                </label>
-            </div>
-            
-            <div class="form-group">
-                <label>Cache Duration (seconds)</label>
-                <input type="number" id="edit_cache_duration" class="form-input" value="${data.cache_duration || 3600}" min="1">
-                <small style="color: var(--text-muted);">How long browsers should cache static files (default: 1 hour)</small>
-            </div>
-        </div>
         
         <div class="editor-panel">
             <h3>🧩 JavaScript Challenge</h3>
@@ -3353,58 +3095,26 @@ function renderBackendsList() {
                         <span>HTTPS</span>
                     </label>
                     <label class="checkbox-label" style="margin:0;">
-                        <input type="checkbox" class="backend-proto-enabled" data-proto="ws" data-id="${backend.id}" ${backend.proto?.ws !== false ? 'checked' : ''} onchange="toggleBackendProtocol(${backend.id}, 'ws')">
-                        <span>WS</span>
-                    </label>
-                    <label class="checkbox-label" style="margin:0;">
-                        <input type="checkbox" class="backend-proto-enabled" data-proto="wss" data-id="${backend.id}" ${backend.proto?.wss !== false ? 'checked' : ''} onchange="toggleBackendProtocol(${backend.id}, 'wss')">
-                        <span>WSS</span>
+                        <input type="checkbox" class="backend-proto-enabled" data-proto="websocket" data-id="${backend.id}" ${backend.proto?.websocket ? 'checked' : ''} onchange="toggleBackendProtocol(${backend.id}, 'websocket')">
+                        <span>WebSocket</span>
                     </label>
                 </div>
-                <small style="color: var(--text-muted); display:block; margin-top:0.5rem;">Enable only the protocols this backend supports. Ports shown below are per-protocol.</small>
+                <small style="color: var(--text-muted); display:block; margin-top:0.5rem;">Select which protocols this backend supports</small>
             </div>
 
-            <div id="backend-ports-${backend.id}">
-                <div class="backend-fields" style="display:flex; gap:1rem; flex-wrap:wrap;">
-                    ${backend.proto?.http !== false ? `
-                    <div class="form-group" style="min-width:140px;">
-                        <label>HTTP Port</label>
-                        <input type="number" class="form-input backend-http-port" data-id="${backend.id}" value="${backend.httpPort || 80}" min="1" max="65535" onchange="updateEditorBackend(${backend.id})">
-                    </div>
-                    ` : ''}
-                    ${backend.proto?.https !== false ? `
-                    <div class="form-group" style="min-width:140px;">
-                        <label>HTTPS Port</label>
-                        <input type="number" class="form-input backend-https-port" data-id="${backend.id}" value="${backend.httpsPort || 443}" min="1" max="65535" onchange="updateEditorBackend(${backend.id})">
-                    </div>
-                    ` : ''}
-                    ${backend.proto?.ws !== false ? `
-                    <div class="form-group" style="min-width:140px;">
-                        <label>WebSocket Port</label>
-                        <input type="number" class="form-input backend-ws-port" data-id="${backend.id}" value="${backend.wsPort || 80}" min="1" max="65535" onchange="updateEditorBackend(${backend.id})">
-                    </div>
-                    ` : ''}
-                    ${backend.proto?.wss !== false ? `
-                    <div class="form-group" style="min-width:140px;">
-                        <label>WSS Port</label>
-                        <input type="number" class="form-input backend-wss-port" data-id="${backend.id}" value="${backend.wssPort || 443}" min="1" max="65535" onchange="updateEditorBackend(${backend.id})">
-                    </div>
-                    ` : ''}
-                    
-                    <!-- Single port fallback -->
-                    <div class="form-group" style="min-width:140px;">
-                        <label>Fallback Port</label>
-                        <input type="number" class="form-input backend-port" data-id="${backend.id}" value="${backend.port || 8080}" min="1" max="65535" onchange="updateEditorBackend(${backend.id})">
-                        <small style="color: var(--text-muted);">Used if protocol-specific port not set</small>
-                    </div>
+            <div class="backend-fields" style="display:flex; gap:1rem; flex-wrap:wrap;">
+                <div class="form-group" style="min-width:140px;">
+                    <label>HTTP Port</label>
+                    <input type="number" class="form-input backend-http-port" data-id="${backend.id}" value="${backend.httpPort || 80}" min="1" max="65535" onchange="updateEditorBackend(${backend.id})">
                 </div>
-            </div>
-            
-            <div id="backend-single-port-${backend.id}" style="${backend.useProtocolPorts ? 'display: none;' : ''}">
-                <div class="form-group">
-                    <label>Port *</label>
-                    <input type="number" class="form-input backend-port" data-id="${backend.id}" value="${backend.port || 8080}" min="1" max="65535" onchange="updateEditorBackend(${backend.id})">
-                    <small style="color: var(--text-muted);">Same port for all protocols</small>
+                <div class="form-group" style="min-width:140px;">
+                    <label>HTTPS Port</label>
+                    <input type="number" class="form-input backend-https-port" data-id="${backend.id}" value="${backend.httpsPort || 443}" min="1" max="65535" onchange="updateEditorBackend(${backend.id})">
+                </div>
+                <div class="form-group" style="min-width:140px;">
+                    <label>WebSocket Port</label>
+                    <input type="number" class="form-input backend-ws-port" data-id="${backend.id}" value="${backend.wsPort || 80}" min="1" max="65535" onchange="updateEditorBackend(${backend.id})">
+                    <small style="color: var(--text-muted);">For WS/WSS traffic</small>
                 </div>
             </div>
             
@@ -3440,12 +3150,9 @@ function addEditorBackend() {
     editorBackends.push({
         id: editorBackendIdCounter++,
         address: '',
-        port: 8080,
-        useProtocolPorts: false,
         httpPort: 80,
         httpsPort: 443,
         wsPort: 80,
-        wssPort: 443,
         weight: 1,
         max_fails: 3,
         fail_timeout: 30,
@@ -3500,21 +3207,17 @@ function updateEditorBackend(id) {
     backend.fail_timeout = parseInt(document.querySelector(`.backend-fail-timeout[data-id="${id}"]`)?.value) || 30;
     backend.backup = document.querySelector(`.backend-backup[data-id="${id}"]`)?.checked || false;
     backend.down = document.querySelector(`.backend-down[data-id="${id}"]`)?.checked || false;
-    // Protocol enable flags
+    
+    // Protocol enable flags (simplified: http, https, websocket)
     backend.proto = backend.proto || {};
     backend.proto.http = document.querySelector(`.backend-proto-enabled[data-id="${id}"][data-proto="http"]`)?.checked || false;
     backend.proto.https = document.querySelector(`.backend-proto-enabled[data-id="${id}"][data-proto="https"]`)?.checked || false;
-    backend.proto.ws = document.querySelector(`.backend-proto-enabled[data-id="${id}"][data-proto="ws"]`)?.checked || false;
-    backend.proto.wss = document.querySelector(`.backend-proto-enabled[data-id="${id}"][data-proto="wss"]`)?.checked || false;
+    backend.proto.websocket = document.querySelector(`.backend-proto-enabled[data-id="${id}"][data-proto="websocket"]`)?.checked || false;
 
-    // Read ports (if protocol is enabled, else fallback to single port)
-    if (backend.proto.http) backend.httpPort = parseInt(document.querySelector(`.backend-http-port[data-id="${id}"]`)?.value) || 80;
-    if (backend.proto.https) backend.httpsPort = parseInt(document.querySelector(`.backend-https-port[data-id="${id}"]`)?.value) || 443;
-    if (backend.proto.ws) backend.wsPort = parseInt(document.querySelector(`.backend-ws-port[data-id="${id}"]`)?.value) || 80;
-    if (backend.proto.wss) backend.wssPort = parseInt(document.querySelector(`.backend-wss-port[data-id="${id}"]`)?.value) || 443;
-
-    // Always keep a fallback single port
-    backend.port = parseInt(document.querySelector(`.backend-port[data-id="${id}"]`)?.value) || backend.port || 8080;
+    // Simplified ports: HTTP, HTTPS, WebSocket
+    backend.httpPort = parseInt(document.querySelector(`.backend-http-port[data-id="${id}"]`)?.value) || 80;
+    backend.httpsPort = parseInt(document.querySelector(`.backend-https-port[data-id="${id}"]`)?.value) || 443;
+    backend.wsPort = parseInt(document.querySelector(`.backend-ws-port[data-id="${id}"]`)?.value) || 80;
     
     // Auto-save backends when updated
     clearTimeout(autoSaveTimeout);
@@ -3755,8 +3458,6 @@ async function saveSiteEditor() {
         // Performance tab
         set('enable_gzip', 'edit_enable_gzip', true);
         set('enable_brotli', 'edit_enable_brotli', true);
-        set('enable_caching', 'edit_enable_caching', true);
-        set('cache_duration', 'edit_cache_duration', false, val => parseInt(val) || 3600);
         set('challenge_enabled', 'edit_challenge_enabled', true);
         set('challenge_difficulty', 'edit_challenge_difficulty', false, val => parseInt(val) || 18);
         set('challenge_duration', 'edit_challenge_duration', false, val => parseFloat(val) || 1);
@@ -4005,7 +3706,7 @@ function saveAddSiteFormData() {
         'new_domain', 'new_backend_url', 'new_enabled', 'new_wildcard_subdomains',
         'new_enable_modsecurity', 'new_enable_bot_protection', 'new_enable_rate_limit',
         'new_rate_limit_zone', 'new_custom_rate_limit', 'new_rate_limit_burst',
-        'new_enable_gzip', 'new_enable_brotli', 'new_enable_caching', 'new_cache_duration',
+        'new_enable_gzip', 'new_enable_brotli',
         'new_ssl_enabled', 'new_ssl_challenge_type', 'new_cf_api_token', 'new_cf_zone_id',
         'new_enable_geoip_blocking', 'new_blocked_countries', 'new_ip_whitelist',
         'new_enable_basic_auth', 'new_auth_username', 'new_auth_password'
@@ -4734,13 +4435,13 @@ async function loadBackupInfo() {
         if (response.success && response.info) {
             const info = response.info;
             const html = `
-                <p style="margin: 0.5rem 0;"><strong>Estimated Backup Size:</strong> ${info.estimated_size_mb} MB</p>
-                <p style="margin: 0.5rem 0;"><strong>Sites:</strong> ${info.sites.toLocaleString()}</p>
-                <p style="margin: 0.5rem 0;"><strong>Settings:</strong> ${info.settings.toLocaleString()}</p>
-                <p style="margin: 0.5rem 0;"><strong>Telemetry Records (30d):</strong> ${info.telemetry_30d.toLocaleString()}</p>
-                <p style="margin: 0.5rem 0;"><strong>Bot Detections (30d):</strong> ${info.bot_detections_30d.toLocaleString()}</p>
-                <p style="margin: 0.5rem 0;"><strong>ModSecurity Events (30d):</strong> ${info.modsec_events_30d.toLocaleString()}</p>
-                <p style="margin: 0.5rem 0;"><strong>Access Logs (7d):</strong> ${info.access_logs_7d.toLocaleString()}</p>
+                <p style="margin: 0.5rem 0; color: #333;"><strong>Estimated Backup Size:</strong> ${info.estimated_size_mb} MB</p>
+                <p style="margin: 0.5rem 0; color: #333;"><strong>Sites:</strong> ${info.sites.toLocaleString()}</p>
+                <p style="margin: 0.5rem 0; color: #333;"><strong>Settings:</strong> ${info.settings.toLocaleString()}</p>
+                <p style="margin: 0.5rem 0; color: #333;"><strong>Telemetry Records (30d):</strong> ${info.telemetry_30d.toLocaleString()}</p>
+                <p style="margin: 0.5rem 0; color: #333;"><strong>Bot Detections (30d):</strong> ${info.bot_detections_30d.toLocaleString()}</p>
+                <p style="margin: 0.5rem 0; color: #333;"><strong>ModSecurity Events (30d):</strong> ${info.modsec_events_30d.toLocaleString()}</p>
+                <p style="margin: 0.5rem 0; color: #333;"><strong>Access Logs (7d):</strong> ${info.access_logs_7d.toLocaleString()}</p>
             `;
             document.getElementById('backupInfo').innerHTML = html;
             backupInfoLoaded = true;
@@ -4757,11 +4458,10 @@ async function exportBackup() {
     try {
         showToast('Generating backup... This may take a few moments', 'info');
         
-        // Use window.location to trigger download
-        const apiUrl = document.getElementById('apiUrl')?.value || 'http://dashboard:80';
+        // Use window.location to trigger download with proper API base URL
         const token = localStorage.getItem('apiToken');
         
-        window.location.href = `${apiUrl}/backup/export?token=${encodeURIComponent(token)}`;
+        window.location.href = `${API_BASE_URL}/backup/export?token=${encodeURIComponent(token)}`;
         
         setTimeout(() => {
             showToast('Backup download started!', 'success');
@@ -4846,10 +4546,44 @@ async function importBackup() {
     }
 }
 
+async function saveBackupSettings() {
+    try {
+        const backupLocalOnly = document.getElementById('backupLocalOnly').checked;
+        
+        await apiRequest('/settings', {
+            method: 'POST',
+            body: JSON.stringify({
+                backup_local_only: backupLocalOnly ? '1' : '0'
+            })
+        });
+        
+        showToast('Backup security settings saved', 'success');
+    } catch (error) {
+        console.error('Error saving backup settings:', error);
+        showToast('Failed to save backup settings', 'error');
+    }
+}
+
+async function loadBackupSettings() {
+    try {
+        const response = await apiRequest('/settings');
+        if (response.settings) {
+            const backupLocalOnly = response.settings.find(s => s.setting_key === 'backup_local_only');
+            if (backupLocalOnly && document.getElementById('backupLocalOnly')) {
+                document.getElementById('backupLocalOnly').checked = backupLocalOnly.setting_value === '1';
+            }
+        }
+    } catch (error) {
+        console.error('Error loading backup settings:', error);
+    }
+}
+
 // Expose backup functions globally
 window.exportBackup = exportBackup;
 window.importBackup = importBackup;
 window.loadBackupInfo = loadBackupInfo;
+window.saveBackupSettings = saveBackupSettings;
+window.loadBackupSettings = loadBackupSettings;
 
 // Config Verification Functions
 async function verifySiteConfig(siteData) {
@@ -4889,30 +4623,37 @@ async function verifyCurrentSiteConfig() {
     
     const result = await verifySiteConfig(currentSiteData);
     
-    if (result.valid) {
-        showToast('✓ Configuration is valid!', 'success');
-    } else {
-        let message = 'Configuration has issues:\n\n';
-        
-        if (result.issues && result.issues.length > 0) {
-            message += '❌ Errors:\n';
-            result.issues.forEach(issue => {
-                message += `• [${issue.category}] ${issue.message}\n`;
-            });
-        }
-        
-        if (result.warnings && result.warnings.length > 0) {
-            message += '\n⚠️ Warnings:\n';
-            result.warnings.forEach(warning => {
-                message += `• [${warning.category}] ${warning.message}\n`;
-            });
-        }
-        
-        if (result.summary.can_save) {
-            message += '\n\nYou can still save, but warnings should be reviewed.';
-        }
-        
+    // Always show feedback, even for valid configs
+    if (result.valid && result.issues.length === 0 && result.warnings.length === 0) {
+        showToast('✅ Configuration is valid! No issues found.', 'success');
+        return;
+    }
+    
+    // Build detailed message for issues/warnings
+    let message = '';
+    
+    if (result.issues && result.issues.length > 0) {
+        message += '❌ ERRORS (must fix):\n';
+        result.issues.forEach(issue => {
+            message += `  • [${issue.category}] ${issue.message}\n`;
+        });
+    }
+    
+    if (result.warnings && result.warnings.length > 0) {
+        if (message) message += '\n';
+        message += '⚠️ WARNINGS (recommended fixes):\n';
+        result.warnings.forEach(warning => {
+            message += `  • [${warning.category}] ${warning.message}\n`;
+        });
+    }
+    
+    if (message) {
         alert(message);
+        if (result.valid) {
+            showToast('⚠️ Configuration has warnings but can be saved', 'warning');
+        } else {
+            showToast('❌ Configuration has errors - cannot save!', 'error');
+        }
     }
     
     return result;
@@ -4931,6 +4672,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const backupInfoEl = document.getElementById('backupInfo');
         if (backupInfoEl && !backupInfoLoaded && !backupInfoLoading) {
             loadBackupInfo();
+            loadBackupSettings(); // Also load backup security settings
             // Disconnect after first successful load attempt
             if (backupObserver) {
                 backupObserver.disconnect();

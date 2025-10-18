@@ -18,7 +18,6 @@ services:
       - waf-logs:/var/log
       - waf-certs:/etc/nginx/certs
       - waf-certs:/acme.sh  # Mount acme storage at /acme.sh for direct access to certificates
-      - waf-nginx-cache:/var/cache/nginx
       - waf-fail2ban:/etc/fail2ban
     networks:
       - waf-network
@@ -106,7 +105,6 @@ services:
       # Configuration access (via volumes)
       - waf-nginx-sites:/etc/nginx/sites-enabled
       - waf-fail2ban:/etc/fail2ban
-      - waf-nginx-cache:/var/cache/nginx
       - ./fail2ban-socket:/var/run/fail2ban
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
@@ -212,8 +210,6 @@ volumes:
     name: waf-mysql-data
   waf-fail2ban:
     name: waf-fail2ban
-  waf-nginx-cache:
-    name: waf-nginx-cache
   waf-certs:
     name: waf-certs
   waf-logs:

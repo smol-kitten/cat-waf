@@ -54,18 +54,15 @@ docker compose up -d --build
 - **GeoIP Filtering** - MaxMind GeoIP2 database integration with country-level blocking
 
 ### Beautiful Dashboard
-- **11 Pages** - Overview, Sites, Security Events, ModSecurity, Bot Protection, IP Bans, Cache, Telemetry, Logs, Settings
+- **Pages** - Overview, Sites, Security Events, ModSecurity, Bot Protection, IP Bans, Telemetry, Logs, Settings
 - **Live Editing** - Auto-save changes 800ms after typing stops, no save button needed
-- **Real-Time Stats** - Total requests, attacks blocked, cache hit rate, response times
+- **Real-Time Stats** - Total requests, attacks blocked, response times
 - **Catboy Theme** - Custom pink/purple gradient design with cute catboy aesthetic
 - **Responsive** - Works on desktop, tablet, and mobile devices
 
 ### Performance & Optimization
 - **Brotli Compression** - 10-20% better compression than gzip for faster page loads
-- **Proxy Caching** - Configurable cache duration per site with cache statistics
-- **Static File Caching** - 10x cache duration for images, CSS, JS files
 - **Image Optimization** - On-the-fly resize and quality reduction (JPEG)
-- **GoAccess Analytics** - Real-time visitor statistics with embedded dashboard
 
 ### Easy Management
 - **One-Click Site Setup** - Add protected sites in seconds with automatic NGINX config generation

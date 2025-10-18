@@ -5,8 +5,6 @@
 
 
 [X] Modescurity set Paranoia Level not saving - FIXED: Corrected database column reference (setting_value)
-[X] Hitrate and Missrate always 0 in Dashboard - FIXED: Backend calculates from request_telemetry.cache_status (last 1 hour)
-[X] Cached Items always empty in Dashboard - FIXED: Backend now queries nginx container cache files with BusyBox-compatible commands
 [X] Logs not properly showing all access/security logs - FIXED: Added regex parsing for raw NGINX log format
 [X] No site filter for logs - FIXED: Added site dropdown filter in logs page
 [X] 🔐 SSL/TLS Certificates (Let's Encrypt) in Settings tab getting long and hard to manage - FIXED: Added scrollable container (max-height: 500px)
@@ -72,10 +70,6 @@ dom1.tld	/assets/screenshots/2025-08-16_02.56.25.png	342ms	342ms	342ms	2
   - Proper two-tier symlink creation for ECC certificates
   - Cloudflare token fallback: site-specific → global CLOUDFLARE_API_TOKEN
   - Tested successfully with cat-boy.dev (valid Let's Encrypt cert issued)
-- [x] **Cache Statistics Optimization** - Replaced 100+ docker exec calls with single script
-  - Created `nginx/cache-stats.sh` with BusyBox-compatible commands
-  - Returns JSON with per-zone statistics (find + stat)
-  - Integrated into dashboard cache endpoint
 - [x] **Real IP Preservation** - Nginx now captures real client IPs instead of Docker gateway
   - Added `real_ip_header X-Forwarded-For` configuration
   - Trusts Docker networks (172.16.0.0/12, 10.0.0.0/8, 192.168.0.0/16)
@@ -98,17 +92,11 @@ dom1.tld	/assets/screenshots/2025-08-16_02.56.25.png	342ms	342ms	342ms	2
 - [x] Bot Protection Confidence - Fixed null% display, shows "N/A" when no data, actual percentage when available
 - [x] Long tables (Bot Detections) - Added scrollable containers (max-height: 400px) with sticky headers
 - [x] Site filter for logs - Added dropdown to filter access logs by domain
-- [x] Cache stats backend - Verified working, uses docker exec to count nginx cache files
-- [x] Hit/Miss rate tracking - Uses request_telemetry.cache_status column
 
-**Session 13 - Cache Management Fixes (October 18, 2025):**
-- [x] Cache items listing - Fixed backend to query nginx container files with BusyBox-compatible find/stat commands
-- [x] Cache KEY extraction - Implemented docker exec grep to extract URLs from NGINX cache file headers
 - [x] Frontend null handling - Updated app.js to display 'N/A' for null hits and fallback to key when URL missing
 - [x] Hit/Miss rate calculation - Verified working from request_telemetry over last 1 hour window
 - [x] Bot Activity Chart - Changed to show all available data instead of enforcing empty "last 24h from now" window
 - [x] Recent Security Events scrolling - Added max-height: 500px with sticky table headers
-- [x] Documented NGINX API module improvement in CACHE-IMPROVEMENTS.md (50x faster alternative to docker exec)
 
 ## Known Issues to Address
 

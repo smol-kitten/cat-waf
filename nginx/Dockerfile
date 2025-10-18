@@ -99,10 +99,6 @@ COPY banlist.conf /etc/nginx/banlist.conf
 COPY config-watcher.sh /usr/local/bin/config-watcher.sh
 RUN chmod +x /usr/local/bin/config-watcher.sh
 
-# Copy cache statistics script
-COPY cache-stats.sh /usr/local/bin/cache-stats.sh
-RUN chmod +x /usr/local/bin/cache-stats.sh
-
 # Copy error pages
 COPY error-pages /usr/share/nginx/error-pages
 
