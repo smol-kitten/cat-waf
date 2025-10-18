@@ -22,6 +22,17 @@ function handleStats($method, $params, $db) {
             }
             
             // Get blocks and warnings from telemetry
+            // Parse ModSecurity rules loaded from nginx error log
+            $rulesLoaded = 0;
+            $logFile = '/var/log/nginx/error.log';
+            if (file_exists($logFile)) {
+                $cmd = "tail -100 " . escapeshellarg($logFile) . " | grep 'ModSecurity-nginx' | grep 'rules loaded' | tail -1";
+                $output = shell_exec($cmd);
+                if ($output && preg_match('/rules loaded inline\/local\/remote: (\d+)\/(\d+)\/(\d+)/', $output, $matches)) {
+                    $rulesLoaded = (int)$matches[1] + (int)$matches[2] + (int)$matches[3];
+                }
+            }
+            
             $blocksStmt = $db->query("SELECT COUNT(*) as count FROM request_telemetry WHERE status_code >= 400 AND timestamp >= DATE_SUB(NOW(), INTERVAL 24 HOUR)");
             $blocks = $blocksStmt->fetch()['count'] ?? 0;
             
@@ -57,10 +68,10 @@ function handleStats($method, $params, $db) {
                 $stats['warnings_today'] = $result ? (int)$result['count'] : 0;
                 
                 // Get paranoia level from settings
-                $stmt = $db->query("SELECT value FROM settings WHERE `key` = 'paranoia_level'");
+                $stmt = $db->query("SELECT setting_value FROM settings WHERE setting_key = 'paranoia_level'");
                 $result = $stmt->fetch();
                 if ($result) {
-                    $stats['paranoia_level'] = (int)$result['value'];
+                    $stats['paranoia_level'] = (int)$result['setting_value'];
                 }
             } catch (Exception $e) {
                 // Database not ready yet - return default values

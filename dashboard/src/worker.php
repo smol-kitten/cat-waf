@@ -5,21 +5,10 @@
  * Processes jobs from the queue
  */
 
-require_once __DIR__ . '/config/database.php';
+require_once __DIR__ . '/config.php';
 
 $running = true;
 $sleepTime = 5; // seconds between checks
-
-// Handle graceful shutdown
-pcntl_signal(SIGTERM, function() use (&$running) {
-    echo "Received SIGTERM, shutting down gracefully...\n";
-    $running = false;
-});
-
-pcntl_signal(SIGINT, function() use (&$running) {
-    echo "Received SIGINT, shutting down gracefully...\n";
-    $running = false;
-});
 
 echo "Job worker started. Waiting for jobs...\n";
 
@@ -27,7 +16,6 @@ echo "Job worker started. Waiting for jobs...\n";
 parseModSecurityAuditLog();
 
 while ($running) {
-    pcntl_signal_dispatch();
     
     try {
         $db = getDB();

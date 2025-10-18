@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>503 Service Unavailable - CatWAF</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #333;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 3rem;
+            max-width: 600px;
+            text-align: center;
+            animation: slideIn 0.5s ease-out;
+        }
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .logo {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            animation: bounce 2s infinite;
+        }
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        h1 {
+            color: #667eea;
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+        .status-code {
+            font-size: 6rem;
+            font-weight: bold;
+            color: #764ba2;
+            line-height: 1;
+            margin-bottom: 1rem;
+        }
+        p {
+            color: #666;
+            font-size: 1.1rem;
+            line-height: 1.6;
+            margin-bottom: 1.5rem;
+        }
+        .info-box {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 1.5rem;
+            margin: 2rem 0;
+            text-align: left;
+        }
+        .info-box h3 {
+            color: #667eea;
+            margin-bottom: 0.5rem;
+        }
+        .info-box ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        .info-box li {
+            padding: 0.5rem 0;
+            color: #555;
+        }
+        .info-box li:before {
+            content: "→ ";
+            color: #667eea;
+            font-weight: bold;
+        }
+        .footer {
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #eee;
+            color: #999;
+            font-size: 0.9rem;
+        }
+        .retry-btn {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 30px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: bold;
+            margin-top: 1rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .retry-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">🐱</div>
+        <div class="status-code">503</div>
+        <h1>Service Temporarily Unavailable</h1>
+        <p>The backend server is currently unavailable. This could be due to maintenance or temporary overload.</p>
+        
+        <div class="info-box">
+            <h3>🔍 What happened?</h3>
+            <ul>
+                <li>The backend service may be restarting</li>
+                <li>Maintenance is currently in progress</li>
+                <li>The upstream server is not responding</li>
+                <li>Connection timeout occurred</li>
+            </ul>
+        </div>
+
+        <div class="info-box">
+            <h3>💡 What can you do?</h3>
+            <ul>
+                <li>Wait a few moments and try again</li>
+                <li>Contact the site administrator if this persists</li>
+                <li>Check back later for updates</li>
+            </ul>
+        </div>
+
+        <a href="javascript:window.location.reload()" class="retry-btn">🔄 Retry Now</a>
+
+        <div class="footer">
+            Protected by <strong>CatWAF</strong> 🛡️<br>
+            Your request was processed but the backend is unavailable
+        </div>
+    </div>
+
+    <script>
+        // Auto-retry after 10 seconds
+        setTimeout(() => {
+            const btn = document.querySelector('.retry-btn');
+            btn.textContent = '🔄 Auto-retrying...';
+            btn.style.opacity = '0.7';
+            setTimeout(() => window.location.reload(), 1000);
+        }, 10000);
+    </script>
+</body>
+</html>

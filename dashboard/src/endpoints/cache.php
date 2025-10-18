@@ -65,21 +65,31 @@ echo json_encode(['error' => 'Endpoint not found']);
 exit;
 
 function getCacheStats() {
-    // Get cache statistics from NGINX - scan all cache zones
-    $cacheDir = '/var/cache/nginx';
+    // Get cache statistics from NGINX container using optimized cache-stats.sh script
+    $output = shell_exec("docker exec waf-nginx sh -c '/usr/local/bin/cache-stats.sh' 2>&1");
     
-    $totalSize = 0;
-    $totalItems = 0;
-    
-    if (is_dir($cacheDir)) {
-        // Find all files recursively in all cache zones
-        $output = shell_exec("find {$cacheDir}/*_cache {$cacheDir}/__cache -type f 2>/dev/null | wc -l");
-        $totalItems = intval(trim($output));
-        
-        // Get total size of all cache zones
-        $output = shell_exec("du -sb {$cacheDir}/*_cache {$cacheDir}/__cache 2>/dev/null | awk '{sum+=\$1} END {print sum}'");
-        $totalSize = intval(trim($output));
+    if (empty($output)) {
+        echo json_encode([
+            'total_items' => 0,
+            'total_size' => 0,
+            'zones' => []
+        ]);
+        return;
     }
+    
+    $cacheData = json_decode($output, true);
+    
+    if (!$cacheData || !isset($cacheData['total'])) {
+        echo json_encode([
+            'total_items' => 0,
+            'total_size' => 0,
+            'zones' => []
+        ]);
+        return;
+    }
+    
+    $totalSize = $cacheData['total']['size'];
+    $totalItems = $cacheData['total']['items'];
     
     // Get hit/miss stats from access logs
     // Use global $db from index.php
@@ -129,64 +139,73 @@ function getCacheStats() {
 function getCacheItems() {
     $cacheDir = '/var/cache/nginx';
     $items = [];
-    
-    if (!is_dir($cacheDir)) {
+
+    // Run find inside the nginx container - BusyBox find doesn't support -printf
+    // So we use find + stat to get file info
+    $innerFind = "find {$cacheDir} -type f \\( -path '{$cacheDir}/*_cache/*' -o -path '{$cacheDir}/__cache/*' \\) 2>/dev/null | head -100";
+    $findCmd = "docker exec waf-nginx sh -c " . escapeshellarg($innerFind) . " 2>&1";
+    $output = shell_exec($findCmd);
+    if (!$output) {
         echo json_encode(['items' => []]);
         return;
     }
-    
-    // Find cache files in all cache zones and get metadata
-    $command = "find {$cacheDir}/*_cache {$cacheDir}/__cache -type f -printf '%s %T@ %p\n' 2>/dev/null | head -100";
-    exec($command, $output);
-    
-    foreach ($output as $line) {
-        $parts = explode(' ', $line, 3);
-        if (count($parts) < 3) continue;
+
+    $paths = array_filter(array_map('trim', explode("\n", $output)));
+    foreach ($paths as $path) {
+        if (empty($path)) continue;
         
-        $size = intval($parts[0]);
-        $mtime = floatval($parts[1]);
-        $path = $parts[2];
+        // Get file info using stat (BusyBox compatible)
+        $statCmd = "docker exec waf-nginx stat -c '%s %Y' " . escapeshellarg($path) . " 2>/dev/null";
+        $statOutput = trim(shell_exec($statCmd));
+        if (!$statOutput) continue;
         
-        // Try to extract URL from cache key file
-        $keyFile = $path;
-        $url = extractUrlFromCacheFile($keyFile);
+        $statParts = explode(' ', $statOutput);
+        if (count($statParts) < 2) continue;
         
+        $size = intval($statParts[0]);
+        $mtime = intval($statParts[1]);
+
+        // Try to extract URL/key from the cache file by grepping inside the nginx container
+        $url = extractUrlFromCacheFile($path);
+
         $items[] = [
             'key' => basename($path),
             'url' => $url,
             'size' => $size,
             'age' => time() - intval($mtime),
             'last_access' => date('Y-m-d H:i:s', intval($mtime)),
-            'hits' => rand(1, 100) // TODO: Get real hit count from nginx
+            'hits' => null // TODO: Get real hit count from nginx if available
         ];
     }
-    
+
     echo json_encode(['items' => $items]);
 }
 
 function extractUrlFromCacheFile($cachePath) {
-    // Try to read the cache file header to extract URL
-    $handle = @fopen($cachePath, 'r');
-    if (!$handle) return 'Unknown';
-    
-    $header = fread($handle, 2048);
-    fclose($handle);
-    
-    // Look for KEY: line in NGINX cache format
-    if (preg_match('/KEY:\s*([^\n\r]+)/', $header, $matches)) {
-        $key = trim($matches[1]);
-        // Extract domain and path from cache key (format: http://backend:port/path)
-        if (preg_match('#https?://[^/]+(.+)$#', $key, $urlMatch)) {
-            return $urlMatch[1];
+    // Because the cache files live inside the nginx container, try to read
+    // the first part of the file there and grep for a KEY: line.
+
+    // Escape the path for inclusion in shell command and run grep inside the nginx container
+    $innerGrep = 'grep -a -m1 "KEY:" ' . escapeshellarg($cachePath) . ' 2>/dev/null || true';
+    $cmd = "docker exec waf-nginx sh -c " . escapeshellarg($innerGrep) . " 2>&1";
+    $output = shell_exec($cmd);
+    if ($output) {
+        // Output may contain lines; find the KEY: part
+        if (preg_match('/KEY:\s*(.+)/', $output, $m)) {
+            $key = trim($m[1]);
+            // Try to extract path portion from a full URL-like key
+            if (preg_match('#https?://[^/]+(.+)$#', $key, $urlMatch)) {
+                return $urlMatch[1];
+            }
+            return $key;
         }
-        return $key;
     }
-    
-    // Extract zone name from path
+
+    // If we couldn't extract a key, try to derive a short label from the path
     if (preg_match('#/([^/]+_cache|__cache)/#', $cachePath, $match)) {
         return 'Cached item (' . $match[1] . ')';
     }
-    
+
     return basename($cachePath);
 }
 

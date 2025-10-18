@@ -216,13 +216,14 @@ function setupConditionalDisplays() {
     const authPassword = document.getElementById('auth_password');
     
     if (enableBasicAuth) {
-        // Debounced validation
+        // Debounced validation - require BOTH username AND password
         const validateAuth = debounce(() => {
             if (enableBasicAuth.checked) {
                 const username = authUsername?.value || '';
-                if (!username || username.trim() === '') {
+                const password = authPassword?.value || '';
+                if (!username || username.trim() === '' || !password || password.trim() === '') {
                     enableBasicAuth.checked = false;
-                    showToast('warning', 'Basic auth requires a username');
+                    showToast('warning', 'Basic auth requires both username AND password');
                 }
             }
         }, 500);
@@ -275,9 +276,12 @@ function setupConditionalDisplays() {
 // Load Site Data
 async function loadSiteData(silent = false) {
     try {
-        const response = await fetch(`${API_BASE_URL}/sites/${siteId}`, {
+        // Add cache-busting timestamp to force fresh data
+        const response = await fetch(`${API_BASE_URL}/sites/${siteId}?t=${Date.now()}`, {
             headers: {
-                'Authorization': `Bearer ${API_TOKEN}`
+                'Authorization': `Bearer ${API_TOKEN}`,
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache'
             }
         });
         
@@ -659,21 +663,20 @@ function collectFormData() {
     const authUsername = document.getElementById('auth_username').value;
     const authPassword = document.getElementById('auth_password').value;
     
-    // Auto-disable basic auth if credentials are missing
-    if (enableBasicAuth && (!authUsername || authUsername.trim() === '')) {
+    // Auto-disable basic auth if EITHER credential is missing
+    if (enableBasicAuth && (!authUsername || authUsername.trim() === '' || !authPassword || authPassword.trim() === '')) {
         document.getElementById('enable_basic_auth').checked = false;
-        showToast('warning', 'Basic auth disabled - username is required');
+        showToast('warning', 'Basic auth disabled - both username AND password are required');
     }
     
-    if (enableBasicAuth && authUsername && authUsername.trim() !== '') {
+    // Only add basic auth if BOTH credentials are present
+    if (enableBasicAuth && authUsername && authUsername.trim() !== '' && authPassword && authPassword.trim() !== '') {
         const customConfig = {
             basic_auth: {
-                username: authUsername
+                username: authUsername,
+                password: authPassword
             }
         };
-        if (authPassword) {
-            customConfig.basic_auth.password = authPassword;
-        }
         data.custom_config = JSON.stringify(customConfig);
     }
     

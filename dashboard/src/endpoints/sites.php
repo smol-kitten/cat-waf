@@ -31,10 +31,33 @@ function generateApr1Hash($plainpasswd) {
 }
 
 function handleSites($method, $params, $db) {
+    error_log("handleSites called: method=$method, params=" . json_encode($params));
+    
     // Check if this is a backends sub-route: /sites/:id/backends
     if (isset($params[1]) && $params[1] === 'backends') {
         require_once __DIR__ . '/backends.php';
         return;
+    }
+    // Check if request wants raw generated config: /sites/:id/config
+    if (isset($params[1]) && $params[1] === 'config' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+        error_log("Config endpoint matched! Site ID: " . $params[0]);
+        // Ensure site exists
+        $stmt = $db->prepare("SELECT * FROM sites WHERE id = ?");
+        $stmt->execute([$params[0]]);
+        $site = $stmt->fetch();
+        if (!$site) {
+            sendResponse(['error' => 'Site not found'], 404);
+        }
+
+        // Generate config (pass returnString=true to get config instead of writing)
+        $config = generateSiteConfig($params[0], $site, true);
+        if ($config === false) {
+            sendResponse(['error' => 'Failed to generate config'], 500);
+        }
+
+        header('Content-Type: text/plain');
+        echo $config;
+        exit; // Important: exit to prevent sendResponse wrapper
     }
     
     switch ($method) {
@@ -182,6 +205,22 @@ function handleSites($method, $params, $db) {
             
             if (empty($fields)) {
                 sendResponse(['error' => 'No valid fields to update'], 400);
+            }
+            
+            // If backends are being updated, sync backend_url from first backend for compatibility
+            if (array_key_exists('backends', $data)) {
+                $backends = json_decode($data['backends'], true);
+                if (!empty($backends) && is_array($backends)) {
+                    // Set backend_url to first backend's address
+                    $firstBackend = $backends[0];
+                    $backendUrl = $firstBackend['address'] ?? '';
+                    
+                    // Add backend_url to update if not already present
+                    if (!array_key_exists('backend_url', $data)) {
+                        $fields[] = "backend_url = ?";
+                        $values[] = $backendUrl;
+                    }
+                }
             }
             
             $values[] = $params[0];
@@ -355,7 +394,7 @@ function handleSites($method, $params, $db) {
     }
 }
 
-function generateSiteConfig($siteId, $siteData) {
+function generateSiteConfig($siteId, $siteData, $returnString = false) {
     global $db;
     
     // Fetch full site data if only ID provided
@@ -431,6 +470,16 @@ function generateSiteConfig($siteId, $siteData) {
     $health_check_enabled = $siteData['health_check_enabled'] ?? 0;
     $health_check_interval = $siteData['health_check_interval'] ?? 30;
     $health_check_path = $siteData['health_check_path'] ?? '/';
+    
+    // Wildcard subdomain support
+    $wildcard_subdomains = $siteData['wildcard_subdomains'] ?? 0;
+    
+    // Build server_name directive
+    if ($wildcard_subdomains && $domain !== '_') {
+        $server_name = "*.{$domain} {$domain}";
+    } else {
+        $server_name = $domain;
+    }
     
     // Create upstream name (sanitize domain)
     $upstream_name = preg_replace('/[^a-z0-9_]/', '_', strtolower($domain)) . '_backend';
@@ -517,6 +566,8 @@ function generateSiteConfig($siteId, $siteData) {
     if ($backends && is_array($backends) && count($backends) > 0) {
         foreach ($backends as $backend_config) {
             $server = $backend_config['address'] ?? '';
+            $port = $backend_config['port'] ?? null; // Fallback port
+            $useProtocolPorts = $backend_config['useProtocolPorts'] ?? false;
             $weight = $backend_config['weight'] ?? 1;
             $max_fails = $backend_config['max_fails'] ?? 3;
             $fail_timeout = $backend_config['fail_timeout'] ?? 30;
@@ -524,7 +575,31 @@ function generateSiteConfig($siteId, $siteData) {
             $down = ($backend_config['down'] ?? false) ? ' down' : '';
             
             if (!empty($server)) {
-                // If backend uses HTTPS, ensure we keep port 443 in server entry
+                // Build server address with port
+                // If not using protocol-specific ports, use the fallback port
+                if (!$useProtocolPorts && $port) {
+                    $server = "{$server}:{$port}";
+                } elseif ($useProtocolPorts) {
+                    // For protocol-specific ports, we need to determine which protocol to use
+                    // For now, try HTTP port first, then HTTPS, then fallback
+                    $httpPort = $backend_config['httpPort'] ?? null;
+                    $httpsPort = $backend_config['httpsPort'] ?? null;
+                    $proto = $backend_config['proto'] ?? [];
+                    
+                    // Determine which port to use based on enabled protocols
+                    if (!empty($proto['http']) && $httpPort) {
+                        $server = "{$server}:{$httpPort}";
+                    } elseif (!empty($proto['https']) && $httpsPort) {
+                        $server = "{$server}:{$httpsPort}";
+                    } elseif ($httpPort) {
+                        $server = "{$server}:{$httpPort}";
+                    } elseif ($httpsPort) {
+                        $server = "{$server}:{$httpsPort}";
+                    } elseif ($port) {
+                        $server = "{$server}:{$port}";
+                    }
+                }
+                
                 $config .= "    server {$server}";
                 if ($weight != 1) $config .= " weight={$weight}";
                 $config .= " max_fails={$max_fails} fail_timeout={$fail_timeout}s";
@@ -577,14 +652,15 @@ function generateSiteConfig($siteId, $siteData) {
         $config .= "server {\n";
         $config .= "    listen 80;\n";
         $config .= "    listen [::]:80;\n";
-        $config .= "    server_name {$domain};\n\n";
+        $config .= "    server_name {$server_name};\n\n";
     
     // Error pages
     $config .= "    # Custom error pages\n";
     $config .= "    error_page 429 /errors/429.html;\n";
     $config .= "    error_page 403 /errors/403.html;\n";
     $config .= "    error_page 404 /errors/404.html;\n";
-    $config .= "    error_page 500 502 503 504 /errors/500.html;\n";
+    $config .= "    error_page 500 502 504 /errors/500.html;\n";
+    $config .= "    error_page 503 /errors/503.html;\n";
     $config .= "    location ^~ /errors/ {\n";
     $config .= "        alias /usr/share/nginx/error-pages/;\n";
     $config .= "        internal;\n";
@@ -634,7 +710,7 @@ function generateSiteConfig($siteId, $siteData) {
         $config .= "    listen 443 ssl;\n";
         $config .= "    listen [::]:443 ssl;\n";
         $config .= "    http2 on;\n";
-        $config .= "    server_name {$domain};\n\n";
+        $config .= "    server_name {$server_name};\n\n";
         
         // Error pages
         $config .= "    # Custom error pages\n";
@@ -787,6 +863,11 @@ function generateSiteConfig($siteId, $siteData) {
     }
     
     } // end of if (!$isDefaultCatchall)
+    
+    // If returnString mode, just return the config without writing
+    if ($returnString) {
+        return $config;
+    }
     
     // Write config file
     $config_path = "/etc/nginx/sites-enabled/{$domain}.conf";

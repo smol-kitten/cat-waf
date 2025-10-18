@@ -49,6 +49,11 @@ function handleSettings($method, $params, $db) {
                     ");
                     $stmt->execute([$key, $value]);
                 }
+                
+                // Handle paranoia level update
+                if ($key === 'paranoia_level') {
+                    updateModSecurityParanoiaLevel($value);
+                }
             }
             
             sendResponse(['success' => true, 'message' => 'Settings updated']);
@@ -73,10 +78,66 @@ function handleSettings($method, $params, $db) {
             ");
             $stmt->execute([$data['value'], $params[0]]);
             
+            // Handle paranoia level update
+            if ($params[0] === 'paranoia_level') {
+                updateModSecurityParanoiaLevel($data['value']);
+            }
+            
             sendResponse(['success' => true, 'message' => 'Setting updated']);
             break;
             
         default:
             sendResponse(['error' => 'Method not allowed'], 405);
     }
+}
+
+/**
+ * Update ModSecurity paranoia level in the nginx container
+ */
+function updateModSecurityParanoiaLevel($level) {
+    $level = (int)$level;
+    
+    // Validate paranoia level (1-4)
+    if ($level < 1 || $level > 4) {
+        error_log("Invalid paranoia level: $level. Must be between 1 and 4.");
+        return false;
+    }
+    
+    $configFile = '/etc/nginx/modsecurity/coreruleset/crs-setup.conf';
+    
+    // Read current config
+    $dockerExec = "docker exec waf-nginx sh -c";
+    $readCmd = "$dockerExec \"cat $configFile\"";
+    $config = shell_exec($readCmd);
+    
+    if (!$config) {
+        error_log("Failed to read ModSecurity config file");
+        return false;
+    }
+    
+    // Update paranoia level using regex
+    $pattern = '/setvar:tx\.paranoia_level=\d+/';
+    $replacement = "setvar:tx.paranoia_level=$level";
+    
+    if (preg_match($pattern, $config)) {
+        // Replace existing paranoia level
+        $newConfig = preg_replace($pattern, $replacement, $config);
+    } else {
+        // Paranoia level not found, append it
+        $newConfig = $config . "\n\n# Set paranoia level\n";
+        $newConfig .= "SecAction \"id:900000,phase:1,nolog,pass,t:none,setvar:tx.paranoia_level=$level\"\n";
+    }
+    
+    // Write updated config back
+    $escapedConfig = addslashes($newConfig);
+    $writeCmd = "$dockerExec \"echo '$escapedConfig' > $configFile\"";
+    shell_exec($writeCmd);
+    
+    // Reload nginx to apply changes
+    $reloadCmd = "$dockerExec \"nginx -s reload\"";
+    $output = shell_exec($reloadCmd . " 2>&1");
+    
+    error_log("ModSecurity paranoia level updated to $level. Nginx reload output: " . $output);
+    
+    return true;
 }

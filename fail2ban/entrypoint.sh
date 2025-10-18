@@ -22,5 +22,17 @@ fi
 
 echo "Starting fail2ban..."
 
+# Remove stale socket if it exists
+if [ -S "/var/run/fail2ban/fail2ban.sock" ]; then
+    echo "Removing stale fail2ban socket..."
+    rm -f /var/run/fail2ban/fail2ban.sock
+fi
+
+# Remove stale PID file if it exists
+if [ -f "/var/run/fail2ban/fail2ban.pid" ]; then
+    echo "Removing stale fail2ban PID file..."
+    rm -f /var/run/fail2ban/fail2ban.pid
+fi
+
 # Start fail2ban in foreground
 exec fail2ban-server -f

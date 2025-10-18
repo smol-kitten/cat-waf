@@ -160,6 +160,10 @@ try {
             handleCustomBlockRules($method, array_slice($uri, 1), $db);
             break;
             
+        case 'cleanup':
+            require_once 'endpoints/cleanup.php';
+            break;
+            
         default:
             http_response_code(404);
             echo json_encode(['error' => 'Endpoint not found']);

@@ -1,5 +1,5 @@
 -- Custom Block Rules Table
--- Migration for adding path-based blocking rules
+-- Migration 07: Adding path-based blocking rules
 
 USE waf_db;
 

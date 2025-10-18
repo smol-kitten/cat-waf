@@ -29,8 +29,29 @@
 
     <script src="toast.js"></script>
     <script>
-        const API_BASE = 'http://localhost:8080/api';
+        const API_BASE = window.location.protocol + '//' + window.location.hostname + ':8080/api';
         let presets = [];
+
+        // Get API token from localStorage or URL parameter
+        function getApiToken() {
+            // Try localStorage first
+            let token = localStorage.getItem('apiToken');
+            if (!token) {
+                // Try URL parameter
+                const urlParams = new URLSearchParams(window.location.search);
+                token = urlParams.get('token');
+                if (token) {
+                    localStorage.setItem('apiToken', token);
+                }
+            }
+            return token;
+        }
+
+        // Check authentication on page load
+        const API_TOKEN = getApiToken();
+        if (!API_TOKEN) {
+            document.body.innerHTML = '<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: system-ui;"><h2>🔒 Authentication Required</h2><p>Please access this page from the main dashboard.</p><button class="btn-primary" onclick="window.location.href=\'dashboard.html\'">Go to Dashboard</button></div>';
+        }
 
         // Default presets
         const defaultPresets = [
@@ -42,7 +63,9 @@
 
         async function loadPresets() {
             try {
-                const response = await fetch(`${API_BASE}/settings`);
+                const response = await fetch(`${API_BASE}/settings`, {
+                    headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+                });
                 const data = await response.json();
                 
                 // Load from settings or use defaults
@@ -135,7 +158,10 @@
             try {
                 const response = await fetch(`${API_BASE}/settings`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${API_TOKEN}`
+                    },
                     body: JSON.stringify({
                         rate_limit_presets: JSON.stringify(presets)
                     })

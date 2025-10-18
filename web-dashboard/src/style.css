@@ -338,6 +338,39 @@ body {
 .stat-change.negative { color: var(--danger); }
 .stat-change.neutral { color: var(--text-muted); }
 
+.status-badge {
+    display: inline-block;
+    padding: 0.35rem 0.85rem;
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    border: 2px solid;
+    /* Override stat-value gradient */
+    background: none !important;
+    -webkit-background-clip: unset !important;
+    -webkit-text-fill-color: unset !important;
+    background-clip: unset !important;
+}
+
+.status-badge.active {
+    background: rgba(76, 175, 80, 0.15) !important;
+    color: var(--success) !important;
+    border-color: var(--success);
+}
+
+.status-badge.inactive {
+    background: rgba(239, 83, 80, 0.15) !important;
+    color: var(--danger) !important;
+    border-color: var(--danger);
+}
+
+.status-badge.checking {
+    background: rgba(255, 167, 38, 0.15) !important;
+    color: var(--warning) !important;
+    border-color: var(--warning);
+}
+
 .stat-period {
     color: var(--text-muted);
 }
@@ -528,6 +561,16 @@ body {
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     overflow: hidden;
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+/* Keep table header sticky when scrolling */
+.table-container thead {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--bg-tertiary);
 }
 
 table {

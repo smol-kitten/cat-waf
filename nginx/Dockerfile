@@ -60,7 +60,10 @@ RUN NGINX_VERSION=$(nginx -v 2>&1 | sed -n 's/.*nginx\/\([0-9.]\+\).*/\1/p') && 
 # Download OWASP CRS
 RUN mkdir -p /etc/nginx/modsecurity && \
     git clone https://github.com/coreruleset/coreruleset /etc/nginx/modsecurity/coreruleset && \
-    cp /etc/nginx/modsecurity/coreruleset/crs-setup.conf.example /etc/nginx/modsecurity/coreruleset/crs-setup.conf
+    cp /etc/nginx/modsecurity/coreruleset/crs-setup.conf.example /etc/nginx/modsecurity/coreruleset/crs-setup.conf && \
+    echo "" >> /etc/nginx/modsecurity/coreruleset/crs-setup.conf && \
+    echo "# Set paranoia level" >> /etc/nginx/modsecurity/coreruleset/crs-setup.conf && \
+    echo 'SecAction "id:900000,phase:1,nolog,pass,t:none,setvar:tx.paranoia_level=1"' >> /etc/nginx/modsecurity/coreruleset/crs-setup.conf
 
 # Download GeoIP databases
 RUN mkdir -p /usr/share/GeoIP && \
@@ -73,7 +76,13 @@ RUN mkdir -p /usr/share/GeoIP && \
 RUN cd /etc/nginx/modsecurity && \
     wget https://raw.githubusercontent.com/SpiderLabs/ModSecurity/v3/master/modsecurity.conf-recommended -O modsecurity.conf && \
     wget https://raw.githubusercontent.com/SpiderLabs/ModSecurity/v3/master/unicode.mapping -O unicode.mapping && \
-    sed -i 's/SecRuleEngine DetectionOnly/SecRuleEngine On/' modsecurity.conf
+    sed -i 's/SecRuleEngine DetectionOnly/SecRuleEngine On/' modsecurity.conf && \
+    sed -i 's|SecAuditLog /var/log/modsec_audit.log|SecAuditLog /var/log/modsec/modsec_audit.log|' modsecurity.conf && \
+    sed -i 's/SecAuditEngine RelevantOnly/SecAuditEngine On/' modsecurity.conf && \
+    echo "" >> modsecurity.conf && \
+    echo "# Include OWASP CRS" >> modsecurity.conf && \
+    echo "Include /etc/nginx/modsecurity/coreruleset/crs-setup.conf" >> modsecurity.conf && \
+    echo "Include /etc/nginx/modsecurity/coreruleset/rules/*.conf" >> modsecurity.conf
 
 # Create custom rules directory
 RUN mkdir -p /etc/nginx/modsecurity/custom-rules
@@ -89,6 +98,10 @@ COPY banlist.conf /etc/nginx/banlist.conf
 # Copy config watcher script
 COPY config-watcher.sh /usr/local/bin/config-watcher.sh
 RUN chmod +x /usr/local/bin/config-watcher.sh
+
+# Copy cache statistics script
+COPY cache-stats.sh /usr/local/bin/cache-stats.sh
+RUN chmod +x /usr/local/bin/cache-stats.sh
 
 # Copy error pages
 COPY error-pages /usr/share/nginx/error-pages

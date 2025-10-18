@@ -122,10 +122,11 @@ function updateBackends($site) {
         $backends[$idx]['down'] = $backend['down'] ?? false;
     }
     
-    // Update database
+    // Update site with new backends configuration
     $stmt = $db->prepare("
         UPDATE sites 
-        SET backends = ?, 
+        SET backends = ?,
+            backend_url = ?,
             lb_method = ?,
             health_check_enabled = ?,
             health_check_interval = ?,
@@ -134,8 +135,14 @@ function updateBackends($site) {
     ");
     
     $backendsJson = json_encode($backends);
+    
+    // Sync backend_url from first backend for backward compatibility
+    $firstBackend = $backends[0];
+    $backendUrl = $firstBackend['address'] ?? '';
+    
     $stmt->execute([
         $backendsJson,
+        $backendUrl,
         $lbMethod,
         $healthCheckEnabled,
         $healthCheckInterval,

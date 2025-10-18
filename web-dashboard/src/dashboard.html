@@ -64,13 +64,17 @@
                     <span class="nav-icon">⚙️</span>
                     <span class="nav-text">Settings</span>
                 </a>
+                <a href="#" class="nav-item" onclick="openRateLimitPresets(); return false;">
+                    <span class="nav-icon">🎚️</span>
+                    <span class="nav-text">Rate Limit Presets</span>
+                </a>
             </nav>
 
             <div class="sidebar-footer">
                 <div class="cat-status">
                     <div class="cat-text">All systems purring!</div>
                     <div class="version-text" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; text-align: center;">
-                        v1.0.0 | 89% Complete
+                        v1.0.0 | Nya~
                     </div>
                 </div>
             </div>
@@ -327,6 +331,9 @@
                             <option value="modsec">ModSecurity Logs</option>
                             <option value="error">Error Logs</option>
                         </select>
+                        <select class="filter-select" id="logSiteFilter" onchange="loadLogs()">
+                            <option value="">All Sites</option>
+                        </select>
                         <input type="number" class="filter-input" id="logLimit" value="100" min="10" max="1000" onchange="loadLogs()">
                         <button class="btn-secondary" onclick="loadLogs()">Refresh</button>
                     </div>
@@ -506,7 +513,7 @@
                             </div>
                             
                             <h4 style="margin-bottom: 1rem;">Certificate Status</h4>
-                            <div id="certStatusContainer">
+                            <div id="certStatusContainer" style="max-height: 500px; overflow-y: auto;">
                                 <p style="color: #666;">Loading certificate information...</p>
                             </div>
                         </div>
@@ -542,18 +549,74 @@
                                 </table>
                             </div>
                         </div>
+
+                        <!-- Data Cleanup Card -->
+                        <div class="settings-card" style="grid-column: 1 / -1;">
+                            <h3>🗑️ Data Cleanup</h3>
+                            <p style="color: #666; margin-bottom: 1.5rem;">
+                                Delete old logs and telemetry data to free up database space. Recommended to keep 30-90 days of data for analysis.
+                            </p>
+                            
+                            <div id="cleanupStats" style="background: #f8f9fa; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem;">
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                                    <div>
+                                        <div style="font-size: 0.85em; color: #666;">Access Logs</div>
+                                        <div style="font-size: 1.2em; font-weight: 600;" id="cleanupAccessLogs">-</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.85em; color: #666;">Telemetry Records</div>
+                                        <div style="font-size: 1.2em; font-weight: 600;" id="cleanupTelemetry">-</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.85em; color: #666;">Security Events</div>
+                                        <div style="font-size: 1.2em; font-weight: 600;" id="cleanupModSec">-</div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 0.85em; color: #666;">Bot Detections</div>
+                                        <div style="font-size: 1.2em; font-weight: 600;" id="cleanupBots">-</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">
+                                <div>
+                                    <label>Data Age to Delete</label>
+                                    <select id="cleanupDays" class="setting-input">
+                                        <option value="7">Older than 7 days</option>
+                                        <option value="14">Older than 14 days</option>
+                                        <option value="30" selected>Older than 30 days</option>
+                                        <option value="60">Older than 60 days</option>
+                                        <option value="90">Older than 90 days</option>
+                                        <option value="180">Older than 6 months</option>
+                                        <option value="365">Older than 1 year</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1.5rem;">
+                                <button class="btn-secondary" onclick="cleanupData('logs')" style="background: #3b82f6;">
+                                    🗑️ Clean Access Logs
+                                </button>
+                                <button class="btn-secondary" onclick="cleanupData('telemetry')" style="background: #8b5cf6;">
+                                    🗑️ Clean Telemetry
+                                </button>
+                                <button class="btn-secondary" onclick="cleanupData('modsec')" style="background: #f59e0b;">
+                                    🗑️ Clean Security Events
+                                </button>
+                                <button class="btn-primary" onclick="cleanupData('all')" style="background: #ef4444;">
+                                    🗑️ Clean All Old Data
+                                </button>
+                            </div>
+
+                            <div style="margin-top: 1rem; padding: 0.75rem; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px;">
+                                <strong>⚠️ Warning:</strong> This action cannot be undone. Make sure you have backups if needed.
+                            </div>
+                        </div>
                     </div>
                 </div>
 
                 <!-- ModSecurity Page -->
                 <div class="page" id="modsecurity-page">
-                    <div class="page-header">
-                        <h2>🔒 ModSecurity WAF</h2>
-                        <div class="status-badge" id="modsecStatus">
-                            <span class="status-dot active"></span>
-                            <span>Active</span>
-                        </div>
-                    </div>
 
                     <!-- ModSecurity Stats -->
                     <div class="stats-grid" style="margin-bottom: 30px;">
@@ -584,6 +647,15 @@
                                 <span class="stat-label">Paranoia Level</span>
                             </div>
                             <div class="stat-value" id="modsecParanoia">1</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">🛡️</span>
+                                <span class="stat-label">ModSecurity Status</span>
+                            </div>
+                            <div class="stat-value" id="modsecStatus">
+                                <span class="status-badge checking">Checking...</span>
+                            </div>
                         </div>
                     </div>
 
@@ -696,7 +768,7 @@
                         <div class="chart-header">
                             <h3>Recent Bot Detections</h3>
                         </div>
-                        <div id="botDetections" class="table-container">
+                        <div id="botDetections" class="table-container" style="max-height: 400px; overflow-y: auto;">
                             <table class="data-table">
                                 <thead>
                                     <tr>

@@ -77,21 +77,6 @@ document.addEventListener('keydown', (e) => {
 
 // Load environment defaults from backend
 async function loadEnvironmentDefaults() {
-    try {
-        const response = await fetch(`${API_BASE_URL}/env-defaults.php`, {
-            headers: {
-                'X-API-Key': API_TOKEN
-            }
-        });
-        const result = await response.json();
-        if (result.success) {
-            envDefaults = result.data;
-            console.log('✅ Environment defaults loaded:', envDefaults.cloudflare.has_credentials ? 'Cloudflare credentials available' : 'No Cloudflare credentials');
-        }
-    } catch (error) {
-        console.warn('Could not load environment defaults:', error);
-        envDefaults = { cloudflare: { api_key: '', email: '', has_credentials: false }, acme: { email: '' } };
-    }
 }
 
 // Initialize App
@@ -133,6 +118,15 @@ async function initializeApp() {
     // Load initial data
     await loadDashboardData();
     
+    // Setup time range selector for traffic chart
+    const timeRangeSelector = document.getElementById('timeRange');
+    if (timeRangeSelector) {
+        timeRangeSelector.addEventListener('change', async (e) => {
+            const range = e.target.value;
+            await loadDashboardData(range);
+        });
+    }
+    
     // Setup auto-refresh
     setInterval(() => {
         if (currentPage === 'overview') {
@@ -148,8 +142,11 @@ function setupNavigation() {
     const navItems = document.querySelectorAll('.nav-item');
     navItems.forEach(item => {
         item.addEventListener('click', (e) => {
-            e.preventDefault();
             const page = item.getAttribute('data-page');
+            // Skip items without data-page (like external links)
+            if (!page) return;
+            
+            e.preventDefault();
             navigateToPage(page);
         });
     });
@@ -170,7 +167,12 @@ function navigateToPage(page) {
     document.querySelectorAll('.page').forEach(p => {
         p.classList.remove('active');
     });
-    document.getElementById(`${page}-page`).classList.add('active');
+    const pageElement = document.getElementById(`${page}-page`);
+    if (pageElement) {
+        pageElement.classList.add('active');
+    } else {
+        console.error(`Page element not found: ${page}-page`);
+    }
     
     // Update page title
     const titles = {
@@ -231,6 +233,7 @@ async function loadPageData(page) {
             startCacheStatsAutoRefresh();
             break;
         case 'logs':
+            await populateLogSiteFilter();
             await loadLogs();
             break;
         case 'settings':
@@ -306,7 +309,8 @@ async function apiRequest(endpoint, methodOrOptions = {}, bodyData = null) {
     try {
         const response = await fetch(url, {
             ...options,
-            headers: headers
+            headers: headers,
+            cache: 'no-store' // Prevent browser caching
         });
         
         // Handle different HTTP status codes
@@ -360,9 +364,9 @@ async function apiRequest(endpoint, methodOrOptions = {}, bodyData = null) {
 }
 
 // Dashboard Data Loading
-async function loadDashboardData() {
+async function loadDashboardData(range = '24h') {
     try {
-        const response = await apiRequest('/stats');
+        const response = await apiRequest(`/stats?range=${range}`);
         const statsData = response?.stats || {};
         
         if (statsData && Object.keys(statsData).length > 0) {
@@ -402,6 +406,43 @@ function updateStatCards(data) {
     if (statBans) statBans.textContent = data.active_bans || '0';
 }
 
+// Helper function to get color based on status code
+function getStatusColor(statusCode) {
+    const code = parseInt(statusCode);
+    
+    // 2xx - Blue shades (darker as higher)
+    if (code >= 200 && code < 300) {
+        if (code === 200) return '#3b82f6';      // Blue
+        if (code === 201) return '#2563eb';      // Darker blue
+        if (code === 204) return '#1d4ed8';      // Even darker
+        return '#1e40af';                        // Darkest blue
+    }
+    
+    // 3xx - Gray
+    if (code >= 300 && code < 400) {
+        return '#6b7280';                        // Gray
+    }
+    
+    // 4xx - Yellow to Orange
+    if (code >= 400 && code < 500) {
+        if (code === 400 || code === 401) return '#fbbf24';  // Yellow
+        if (code === 403) return '#f59e0b';                  // Orange
+        if (code === 404) return '#f97316';                  // Darker orange
+        if (code >= 429) return '#ea580c';                   // Deep orange
+        return '#fb923c';                                    // Default orange
+    }
+    
+    // 5xx - Red shades (darker as severity increases)
+    if (code >= 500) {
+        if (code === 500) return '#ef4444';      // Red
+        if (code === 502) return '#dc2626';      // Darker red
+        if (code === 503) return '#b91c1c';      // Even darker
+        return '#991b1b';                        // Darkest red
+    }
+    
+    return '#9ca3af';  // Default gray for unknown
+}
+
 function updateCharts(data) {
     // Transform requests_over_time to chart format
     const trafficData = {
@@ -412,10 +453,12 @@ function updateCharts(data) {
         requests: (data.requests_over_time || []).map(r => parseInt(r.count))
     };
     
-    // Transform status_codes to pie chart format
+    // Transform status_codes to pie chart format with proper colors
+    const statusCodes = data.status_codes || [];
     const securityData = {
-        labels: (data.status_codes || []).map(s => `Status ${s.status_code}`),
-        values: (data.status_codes || []).map(s => parseInt(s.count))
+        labels: statusCodes.map(s => `Status ${s.status_code}`),
+        values: statusCodes.map(s => parseInt(s.count)),
+        colors: statusCodes.map(s => getStatusColor(s.status_code))
     };
     
     // Traffic Chart
@@ -482,8 +525,9 @@ function updateSecurityChart(data) {
     
     // Use actual data or show all zeros
     const hasData = data && data.labels && data.labels.length > 0;
-    const labels = hasData ? data.labels : ['Allowed', 'Blocked', 'Rate Limited'];
-    const values = hasData ? data.values : [0, 0, 0];
+    const labels = hasData ? data.labels : ['No Data'];
+    const values = hasData ? data.values : [1];
+    const colors = hasData && data.colors ? data.colors : ['#6b7280'];
     
     charts.security = new Chart(ctx.getContext('2d'), {
         type: 'doughnut',
@@ -491,7 +535,7 @@ function updateSecurityChart(data) {
             labels: labels,
             datasets: [{
                 data: values,
-                backgroundColor: ['#4CAF50', '#EF5350', '#FFA726'],
+                backgroundColor: colors,
                 borderWidth: 0
             }]
         },
@@ -527,20 +571,28 @@ async function loadRecentActivity() {
                 const requestParts = (log.request || '').split(' ');
                 const method = requestParts[0] || 'GET';
                 const path = requestParts[1] || '/';
+                const status = log.status || log.status_code || 200;
+                const domain = log.domain || log.host || '';
                 
                 return {
                     type: 'access',
-                    message: `${method} ${path} - ${log.status || 200}`,
+                    message: domain ? `${domain} - ${method} ${path} (${status})` : `${method} ${path} - ${status}`,
                     time: log.timestamp,
-                    severity: (log.status || 200) >= 400 ? 'warning' : 'info'
+                    severity: status >= 500 ? 'critical' : (status >= 400 ? 'warning' : 'info')
                 };
             }),
-            ...events.map(event => ({
-                type: 'security',
-                message: `Security rule triggered: ${event.rule_msg || event.message || 'Unknown'}`,
-                time: event.timestamp,
-                severity: 'critical'
-            }))
+            ...events.map(event => {
+                const ruleId = event.rule_id || event.id || '';
+                const ruleMsg = event.rule_msg || event.message || event.msg || 'Security rule triggered';
+                const severity = event.severity || event.action || 'WARNING';
+                
+                return {
+                    type: 'security',
+                    message: ruleId ? `[${ruleId}] ${ruleMsg}` : ruleMsg,
+                    time: event.timestamp,
+                    severity: severity.toUpperCase() === 'CRITICAL' || severity.toUpperCase() === 'BLOCKED' ? 'critical' : 'warning'
+                };
+            })
         ].sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 5);
         
         if (activities.length === 0) {
@@ -698,7 +750,8 @@ async function unbanIP(ip) {
 async function loadSecurityEvents() {
     try {
         const response = await apiRequest('/modsec?limit=50');
-        const events = response?.logs || response?.events || [];
+        // API returns array directly, not wrapped
+        const events = Array.isArray(response) ? response : (response?.logs || response?.events || []);
         
         const eventsList = document.getElementById('securityEvents');
         if (!eventsList) return;
@@ -711,11 +764,27 @@ async function loadSecurityEvents() {
         eventsList.innerHTML = '';
         
         events.forEach(event => {
+            // Parse rule IDs if they're comma-separated
+            const ruleIds = event.rule_id || 'N/A';
+            const firstRuleId = ruleIds.toString().split(',')[0];
+            
+            // Parse rule message - it might be concatenated with |
+            const ruleMsg = event.rule_message || event.rule_msg || 'Security rule triggered';
+            const shortMsg = ruleMsg.split('|')[0].trim();
+            
+            // Determine severity color
+            const severityClass = event.action === 'blocked' ? 'critical' : 'warning';
+            
             const item = document.createElement('div');
-            item.className = `event-item ${event.severity || 'info'}`;
+            item.className = `event-item ${severityClass}`;
             item.innerHTML = `
-                <div><strong>${event.rule_msg}</strong></div>
-                <div>IP: ${event.source_ip} | Rule ID: ${event.rule_id}</div>
+                <div><strong>[${firstRuleId}] ${shortMsg}</strong></div>
+                <div>
+                    <span>IP: ${event.client_ip || 'unknown'}</span> | 
+                    <span>Domain: ${event.domain || 'N/A'}</span> | 
+                    <span>Method: ${event.method || 'GET'}</span> |
+                    <span>Action: ${event.action || 'N/A'}</span>
+                </div>
                 <small>${formatDateTime(event.timestamp)}</small>
             `;
             eventsList.appendChild(item);
@@ -852,7 +921,18 @@ async function loadAnalytics() {
 // Logs
 async function loadLogs() {
     try {
-        const response = await apiRequest('/logs?limit=100');
+        // Get filter values
+        const logType = document.getElementById('logType')?.value || 'access';
+        const limit = document.getElementById('logLimit')?.value || 100;
+        const siteFilter = document.getElementById('logSiteFilter')?.value || '';
+        
+        // Build query parameters
+        let query = `limit=${limit}`;
+        if (siteFilter) {
+            query += `&domain=${encodeURIComponent(siteFilter)}`;
+        }
+        
+        const response = await apiRequest(`/logs?${query}`);
         const logs = response?.logs || [];
         
         const logsContainer = document.getElementById('logsContainer');
@@ -866,19 +946,66 @@ async function loadLogs() {
         logsContainer.innerHTML = '';
         
         logs.forEach(log => {
-            // Parse request string like "GET / HTTP/1.1" to extract method and path
-            const requestParts = (log.request || '').split(' ');
-            const method = requestParts[0] || 'GET';
-            const path = requestParts[1] || '/';
-            const domain = log.domain || log.host || 'unknown';
+            let displayText = '';
+            
+            // Check if log is a raw string (from /logs endpoint) or structured object (from access_logs table)
+            if (typeof log === 'object' && !log.raw) {
+                // Structured log object
+                const requestParts = (log.request || '').split(' ');
+                const method = requestParts[0] || 'GET';
+                const path = requestParts[1] || '/';
+                const domain = log.domain || log.host || 'unknown';
+                const status = log.status || log.status_code || '-';
+                const ip = log.ip || log.ip_address || 'unknown';
+                
+                displayText = `[${formatDateTime(log.timestamp)}] [${domain}] ${ip} - ${method} ${path} - ${status}`;
+            } else {
+                // Raw log string - parse nginx log format
+                const rawLog = log.raw || log;
+                
+                // Parse NGINX log format: domain - ip - [timestamp] "METHOD path HTTP/version" status ...
+                const logMatch = rawLog.match(/^(\S+) - ([\d\.\:a-fA-F]+) - \[([^\]]+)\] "(\S+) ([^\s"]+)[^"]*" (\d+)/);
+                
+                if (logMatch) {
+                    const [, domain, ip, timestamp, method, path, status] = logMatch;
+                    displayText = `[${timestamp}] [${domain}] ${ip} - ${method} ${path} - ${status}`;
+                } else {
+                    // Fallback to showing raw log
+                    displayText = rawLog;
+                }
+            }
             
             const entry = document.createElement('div');
             entry.className = 'log-entry';
-            entry.textContent = `[${formatDateTime(log.timestamp)}] [${domain}] ${method} ${path} - ${log.status} - ${log.ip}`;
+            entry.textContent = displayText;
             logsContainer.appendChild(entry);
         });
     } catch (error) {
         console.error('Error loading logs:', error);
+    }
+}
+
+// Populate site filter dropdown
+async function populateLogSiteFilter() {
+    try {
+        const response = await apiRequest('/sites');
+        const sites = response?.sites || [];
+        const select = document.getElementById('logSiteFilter');
+        
+        if (!select) return;
+        
+        // Keep "All Sites" option
+        select.innerHTML = '<option value="">All Sites</option>';
+        
+        // Add each site
+        sites.forEach(site => {
+            const option = document.createElement('option');
+            option.value = site.domain;
+            option.textContent = site.domain;
+            select.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error populating site filter:', error);
     }
 }
 
@@ -916,6 +1043,9 @@ async function loadSettings() {
         
         // Load custom block rules
         loadBlockRules();
+        
+        // Load cleanup stats
+        loadCleanupStats();
     } catch (error) {
         console.error('Error loading settings:', error);
     }
@@ -1427,6 +1557,17 @@ function formatDateTime(dateString) {
 window.openModal = openModal;
 window.closeModal = closeModal;
 
+// Open rate limit presets page with authentication
+function openRateLimitPresets() {
+    const token = API_TOKEN || localStorage.getItem('apiToken');
+    if (token) {
+        window.open(`rate-limit-presets.html?token=${encodeURIComponent(token)}`, '_blank');
+    } else {
+        showToast('Please authenticate first', 'error');
+    }
+}
+window.openRateLimitPresets = openRateLimitPresets;
+
 // Reset site modal to default state
 function resetSiteModal() {
     const modalTitle = document.querySelector('#addSiteModal .modal-header h3');
@@ -1741,6 +1882,14 @@ async function loadModSecurityData() {
             document.getElementById('modsecBlocksToday').textContent = stats.blocks_today || '0';
             document.getElementById('modsecWarningsToday').textContent = stats.warnings_today || '0';
             document.getElementById('modsecParanoia').textContent = stats.paranoia_level || '1';
+            
+            // Update ModSecurity status badge
+            const statusEl = document.getElementById('modsecStatus');
+            if (stats.rules_loaded && stats.rules_loaded > 0) {
+                statusEl.innerHTML = `<span class="status-badge active">✓ Active (${stats.rules_loaded} rules)</span>`;
+            } else {
+                statusEl.innerHTML = '<span class="status-badge inactive">✗ Inactive</span>';
+            }
         }
         
         // Load top triggered rules
@@ -1829,6 +1978,8 @@ async function loadModSecEvents() {
 // ============================================
 // Bot Protection Page Functions
 // ============================================
+let botActivityChartInstance = null;
+
 async function loadBotProtectionData() {
     try {
         // Load bot stats
@@ -1845,9 +1996,116 @@ async function loadBotProtectionData() {
         // Load bot detections
         await loadBotDetections();
         
-        // TODO: Load bot activity chart
+        // Load bot activity chart
+        await loadBotActivityChart();
     } catch (error) {
         console.error('Error loading bot protection data:', error);
+    }
+}
+
+async function loadBotActivityChart() {
+    try {
+        const response = await apiRequest('/bots?limit=1000');
+        const bots = response?.bots || [];
+        
+        if (bots.length === 0) {
+            console.log('No bot detections found');
+            return;
+        }
+        
+        // Group by hour for ALL available bot data (not just last 24h)
+        const hourlyData = {};
+        
+        bots.forEach(bot => {
+            const timestamp = new Date(bot.timestamp || bot.created_at);
+            const hourKey = timestamp.toISOString().substring(0, 13); // YYYY-MM-DDTHH
+            
+            if (!hourlyData[hourKey]) {
+                hourlyData[hourKey] = { total: 0, blocked: 0, allowed: 0 };
+            }
+            
+            hourlyData[hourKey].total++;
+            if (bot.action === 'blocked' || bot.blocked) {
+                hourlyData[hourKey].blocked++;
+            } else {
+                hourlyData[hourKey].allowed++;
+            }
+        });
+        
+        // Prepare chart data
+        const labels = Object.keys(hourlyData).sort().map(key => {
+            const date = new Date(key + ':00:00');
+            return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        });
+        
+        const totalData = Object.keys(hourlyData).sort().map(key => hourlyData[key].total);
+        const blockedData = Object.keys(hourlyData).sort().map(key => hourlyData[key].blocked);
+        const allowedData = Object.keys(hourlyData).sort().map(key => hourlyData[key].allowed);
+        
+        // Destroy existing chart if it exists
+        if (botActivityChartInstance) {
+            botActivityChartInstance.destroy();
+        }
+        
+        // Create new chart
+        const ctx = document.getElementById('botActivityChart');
+        if (!ctx) return;
+        
+        botActivityChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Blocked',
+                        data: blockedData,
+                        borderColor: '#ff6b6b',
+                        backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    },
+                    {
+                        label: 'Allowed',
+                        data: allowedData,
+                        borderColor: '#51cf66',
+                        backgroundColor: 'rgba(81, 207, 102, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    },
+                    {
+                        label: 'Total',
+                        data: totalData,
+                        borderColor: '#4dabf7',
+                        backgroundColor: 'rgba(77, 171, 247, 0.1)',
+                        tension: 0.4,
+                        fill: false,
+                        borderDash: [5, 5]
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                    },
+                    title: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            stepSize: 1
+                        }
+                    }
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error loading bot activity chart:', error);
     }
 }
 
@@ -1866,17 +2124,17 @@ async function loadBotDetections() {
                 <td>${new Date(bot.timestamp).toLocaleString()}</td>
                 <td><code>${bot.ip_address}</code></td>
                 <td style="max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                    ${bot.user_agent}
+                    ${bot.user_agent || 'Unknown'}
                 </td>
                 <td>
                     <span class="badge badge-${bot.bot_type === 'good' ? 'success' : 'danger'}">
-                        ${bot.bot_type}
+                        ${bot.bot_type || 'unknown'}
                     </span>
                 </td>
-                <td>${bot.confidence}%</td>
+                <td>${bot.confidence !== null && bot.confidence !== undefined ? bot.confidence + '%' : 'N/A'}</td>
                 <td>
                     <span class="badge badge-${bot.action === 'allowed' ? 'success' : 'warning'}">
-                        ${bot.action}
+                        ${bot.action || 'unknown'}
                     </span>
                 </td>
             </tr>
@@ -1990,7 +2248,7 @@ async function loadResponseTimeChart() {
 
 async function loadSlowestEndpoints() {
     try {
-        const response = await apiRequest('/telemetry/slowest-endpoints?limit=10');
+        const response = await apiRequest('/telemetry/slowest-endpoints?limit=50');
         const tbody = document.getElementById('slowestEndpointsBody');
         
         if (!response || response.length === 0) {
@@ -1998,7 +2256,22 @@ async function loadSlowestEndpoints() {
             return;
         }
         
-        tbody.innerHTML = response.map(endpoint => {
+        // Filter out static assets (images, CSS, JS, fonts, etc.)
+        const staticAssetExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', 
+                                       '.css', '.js', '.woff', '.woff2', '.ttf', '.eot', '.otf',
+                                       '.mp4', '.webm', '.mp3', '.pdf', '.zip', '.xml', '.txt'];
+        
+        const dynamicEndpoints = response.filter(endpoint => {
+            const path = (endpoint.path || '').toLowerCase();
+            return !staticAssetExtensions.some(ext => path.endsWith(ext));
+        }).slice(0, 10); // Take top 10 after filtering
+        
+        if (dynamicEndpoints.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No dynamic endpoints found</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = dynamicEndpoints.map(endpoint => {
             // Truncate path if too long for display
             let displayPath = endpoint.path;
             if (displayPath.length > 80) {
@@ -2202,10 +2475,12 @@ function renderCacheItems(items) {
     
     items.forEach(item => {
         html += '<tr>';
-        html += `<td><code>${escapeHtml(item.url)}</code></td>`;
+        const url = item.url || item.key || 'Unknown';
+        const hitsDisplay = (item.hits === null || item.hits === undefined) ? 'N/A' : item.hits;
+        html += `<td><code>${escapeHtml(url)}</code></td>`;
         html += `<td>${formatBytes(item.size)}</td>`;
         html += `<td>${formatAge(item.age)}</td>`;
-        html += `<td><span class="badge badge-primary">${item.hits || 0}</span></td>`;
+        html += `<td><span class="badge badge-primary">${hitsDisplay}</span></td>`;
         html += `<td>${item.last_access || 'N/A'}</td>`;
         html += `<td><button class="btn-secondary btn-sm" onclick="purgeCacheItem('${escapeHtml(item.key)}')">Purge</button></td>`;
         html += '</tr>';
@@ -2424,8 +2699,9 @@ async function loadSiteEditor(siteId) {
         // Setup editor tabs
         setupEditorTabs();
         
-        // Load initial tab (general)
-        loadEditorTab('general');
+        // Load last active tab or default to general
+        const lastTab = sessionStorage.getItem('lastEditorTab') || 'general';
+        loadEditorTab(lastTab);
         
         // Setup auto-save after a short delay
         setupAutoSave();
@@ -2441,12 +2717,24 @@ function setupEditorTabs() {
     const tabBtns = document.querySelectorAll('.tab-btn[data-editor-tab]');
     
     tabBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
             const tab = btn.getAttribute('data-editor-tab');
             
             // Update active state
             tabBtns.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
+            
+            // Store last active tab
+            sessionStorage.setItem('lastEditorTab', tab);
+            
+            // Reload site data from server to get fresh data
+            try {
+                const response = await apiRequest(`/sites/${currentSiteId}`);
+                currentSiteData = response.site;
+                console.log('Reloaded site data for tab:', tab);
+            } catch (error) {
+                console.error('Error reloading site data:', error);
+            }
             
             // Load tab content
             loadEditorTab(tab);
@@ -2505,6 +2793,11 @@ function loadEditorTab(tab) {
     if (tab === 'backends') {
         initializeBackends();
     }
+    
+    // Load certificate info for SSL tab
+    if (tab === 'ssl') {
+        loadCertificateInfo();
+    }
 }
 
 function renderGeneralTab() {
@@ -2531,9 +2824,11 @@ function renderGeneralTab() {
             </div>
             
             <div class="form-group">
-                <label>Backend Server *</label>
-                <input type="text" id="edit_backend_url" class="form-input" value="${data.backend_url || ''}" placeholder="192.168.1.100:8080">
-                <small style="color: var(--text-muted);">For multiple backends, use the <strong>Backends</strong> tab</small>
+                <label>Backend Configuration</label>
+                <div style="padding: 1rem; background: rgba(100, 181, 246, 0.1); border-radius: var(--radius-md); border: 1px solid rgba(100, 181, 246, 0.3);">
+                    <p style="margin: 0; color: var(--info);">💡 Backend servers are now configured in the <strong>Backends</strong> tab</p>
+                    <small style="color: var(--text-secondary); display: block; margin-top: 0.5rem;">Configure single or multiple backend servers with load balancing</small>
+                </div>
             </div>
             
             <div class="form-group">
@@ -2663,11 +2958,14 @@ function renderPerformanceTab() {
             
             <div class="form-group">
                 <label>Challenge Difficulty</label>
-                <input type="range" id="edit_challenge_difficulty" min="16" max="22" value="${data.challenge_difficulty || 18}" oninput="document.getElementById('difficultyValue').textContent = this.value">
-                <div style="display: flex; justify-content: space-between; margin-top: 0.5rem;">
-                    <small style="color: var(--text-muted);">Easy (16)</small>
-                    <small style="color: var(--text-primary); font-weight: 600;" id="difficultyValue">${data.challenge_difficulty || 18}</small>
-                    <small style="color: var(--text-muted);">Hard (22)</small>
+                <input type="range" id="edit_challenge_difficulty" style="width:100%;" min="12" max="24" value="${data.challenge_difficulty || 18}" oninput="document.getElementById('difficultyValue').textContent = this.value">
+                <div style="display: flex; justify-content: space-between; align-items:center; margin-top: 0.5rem; gap:0.5rem;">
+                    <small style="color: var(--text-muted);">Very Easy (12)</small>
+                    <div style="flex:1; text-align:center;">
+                        <small id="difficultyLabel" style="color: var(--text-secondary);">Difficulty</small>
+                        <div style="font-weight:600; color:var(--text-primary);" id="difficultyValue">${data.challenge_difficulty || 18}</div>
+                    </div>
+                    <small style="color: var(--text-muted);">Very Hard (24)</small>
                 </div>
                 <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">Higher = more protection, longer solve time</small>
             </div>
@@ -2690,10 +2988,14 @@ function renderPerformanceTab() {
 }
 
 function renderBackendsTab() {
+    const data = currentSiteData;
     return `
         <div class="editor-panel">
-            <h3>⚖️ Load Balancing</h3>
-            <p>Configure multiple backend servers for high availability</p>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h3>⚖️ Load Balancing</h3>
+                <button class="btn-sm btn-outline" onclick="viewRawConfig()" title="View generated NGINX config">📄 View Raw Config</button>
+            </div>
+            <p>Configure backend servers for your site</p>
             
             <div class="form-group">
                 <label>Load Balancing Method</label>
@@ -2748,6 +3050,13 @@ function renderBackendsTab() {
 function renderSSLTab() {
     const data = currentSiteData;
     return `
+        <div class="editor-panel" id="cert-info-panel">
+            <h3>📜 Current Certificate</h3>
+            <div id="cert-info-content" style="padding: 1rem; background: var(--bg-tertiary); border-radius: var(--radius-md);">
+                <p style="color: var(--text-muted); margin: 0;">Loading certificate information...</p>
+            </div>
+        </div>
+        
         <div class="editor-panel">
             <h3>🔐 SSL/TLS Configuration</h3>
             <p>Configure HTTPS and certificate settings</p>
@@ -3033,30 +3342,60 @@ function renderBackendsList() {
             </div>
             
             <div class="form-group">
-                <label class="checkbox-label">
-                    <input type="checkbox" class="backend-use-protocol-ports" data-id="${backend.id}" ${backend.useProtocolPorts ? 'checked' : ''} onchange="toggleProtocolPorts(${backend.id})">
-                    <span>Use different ports per protocol</span>
-                </label>
-                <small style="color: var(--text-muted);">Route HTTP, HTTPS, WS, WSS to different backend ports</small>
+                <label style="display:block; margin-bottom: 0.25rem;">Protocols</label>
+                <div style="display:flex; gap: 0.75rem; flex-wrap:wrap;">
+                    <label class="checkbox-label" style="margin:0;">
+                        <input type="checkbox" class="backend-proto-enabled" data-proto="http" data-id="${backend.id}" ${backend.proto?.http !== false ? 'checked' : ''} onchange="toggleBackendProtocol(${backend.id}, 'http')">
+                        <span>HTTP</span>
+                    </label>
+                    <label class="checkbox-label" style="margin:0;">
+                        <input type="checkbox" class="backend-proto-enabled" data-proto="https" data-id="${backend.id}" ${backend.proto?.https !== false ? 'checked' : ''} onchange="toggleBackendProtocol(${backend.id}, 'https')">
+                        <span>HTTPS</span>
+                    </label>
+                    <label class="checkbox-label" style="margin:0;">
+                        <input type="checkbox" class="backend-proto-enabled" data-proto="ws" data-id="${backend.id}" ${backend.proto?.ws !== false ? 'checked' : ''} onchange="toggleBackendProtocol(${backend.id}, 'ws')">
+                        <span>WS</span>
+                    </label>
+                    <label class="checkbox-label" style="margin:0;">
+                        <input type="checkbox" class="backend-proto-enabled" data-proto="wss" data-id="${backend.id}" ${backend.proto?.wss !== false ? 'checked' : ''} onchange="toggleBackendProtocol(${backend.id}, 'wss')">
+                        <span>WSS</span>
+                    </label>
+                </div>
+                <small style="color: var(--text-muted); display:block; margin-top:0.5rem;">Enable only the protocols this backend supports. Ports shown below are per-protocol.</small>
             </div>
-            
-            <div id="backend-ports-${backend.id}" style="${backend.useProtocolPorts ? '' : 'display: none;'}">
-                <div class="backend-fields">
-                    <div class="form-group">
+
+            <div id="backend-ports-${backend.id}">
+                <div class="backend-fields" style="display:flex; gap:1rem; flex-wrap:wrap;">
+                    ${backend.proto?.http !== false ? `
+                    <div class="form-group" style="min-width:140px;">
                         <label>HTTP Port</label>
                         <input type="number" class="form-input backend-http-port" data-id="${backend.id}" value="${backend.httpPort || 80}" min="1" max="65535" onchange="updateEditorBackend(${backend.id})">
                     </div>
-                    <div class="form-group">
+                    ` : ''}
+                    ${backend.proto?.https !== false ? `
+                    <div class="form-group" style="min-width:140px;">
                         <label>HTTPS Port</label>
                         <input type="number" class="form-input backend-https-port" data-id="${backend.id}" value="${backend.httpsPort || 443}" min="1" max="65535" onchange="updateEditorBackend(${backend.id})">
                     </div>
-                    <div class="form-group">
+                    ` : ''}
+                    ${backend.proto?.ws !== false ? `
+                    <div class="form-group" style="min-width:140px;">
                         <label>WebSocket Port</label>
                         <input type="number" class="form-input backend-ws-port" data-id="${backend.id}" value="${backend.wsPort || 80}" min="1" max="65535" onchange="updateEditorBackend(${backend.id})">
                     </div>
-                    <div class="form-group">
+                    ` : ''}
+                    ${backend.proto?.wss !== false ? `
+                    <div class="form-group" style="min-width:140px;">
                         <label>WSS Port</label>
                         <input type="number" class="form-input backend-wss-port" data-id="${backend.id}" value="${backend.wssPort || 443}" min="1" max="65535" onchange="updateEditorBackend(${backend.id})">
+                    </div>
+                    ` : ''}
+                    
+                    <!-- Single port fallback -->
+                    <div class="form-group" style="min-width:140px;">
+                        <label>Fallback Port</label>
+                        <input type="number" class="form-input backend-port" data-id="${backend.id}" value="${backend.port || 8080}" min="1" max="65535" onchange="updateEditorBackend(${backend.id})">
+                        <small style="color: var(--text-muted);">Used if protocol-specific port not set</small>
                     </div>
                 </div>
             </div>
@@ -3117,6 +3456,11 @@ function addEditorBackend() {
 }
 
 function removeEditorBackend(id) {
+    if (editorBackends.length === 1) {
+        showToast('Cannot remove the last backend. Sites need at least one backend server.', 'error');
+        return;
+    }
+    
     if (confirm('Remove this backend server?')) {
         editorBackends = editorBackends.filter(b => b.id !== id);
         renderBackendsList();
@@ -3156,43 +3500,160 @@ function updateEditorBackend(id) {
     backend.fail_timeout = parseInt(document.querySelector(`.backend-fail-timeout[data-id="${id}"]`)?.value) || 30;
     backend.backup = document.querySelector(`.backend-backup[data-id="${id}"]`)?.checked || false;
     backend.down = document.querySelector(`.backend-down[data-id="${id}"]`)?.checked || false;
-    backend.useProtocolPorts = document.querySelector(`.backend-use-protocol-ports[data-id="${id}"]`)?.checked || false;
-    
-    if (backend.useProtocolPorts) {
-        backend.httpPort = parseInt(document.querySelector(`.backend-http-port[data-id="${id}"]`)?.value) || 80;
-        backend.httpsPort = parseInt(document.querySelector(`.backend-https-port[data-id="${id}"]`)?.value) || 443;
-        backend.wsPort = parseInt(document.querySelector(`.backend-ws-port[data-id="${id}"]`)?.value) || 80;
-        backend.wssPort = parseInt(document.querySelector(`.backend-wss-port[data-id="${id}"]`)?.value) || 443;
-    } else {
-        backend.port = parseInt(document.querySelector(`.backend-port[data-id="${id}"]`)?.value) || 8080;
-    }
+    // Protocol enable flags
+    backend.proto = backend.proto || {};
+    backend.proto.http = document.querySelector(`.backend-proto-enabled[data-id="${id}"][data-proto="http"]`)?.checked || false;
+    backend.proto.https = document.querySelector(`.backend-proto-enabled[data-id="${id}"][data-proto="https"]`)?.checked || false;
+    backend.proto.ws = document.querySelector(`.backend-proto-enabled[data-id="${id}"][data-proto="ws"]`)?.checked || false;
+    backend.proto.wss = document.querySelector(`.backend-proto-enabled[data-id="${id}"][data-proto="wss"]`)?.checked || false;
+
+    // Read ports (if protocol is enabled, else fallback to single port)
+    if (backend.proto.http) backend.httpPort = parseInt(document.querySelector(`.backend-http-port[data-id="${id}"]`)?.value) || 80;
+    if (backend.proto.https) backend.httpsPort = parseInt(document.querySelector(`.backend-https-port[data-id="${id}"]`)?.value) || 443;
+    if (backend.proto.ws) backend.wsPort = parseInt(document.querySelector(`.backend-ws-port[data-id="${id}"]`)?.value) || 80;
+    if (backend.proto.wss) backend.wssPort = parseInt(document.querySelector(`.backend-wss-port[data-id="${id}"]`)?.value) || 443;
+
+    // Always keep a fallback single port
+    backend.port = parseInt(document.querySelector(`.backend-port[data-id="${id}"]`)?.value) || backend.port || 8080;
     
     // Auto-save backends when updated
     clearTimeout(autoSaveTimeout);
     autoSaveTimeout = setTimeout(() => {
         autoSaveField('backends', JSON.stringify(editorBackends));
-        
-        // Also update backend_url if only one backend for backward compatibility
-        if (editorBackends.length === 1) {
-            const b = editorBackends[0];
-            let backendUrl;
-            if (b.useProtocolPorts) {
-                // Use HTTP port as default for backward compat
-                backendUrl = `${b.address}:${b.httpPort || 80}`;
-            } else {
-                backendUrl = `${b.address}:${b.port || 8080}`;
-            }
-            autoSaveField('backend_url', backendUrl);
-        }
     }, AUTO_SAVE_DELAY);
 }
 
 function updateLBMethod() {
     const method = document.getElementById('edit_lb_method').value;
     const hashKeyGroup = document.getElementById('hash_key_group');
-    if (hashKeyGroup) {
-        hashKeyGroup.style.display = method === 'hash' ? 'block' : 'none';
+    
+    if (method === 'hash') {
+        hashKeyGroup.style.display = '';
+    } else {
+        hashKeyGroup.style.display = 'none';
     }
+}
+
+// Toggle a specific protocol enable/disable for a backend
+function toggleBackendProtocol(id, proto) {
+    const backend = editorBackends.find(b => b.id === id);
+    if (!backend) return;
+    backend.proto = backend.proto || {};
+    const checkbox = document.querySelector(`.backend-proto-enabled[data-id="${id}"][data-proto="${proto}"]`);
+    backend.proto[proto] = checkbox?.checked || false;
+    // Re-render to show/hide port inputs
+    renderBackendsList();
+    // Ensure values saved
+    updateEditorBackend(id);
+}
+
+// Expose for inline onclick handlers
+window.toggleBackendProtocol = toggleBackendProtocol;
+
+// Load certificate information for SSL/TLS tab
+async function loadCertificateInfo() {
+    const certInfoContent = document.getElementById('cert-info-content');
+    if (!certInfoContent) return;
+    
+    try {
+        const domain = currentSiteData.domain;
+        if (!domain) {
+            certInfoContent.innerHTML = '<p style="color: var(--text-muted); margin: 0;">No domain configured yet</p>';
+            return;
+        }
+        
+        certInfoContent.innerHTML = '<p style="color: var(--text-muted); margin: 0;">Loading certificate information...</p>';
+        
+        const response = await apiRequest(`/certificates/${domain}`);
+        
+        if (response.error) {
+            certInfoContent.innerHTML = `
+                <div style="color: var(--warning);">
+                    <p style="margin: 0 0 0.5rem 0;">\u26a0\ufe0f No certificate found for ${domain}</p>
+                    <small style="color: var(--text-muted);">Enable SSL/TLS and save to generate a certificate</small>
+                </div>
+            `;
+            return;
+        }
+        
+        // Use daysUntilExpiry from API response (already calculated server-side)
+        const daysUntilExpiry = response.daysUntilExpiry || 0;
+        
+        let statusBadge = '';
+        let statusColor = '';
+        if (daysUntilExpiry > 30) {
+            statusBadge = '\u2705 Valid';
+            statusColor = 'var(--success)';
+        } else if (daysUntilExpiry > 7) {
+            statusBadge = '\u26a0\ufe0f Expires Soon';
+            statusColor = 'var(--warning)';
+        } else {
+            statusBadge = '\u274c Expired / Expiring';
+            statusColor = 'var(--danger)';
+        }
+        
+        certInfoContent.innerHTML = `
+            <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                <div style="display: flex; justify-content: between; align-items: center;">
+                    <div>
+                        <strong style="color: var(--text-primary);">${domain}</strong>
+                        <span style="margin-left: 1rem; padding: 0.25rem 0.75rem; background: rgba(76, 175, 80, 0.15); color: ${statusColor}; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">${statusBadge}</span>
+                    </div>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                    <div>
+                        <small style="color: var(--text-muted); display: block;">Issuer</small>
+                        <span style="color: var(--text-primary);">${response.issuer || 'Unknown'}</span>
+                    </div>
+                    <div>
+                        <small style="color: var(--text-muted); display: block;">Issued</small>
+                        <span style="color: var(--text-primary);">${response.validFrom || 'Unknown'}</span>
+                    </div>
+                    <div>
+                        <small style="color: var(--text-muted); display: block;">Expires</small>
+                        <span style="color: var(--text-primary);">${response.expiryDate || 'Unknown'}</span>
+                    </div>
+                    <div>
+                        <small style="color: var(--text-muted); display: block;">Valid For</small>
+                        <span style="color: ${statusColor}; font-weight: 600;">${daysUntilExpiry >= 0 ? daysUntilExpiry : 0} days</span>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 0.5rem;">
+                    <button class="btn-secondary" onclick="renewCertificate('${domain}')" style="width: 100%;">
+                        <span>\ud83d\udd04</span>
+                        <span>Renew Certificate</span>
+                    </button>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Error loading certificate info:', error);
+        certInfoContent.innerHTML = `
+            <div style="color: var(--danger);">
+                <p style="margin: 0;">\u274c Error loading certificate information</p>
+                <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">${error.message || 'Unknown error'}</small>
+            </div>
+        `;
+    }
+}
+
+function renewCertificate(domain) {
+    if (!confirm(`Renew certificate for ${domain}?\\n\\nThis will request a new certificate from Let's Encrypt.`)) {
+        return;
+    }
+    
+    showToast('Renewing certificate...', 'loading');
+    
+    apiRequest(`/certificates/${domain}/renew`, 'POST')
+        .then(response => {
+            showToast(`Certificate renewed successfully for ${domain}`, 'success');
+            loadCertificateInfo(); // Reload cert info
+        })
+        .catch(error => {
+            showToast(`Failed to renew certificate: ${error.message}`, 'error');
+        });
 }
 
 function toggleHealthChecks() {
@@ -4110,3 +4571,151 @@ async function deleteBlockRule(id) {
         Toast.show('Failed to delete block rule', 'error');
     }
 }
+
+// Modal Helper for displaying raw content (like NGINX configs)
+function showModal(title, content) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); display:flex; align-items:center; justify-content:center; z-index:10000;';
+    modal.innerHTML = `
+        <div style="background:var(--bg-primary); border-radius:8px; max-width:90vw; max-height:90vh; display:flex; flex-direction:column; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+            <div style="padding:1.5rem; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+                <h3 style="margin:0; color:var(--text-primary);">${title}</h3>
+                <button onclick="this.closest('.modal-overlay').remove()" style="background:none; border:none; font-size:1.5rem; cursor:pointer; color:var(--text-muted); padding:0; width:30px; height:30px;">&times;</button>
+            </div>
+            <div style="padding:1.5rem; overflow:auto; max-height:70vh; white-space:pre-wrap; font-family:monospace; font-size:0.875rem; line-height:1.5; background:var(--bg-secondary); color:var(--text-primary);">${content}</div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    // Close on background click
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
+    });
+}
+
+// View raw NGINX config for the current site
+async function viewRawConfig() {
+    const id = currentSiteData?.id || currentSiteId;
+    if (!id) {
+        Toast.show('No site selected', 'error');
+        return;
+    }
+
+    Toast.show('Fetching generated NGINX config...', 'info');
+    try {
+        const resp = await fetch(`${API_BASE_URL}/sites/${id}/config`, {
+            headers: { 'Authorization': `Bearer ${API_TOKEN}` },
+            cache: 'no-store'
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(()=>null);
+            throw new Error(err?.error || `HTTP ${resp.status}`);
+        }
+        const text = await resp.text();
+        showModal(`NGINX Config - ${currentSiteData?.domain || 'Site #' + id}`, text);
+    } catch (err) {
+        console.error('Error fetching config:', err);
+        Toast.show(`Failed to fetch config: ${err.message}`, 'error');
+    }
+}
+
+// ============================================
+// Data Cleanup Functions
+// ============================================
+
+async function loadCleanupStats() {
+    try {
+        const response = await apiRequest('/cleanup/stats');
+        if (!response || !response.stats) return;
+        
+        const stats = response.stats;
+        
+        // Update UI with stats
+        const accessLogs = stats.access_logs || {};
+        const telemetry = stats.request_telemetry || {};
+        const modsec = stats.modsec_events || {};
+        const bots = stats.bot_detections || {};
+        
+        document.getElementById('cleanupAccessLogs').textContent = 
+            `${(accessLogs.total || 0).toLocaleString()} total (${(accessLogs.older_than_30_days || 0).toLocaleString()} > 30d)`;
+        document.getElementById('cleanupTelemetry').textContent = 
+            `${(telemetry.total || 0).toLocaleString()} total (${(telemetry.older_than_30_days || 0).toLocaleString()} > 30d)`;
+        document.getElementById('cleanupModSec').textContent = 
+            `${(modsec.total || 0).toLocaleString()} total (${(modsec.older_than_30_days || 0).toLocaleString()} > 30d)`;
+        document.getElementById('cleanupBots').textContent = 
+            `${(bots.total || 0).toLocaleString()} total (${(bots.older_than_30_days || 0).toLocaleString()} > 30d)`;
+            
+    } catch (error) {
+        console.error('Error loading cleanup stats:', error);
+    }
+}
+
+async function cleanupData(type) {
+    const days = document.getElementById('cleanupDays')?.value || 30;
+    
+    const typeNames = {
+        'logs': 'Access Logs',
+        'telemetry': 'Telemetry Data',
+        'modsec': 'Security Events',
+        'all': 'All Data'
+    };
+    
+    const typeName = typeNames[type] || type;
+    
+    // Confirm action
+    const confirmed = confirm(
+        `⚠️ Delete ${typeName} older than ${days} days?\n\n` +
+        `This action cannot be undone. Make sure you have backups if needed.`
+    );
+    
+    if (!confirmed) return;
+    
+    try {
+        showToast(`Deleting old ${typeName.toLowerCase()}...`, 'info');
+        
+        const response = await fetch(`${API_BASE_URL}/cleanup/${type}?days=${days}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${API_TOKEN}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.error || `HTTP ${response.status}`);
+        }
+        
+        const result = await response.json();
+        
+        // Build success message
+        let message = `✅ Cleanup complete:\n`;
+        if (result.results.access_logs_deleted !== undefined) {
+            message += `\n• ${result.results.access_logs_deleted.toLocaleString()} access logs deleted`;
+        }
+        if (result.results.telemetry_deleted !== undefined) {
+            message += `\n• ${result.results.telemetry_deleted.toLocaleString()} telemetry records deleted`;
+        }
+        if (result.results.modsec_events_deleted !== undefined) {
+            message += `\n• ${result.results.modsec_events_deleted.toLocaleString()} security events deleted`;
+        }
+        if (result.results.bot_detections_deleted !== undefined) {
+            message += `\n• ${result.results.bot_detections_deleted.toLocaleString()} bot detections deleted`;
+        }
+        if (result.results.challenge_passes_deleted !== undefined) {
+            message += `\n• ${result.results.challenge_passes_deleted.toLocaleString()} challenge passes deleted`;
+        }
+        
+        showToast(message, 'success');
+        
+        // Reload cleanup stats
+        await loadCleanupStats();
+        
+    } catch (error) {
+        console.error('Cleanup error:', error);
+        showToast(`Failed to clean up ${typeName.toLowerCase()}: ${error.message}`, 'error');
+    }
+}
+
+window.cleanupData = cleanupData;
+window.loadCleanupStats = loadCleanupStats;
