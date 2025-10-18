@@ -21,7 +21,31 @@ if ($apiKey !== $expectedKey) {
 
 $db = getDB();
 
+// Helper function to get valid table columns
+function getValidColumns($db, $table) {
+    static $cache = [];
+    if (isset($cache[$table])) {
+        return $cache[$table];
+    }
+    
+    try {
+        $stmt = $db->query("SHOW COLUMNS FROM `$table`");
+        $columns = [];
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $columns[] = $row['Field'];
+        }
+        $cache[$table] = $columns;
+        return $columns;
+    } catch (Exception $e) {
+        error_log("Failed to get columns for $table: " . $e->getMessage());
+        return [];
+    }
+}
+
 try {
+    // Get valid columns for filtering
+    $validColumns = getValidColumns($db, 'sites');
+    
     // Get JSON data
     $input = file_get_contents('php://input');
     $data = json_decode($input, true);
@@ -86,15 +110,27 @@ try {
                     $updateValues = [];
                     
                     foreach ($site as $key => $value) {
-                        if ($key === 'domain') continue;
+                        if ($key === 'domain' || $key === 'id' || $key === 'created_at' || $key === 'updated_at') continue;
+                        
+                        // Skip if column doesn't exist in current schema
+                        if (!in_array($key, $validColumns)) {
+                            error_log("Skipping non-existent column: $key for site $domain");
+                            continue;
+                        }
                         
                         // Handle JSON fields
                         if (in_array($key, ['backends', 'custom_config']) && is_array($value)) {
                             $value = json_encode($value);
                         }
                         
-                        $updateFields[] = "{$key} = ?";
+                        $updateFields[] = "`{$key}` = ?";
                         $updateValues[] = $value;
+                    }
+                    
+                    if (empty($updateFields)) {
+                        error_log("No valid fields to update for $domain");
+                        $results['skipped']++;
+                        continue;
                     }
                     
                     $updateValues[] = $domain;
@@ -109,18 +145,32 @@ try {
             } else {
                 // Insert new site
                 if (!$dryRun) {
-                    $fields = array_keys($site);
-                    $placeholders = array_fill(0, count($fields), '?');
+                    // Filter fields to only include columns that exist in schema
+                    $fields = [];
                     $values = [];
                     
                     foreach ($site as $key => $value) {
+                        // Skip auto-generated fields and non-existent columns
+                        if (in_array($key, ['id', 'created_at', 'updated_at'])) continue;
+                        if (!in_array($key, $validColumns)) {
+                            error_log("Skipping non-existent column: $key for new site $domain");
+                            continue;
+                        }
+                        
                         // Handle JSON fields
                         if (in_array($key, ['backends', 'custom_config']) && is_array($value)) {
                             $value = json_encode($value);
                         }
+                        
+                        $fields[] = "`$key`";
                         $values[] = $value;
                     }
                     
+                    if (empty($fields)) {
+                        throw new Exception("No valid fields to insert for $domain");
+                    }
+                    
+                    $placeholders = array_fill(0, count($fields), '?');
                     $sql = "INSERT INTO sites (" . implode(', ', $fields) . ") VALUES (" . implode(', ', $placeholders) . ")";
                     $stmt = $db->prepare($sql);
                     $stmt->execute($values);

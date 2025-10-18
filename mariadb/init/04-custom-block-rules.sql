@@ -21,8 +21,8 @@ CREATE TABLE IF NOT EXISTS `custom_block_rules` (
   KEY `idx_severity` (`severity`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Custom path blocking rules for sensitive files/directories';
 
--- Insert default security rules
-INSERT INTO `custom_block_rules` (`name`, `pattern`, `pattern_type`, `block_message`, `severity`, `rule_id`, `enabled`) VALUES
+-- Insert default security rules (use INSERT IGNORE to avoid duplicates on reruns)
+INSERT IGNORE INTO `custom_block_rules` (`name`, `pattern`, `pattern_type`, `block_message`, `severity`, `rule_id`, `enabled`) VALUES
 ('Block .git directory', '/.git/', 'prefix', 'Git directory access forbidden', 'CRITICAL', 10001, 1),
 ('Block .git/config', '/.git/config', 'exact', 'Git config access forbidden', 'CRITICAL', 10002, 1),
 ('Block .env file', '/.env', 'exact', 'Environment file access forbidden', 'CRITICAL', 10003, 1),
@@ -40,6 +40,11 @@ INSERT INTO `custom_block_rules` (`name`, `pattern`, `pattern_type`, `block_mess
 ('Block .svn directory', '/.svn/', 'prefix', 'SVN directory access forbidden', 'CRITICAL', 10015, 1),
 ('Block .hg directory', '/.hg/', 'prefix', 'Mercurial directory access forbidden', 'CRITICAL', 10016, 1);
 
--- Create indexes for performance
-CREATE INDEX `idx_pattern_type` ON `custom_block_rules` (`pattern_type`);
-CREATE INDEX `idx_rule_id` ON `custom_block_rules` (`rule_id`);
+-- Create indexes for performance (IF NOT EXISTS to avoid errors on reruns)
+CREATE INDEX IF NOT EXISTS `idx_pattern_type` ON `custom_block_rules` (`pattern_type`);
+CREATE INDEX IF NOT EXISTS `idx_rule_id` ON `custom_block_rules` (`rule_id`);
+
+-- Mark this migration as applied
+INSERT INTO migration_logs (migration_name, applied_at) 
+VALUES ('04-custom-block-rules.sql', NOW())
+ON DUPLICATE KEY UPDATE applied_at = NOW();

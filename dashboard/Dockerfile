@@ -4,13 +4,15 @@ FROM php:8.2-fpm-alpine
 RUN apk add --no-cache \
     nginx \
     supervisor \
-    mysql-client \
+    mysql-client \    
+    docker-cli-compose \
     curl \
     bash \
-    docker-cli
+    docker-cli \
+    libzip-dev
 
 # Install PHP extensions
-RUN docker-php-ext-install pdo pdo_mysql mysqli
+RUN docker-php-ext-install pdo pdo_mysql mysqli zip
 
 # Copy PHP configuration
 COPY php.ini /usr/local/etc/php/conf.d/custom.ini

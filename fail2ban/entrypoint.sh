@@ -20,6 +20,16 @@ else
     # Try to continue anyway
 fi
 
+echo "Setting up log rotation..."
+# Setup logrotate cron job to run hourly
+echo "0 * * * * /usr/sbin/logrotate /etc/logrotate.d/fail2ban --state /var/lib/logrotate/logrotate.status >/dev/null 2>&1" > /etc/crontabs/root
+
+# Create logrotate state directory
+mkdir -p /var/lib/logrotate
+
+# Start crond in background for log rotation
+crond -b -l 2
+
 echo "Starting fail2ban..."
 
 # Remove stale socket if it exists

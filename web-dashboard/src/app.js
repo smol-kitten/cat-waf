@@ -41,6 +41,14 @@ const Toast = {
 // Alias for compatibility
 const showToast = (message, type) => Toast.show(message, type);
 
+// HTML Escape Utility
+function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 // State Management
 let currentPage = 'overview';
 let stats = {};
@@ -2889,12 +2897,23 @@ function renderAccessTab() {
         </div>
         
         <div class="editor-panel">
-            <h3>� IP Whitelist</h3>
+            <h3>🔐 IP Whitelist</h3>
             <p>Restrict access to specific IP addresses</p>
             <div class="form-group">
                 <label>Allowed IPs/CIDRs (one per line)</label>
                 <textarea id="edit_ip_whitelist" class="form-input" rows="5" placeholder="192.168.1.0/24&#10;10.0.0.5&#10;203.0.113.42">${data.ip_whitelist || ''}</textarea>
                 <small style="color: var(--text-muted);">One IP or CIDR block per line. Leave empty to allow all.</small>
+            </div>
+            
+            <div class="form-group" style="margin-top: 1.5rem; padding: 1rem; background: #f0f7ff; border-left: 4px solid #3b82f6; border-radius: 4px;">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="edit_local_only" ${data.local_only ? 'checked' : ''}>
+                    <span>🔒 Restrict to Local Network Only</span>
+                </label>
+                <small style="color: #666; display: block; margin-top: 0.5rem;">
+                    Block all external traffic - only allow access from local/private IP ranges (127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16). 
+                    This setting is enforced at the NGINX level and cannot be bypassed.
+                </small>
             </div>
         </div>
         
@@ -3473,6 +3492,7 @@ async function saveSiteEditor() {
         set('enable_geoip_blocking', 'edit_enable_geoip_blocking', true);
         set('blocked_countries', 'edit_blocked_countries');
         set('ip_whitelist', 'edit_ip_whitelist');
+        set('local_only', 'edit_local_only', true);
         set('enable_basic_auth', 'edit_enable_basic_auth', true);
         set('basic_auth_username', 'edit_auth_username');
         set('basic_auth_password', 'edit_auth_password');
@@ -4403,7 +4423,7 @@ async function cleanupData(type) {
         if (result.results.bot_detections_deleted !== undefined) {
             message += `\n• ${result.results.bot_detections_deleted.toLocaleString()} bot detections deleted`;
         }
-        if (result.results.challenge_passes_deleted !== undefined) {
+        if (result.results.challenge_passes_deleted !== undefined && result.results.challenge_passes_deleted > 0) {
             message += `\n• ${result.results.challenge_passes_deleted.toLocaleString()} challenge passes deleted`;
         }
         
@@ -4420,6 +4440,67 @@ async function cleanupData(type) {
 
 window.cleanupData = cleanupData;
 window.loadCleanupStats = loadCleanupStats;
+
+// System Reset Functions
+async function triggerSystemReset(autoRestore) {
+    const action = autoRestore ? 'Reset & Auto-Restore' : 'Full Reset';
+    const description = autoRestore 
+        ? 'This will:\n1. Create a backup\n2. Destroy all containers and volumes\n3. Pull latest images\n4. Start fresh\n5. Automatically import the backup\n\nYour data will be preserved.'
+        : 'This will:\n1. Create a backup\n2. Destroy all containers and volumes\n3. Pull latest images\n4. Start fresh\n\nYou will need to MANUALLY restore the backup afterward.';
+    
+    if (!confirm(`⚠️ ${action}\n\n${description}\n\nAre you ABSOLUTELY SURE?`)) {
+        return;
+    }
+    
+    // Second confirmation for extra safety
+    const confirmText = autoRestore ? 'RESET AND RESTORE' : 'RESET';
+    const userInput = prompt(`Type "${confirmText}" to confirm this destructive action:`);
+    
+    if (userInput !== confirmText) {
+        showToast('Reset cancelled - confirmation text did not match', 'info');
+        return;
+    }
+    
+    try {
+        showToast(`Starting ${action.toLowerCase()}... This may take several minutes.`, 'info');
+        
+        const command = autoRestore ? 'reset-restore' : 'reset';
+        
+        // Trigger reset via updater container
+        const response = await fetch(`${API_BASE_URL}/system/reset`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('apiToken')}`
+            },
+            body: JSON.stringify({ 
+                command: command,
+                auto_restore: autoRestore
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showToast('✅ System reset initiated! Page will reload in 30 seconds...', 'success');
+            setTimeout(() => {
+                window.location.reload();
+            }, 30000);
+        } else {
+            throw new Error(result.message || 'Reset failed');
+        }
+        
+    } catch (error) {
+        console.error('Reset error:', error);
+        showToast(`Failed to trigger reset: ${error.message}`, 'error');
+    }
+}
+
+window.triggerSystemReset = triggerSystemReset;
 
 // Backup & Restore Functions
 let backupInfoLoaded = false;
@@ -4491,7 +4572,11 @@ async function importBackup() {
         formData.append('import_sites', document.getElementById('import_sites').checked);
         formData.append('import_settings', document.getElementById('import_settings').checked);
         formData.append('import_block_rules', document.getElementById('import_block_rules').checked);
+        formData.append('import_rate_limits', document.getElementById('import_rate_limits').checked);
         formData.append('import_telemetry', document.getElementById('import_telemetry').checked);
+        formData.append('import_access_logs', document.getElementById('import_access_logs').checked);
+        formData.append('import_bot_detections', document.getElementById('import_bot_detections').checked);
+        formData.append('import_modsec_events', document.getElementById('import_modsec_events').checked);
         formData.append('merge_mode', document.getElementById('merge_mode').value);
         
         const apiUrl = document.getElementById('apiUrl')?.value || 'http://dashboard:80';
@@ -4521,8 +4606,20 @@ async function importBackup() {
                 if (imported.custom_block_rules) {
                     message += `\n• ${imported.custom_block_rules} custom block rules`;
                 }
+                if (imported.rate_limit_rules) {
+                    message += `\n• ${imported.rate_limit_rules} rate limit presets`;
+                }
                 if (imported.telemetry) {
                     message += `\n• ${imported.telemetry.toLocaleString()} telemetry records`;
+                }
+                if (imported.access_logs) {
+                    message += `\n• ${imported.access_logs.toLocaleString()} access logs`;
+                }
+                if (imported.bot_detections) {
+                    message += `\n• ${imported.bot_detections.toLocaleString()} bot detections`;
+                }
+                if (imported.modsec_events) {
+                    message += `\n• ${imported.modsec_events.toLocaleString()} security events`;
                 }
             }
             

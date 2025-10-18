@@ -168,6 +168,11 @@ try {
             require_once 'endpoints/verify.php';
             break;
             
+        case 'system':
+            require_once 'endpoints/system.php';
+            handleSystem($method, array_slice($uri, 1), $db);
+            break;
+            
         default:
             http_response_code(404);
             echo json_encode(['error' => 'Endpoint not found']);

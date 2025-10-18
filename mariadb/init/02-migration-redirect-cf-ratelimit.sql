@@ -23,7 +23,7 @@ ALTER TABLE sites ADD COLUMN IF NOT EXISTS cf_custom_rate_limit INT(11) DEFAULT 
 ALTER TABLE sites ADD COLUMN IF NOT EXISTS cf_rate_limit_burst INT(11) DEFAULT 200
     COMMENT 'Burst limit for Cloudflare rate limiting';
 
--- Verification query (uncomment to check)
--- SELECT COUNT(*) as has_new_columns FROM information_schema.COLUMNS 
--- WHERE TABLE_SCHEMA = 'waf_db' AND TABLE_NAME = 'sites' 
--- AND COLUMN_NAME IN ('disable_http_redirect', 'cf_bypass_ratelimit', 'cf_custom_rate_limit', 'cf_rate_limit_burst');
+-- Mark this migration as applied
+INSERT INTO migration_logs (migration_name, applied_at) 
+VALUES ('02-migration-redirect-cf-ratelimit.sql', NOW())
+ON DUPLICATE KEY UPDATE applied_at = NOW();

@@ -53,7 +53,8 @@ if (!isBackupAllowed()) {
 header('Content-Type: application/json');
 
 $method = $_SERVER['REQUEST_METHOD'];
-$requestUri = $_SERVER['REQUEST_URI'];
+// Parse URI without query string
+$requestUri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
 // Parse action from URI
 if (preg_match('#/backup/(export|import|info)$#', $requestUri, $matches)) {
@@ -271,46 +272,91 @@ function importBackup() {
         if ($options['import_sites'] ?? false) {
             $sitesFile = $tmpDir . '/sites.json';
             if (file_exists($sitesFile)) {
-                $sites = json_decode(file_get_contents($sitesFile), true);
+                $sitesContent = file_get_contents($sitesFile);
+                $sites = json_decode($sitesContent, true);
+                
+                error_log("Import: Found sites file, size: " . strlen($sitesContent) . " bytes");
+                error_log("Import: Decoded " . count($sites) . " sites");
+                
                 $imported = 0;
                 $skipped = 0;
+                $errors = [];
+                
+                // Get valid columns for sites table
+                $validColumns = getTableColumns($db, 'sites');
                 
                 foreach ($sites as $site) {
-                    // Check if site already exists
-                    $existing = $db->prepare("SELECT id FROM sites WHERE domain = ?");
-                    $existing->execute([$site['domain']]);
-                    
-                    if ($existing->fetch()) {
-                        if ($options['merge_mode'] === 'skip') {
-                            $skipped++;
-                            continue;
-                        } elseif ($options['merge_mode'] === 'replace') {
-                            // Update existing site
-                            $updateFields = array_keys($site);
-                            $updateFields = array_filter($updateFields, fn($f) => $f !== 'id');
-                            $setClause = implode(', ', array_map(fn($f) => "$f = ?", $updateFields));
-                            $values = array_map(fn($f) => $site[$f], $updateFields);
-                            $values[] = $site['domain'];
+                    try {
+                        // Check if site already exists
+                        $existing = $db->prepare("SELECT id FROM sites WHERE domain = ?");
+                        $existing->execute([$site['domain']]);
+                        
+                        if ($existing->fetch()) {
+                            if ($options['merge_mode'] === 'skip') {
+                                $skipped++;
+                                error_log("Import: Skipped existing site: " . $site['domain']);
+                                continue;
+                            } elseif ($options['merge_mode'] === 'replace') {
+                                // Update existing site - filter fields by schema
+                                $updateFields = array_keys($site);
+                                $updateFields = array_filter($updateFields, fn($f) => $f !== 'id' && $f !== 'created_at' && $f !== 'updated_at');
+                                $updateFields = array_intersect($updateFields, $validColumns);
+                                
+                                if (empty($updateFields)) {
+                                    $errors[] = "No valid fields to update for {$site['domain']}";
+                                    continue;
+                                }
+                                
+                                $setClause = implode(', ', array_map(fn($f) => "`$f` = ?", $updateFields));
+                                $values = array_map(fn($f) => $site[$f], $updateFields);
+                                $values[] = $site['domain'];
+                                
+                                $stmt = $db->prepare("UPDATE sites SET $setClause WHERE domain = ?");
+                                $stmt->execute($values);
+                                $imported++;
+                                error_log("Import: Updated site: " . $site['domain']);
+                            }
+                        } else {
+                            // Insert new site - filter fields by schema
+                            unset($site['id']);
+                            unset($site['created_at']);
+                            unset($site['updated_at']);
                             
-                            $stmt = $db->prepare("UPDATE sites SET $setClause WHERE domain = ?");
+                            $fields = array_keys($site);
+                            $fields = array_intersect($fields, $validColumns);
+                            
+                            if (empty($fields)) {
+                                $errors[] = "No valid fields to insert for {$site['domain']}";
+                                continue;
+                            }
+                            
+                            $placeholders = implode(', ', array_fill(0, count($fields), '?'));
+                            $fieldsList = implode(', ', array_map(fn($f) => "`$f`", $fields));
+                            $values = array_map(fn($f) => $site[$f], $fields);
+                            
+                            $stmt = $db->prepare("INSERT INTO sites ($fieldsList) VALUES ($placeholders)");
                             $stmt->execute($values);
                             $imported++;
+                            error_log("Import: Inserted new site: " . $site['domain']);
                         }
-                    } else {
-                        // Insert new site (without ID to get auto-increment)
-                        unset($site['id']);
-                        $fields = array_keys($site);
-                        $placeholders = implode(', ', array_fill(0, count($fields), '?'));
-                        $fieldsList = implode(', ', $fields);
-                        
-                        $stmt = $db->prepare("INSERT INTO sites ($fieldsList) VALUES ($placeholders)");
-                        $stmt->execute(array_values($site));
-                        $imported++;
+                    } catch (Exception $e) {
+                        $errors[] = "Error importing {$site['domain']}: " . $e->getMessage();
+                        error_log("Import error for site {$site['domain']}: " . $e->getMessage());
                     }
                 }
                 
-                $results['imported']['sites'] = ['imported' => $imported, 'skipped' => $skipped];
+                $results['imported']['sites'] = [
+                    'imported' => $imported, 
+                    'skipped' => $skipped,
+                    'errors' => $errors
+                ];
+                error_log("Import: Sites summary - imported: $imported, skipped: $skipped, errors: " . count($errors));
+            } else {
+                error_log("Import: sites.json file not found at: $sitesFile");
+                $results['imported']['sites'] = ['error' => 'sites.json not found in backup'];
             }
+        } else {
+            error_log("Import: Skipping sites (import_sites = false)");
         }
         
         // Import settings
@@ -335,28 +381,15 @@ function importBackup() {
             $telemetryFile = $tmpDir . '/telemetry.json';
             if (file_exists($telemetryFile)) {
                 $telemetry = json_decode(file_get_contents($telemetryFile), true);
-                $imported = 0;
                 
-                // Batch insert for performance
-                $db->beginTransaction();
-                $stmt = $db->prepare("INSERT IGNORE INTO request_telemetry (timestamp, domain, uri, method, status_code, response_time, cache_status, bytes_sent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-                
-                foreach ($telemetry as $record) {
-                    $stmt->execute([
-                        $record['timestamp'],
-                        $record['domain'],
-                        $record['uri'],
-                        $record['method'],
-                        $record['status_code'],
-                        $record['response_time'],
-                        $record['cache_status'],
-                        $record['bytes_sent']
-                    ]);
-                    $imported++;
+                if (!empty($telemetry)) {
+                    // Get valid columns and filter
+                    $allFields = array_keys($telemetry[0]);
+                    $imported = importTable($db, 'request_telemetry', $telemetry, $allFields);
+                    $results['imported']['telemetry'] = $imported;
+                } else {
+                    $results['imported']['telemetry'] = 0;
                 }
-                
-                $db->commit();
-                $results['imported']['telemetry'] = $imported;
             }
         }
         
@@ -383,14 +416,17 @@ function importBackup() {
             $file = $tmpDir . '/custom_block_rules.json';
             if (file_exists($file)) {
                 $records = json_decode(file_get_contents($file), true);
-                foreach ($records as $rule) {
-                    unset($rule['id']);
-                    $fields = array_keys($rule);
-                    $placeholders = implode(', ', array_fill(0, count($fields), '?'));
-                    $stmt = $db->prepare("INSERT INTO custom_block_rules (" . implode(', ', $fields) . ") VALUES ($placeholders)");
-                    $stmt->execute(array_values($rule));
+                
+                if (!empty($records)) {
+                    // Get all fields from first record and use schema-aware import
+                    $record = $records[0];
+                    unset($record['id']);
+                    $allFields = array_keys($record);
+                    $imported = importTable($db, 'custom_block_rules', $records, $allFields);
+                    $results['imported']['custom_block_rules'] = $imported;
+                } else {
+                    $results['imported']['custom_block_rules'] = 0;
                 }
-                $results['imported']['custom_block_rules'] = count($records);
             }
         }
         
@@ -414,18 +450,67 @@ function importBackup() {
     }
 }
 
+function getTableColumns($db, $table) {
+    try {
+        $stmt = $db->query("SHOW COLUMNS FROM `$table`");
+        $columns = [];
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $columns[] = $row['Field'];
+        }
+        return $columns;
+    } catch (Exception $e) {
+        error_log("Failed to get columns for table $table: " . $e->getMessage());
+        return [];
+    }
+}
+
+function filterFieldsBySchema($db, $table, $fields) {
+    $validColumns = getTableColumns($db, $table);
+    if (empty($validColumns)) {
+        return $fields; // Fallback to original if we can't get schema
+    }
+    
+    // Filter out fields that don't exist in current schema
+    $filtered = array_intersect($fields, $validColumns);
+    
+    $removed = array_diff($fields, $validColumns);
+    if (!empty($removed)) {
+        error_log("Import: Filtered out non-existent columns for $table: " . implode(', ', $removed));
+    }
+    
+    return array_values($filtered);
+}
+
 function importTable($db, $table, $records, $fields) {
     if (empty($records)) return 0;
     
+    // Remove auto-generated fields
+    $fields = array_filter($fields, fn($f) => !in_array($f, ['id', 'created_at', 'updated_at']));
+    
+    // Filter fields to only include columns that exist in current schema
+    $fields = filterFieldsBySchema($db, $table, $fields);
+    
+    if (empty($fields)) {
+        error_log("Import: No valid fields to import for table $table");
+        return 0;
+    }
+    
     $db->beginTransaction();
     $placeholders = implode(', ', array_fill(0, count($fields), '?'));
-    $stmt = $db->prepare("INSERT IGNORE INTO $table (" . implode(', ', $fields) . ") VALUES ($placeholders)");
+    $fieldsList = implode(', ', array_map(fn($f) => "`$f`", $fields));
+    $stmt = $db->prepare("INSERT IGNORE INTO $table ($fieldsList) VALUES ($placeholders)");
     
     $imported = 0;
     foreach ($records as $record) {
-        $values = array_map(fn($f) => $record[$f] ?? null, $fields);
-        $stmt->execute($values);
-        $imported++;
+        try {
+            $values = array_map(fn($f) => $record[$f] ?? null, $fields);
+            $stmt->execute($values);
+            if ($stmt->rowCount() > 0) {
+                $imported++;
+            }
+        } catch (Exception $e) {
+            error_log("Import error for $table record: " . $e->getMessage());
+        }
     }
     
     $db->commit();

@@ -55,11 +55,6 @@ if (preg_match('#/cleanup/(logs|telemetry|modsec|all)$#', $requestUri, $matches)
             $stmt = $db->prepare("DELETE FROM bot_detections WHERE timestamp < ?");
             $stmt->execute([$cutoff]);
             $results['bot_detections_deleted'] = $stmt->rowCount();
-            
-            // Clean up old challenge passes
-            $stmt = $db->prepare("DELETE FROM challenge_passes WHERE timestamp < ?");
-            $stmt->execute([$cutoff]);
-            $results['challenge_passes_deleted'] = $stmt->rowCount();
         }
         
         $results['cutoff_date'] = $cutoff;
@@ -99,21 +94,32 @@ if (preg_match('#/cleanup/stats$#', $requestUri)) {
             'access_logs' => 'timestamp',
             'request_telemetry' => 'timestamp',
             'modsec_events' => 'timestamp',
-            'bot_detections' => 'timestamp',
-            'challenge_passes' => 'timestamp'
+            'bot_detections' => 'timestamp'
         ];
         
         foreach ($tables as $table => $timestampCol) {
-            $stmt = $db->query("
-                SELECT 
-                    COUNT(*) as total,
-                    COUNT(CASE WHEN {$timestampCol} > DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 END) as last_7_days,
-                    COUNT(CASE WHEN {$timestampCol} > DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as last_30_days,
-                    COUNT(CASE WHEN {$timestampCol} < DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as older_than_30_days,
-                    COUNT(CASE WHEN {$timestampCol} < DATE_SUB(NOW(), INTERVAL 90 DAY) THEN 1 END) as older_than_90_days
-                FROM {$table}
-            ");
-            $stats[$table] = $stmt->fetch(PDO::FETCH_ASSOC);
+            try {
+                $stmt = $db->query("
+                    SELECT 
+                        COUNT(*) as total,
+                        COUNT(CASE WHEN {$timestampCol} > DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 END) as last_7_days,
+                        COUNT(CASE WHEN {$timestampCol} > DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as last_30_days,
+                        COUNT(CASE WHEN {$timestampCol} < DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as older_than_30_days,
+                        COUNT(CASE WHEN {$timestampCol} < DATE_SUB(NOW(), INTERVAL 90 DAY) THEN 1 END) as older_than_90_days
+                    FROM {$table}
+                ");
+                $stats[$table] = $stmt->fetch(PDO::FETCH_ASSOC);
+            } catch (PDOException $e) {
+                // Table doesn't exist, skip it
+                error_log("Stats query skipped for {$table}: " . $e->getMessage());
+                $stats[$table] = [
+                    'total' => 0,
+                    'last_7_days' => 0,
+                    'last_30_days' => 0,
+                    'older_than_30_days' => 0,
+                    'older_than_90_days' => 0
+                ];
+            }
         }
         
         echo json_encode([

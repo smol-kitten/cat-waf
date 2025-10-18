@@ -59,9 +59,14 @@ function authenticate() {
     $token = $headers['Authorization'] ?? '';
     $token = str_replace('Bearer ', '', $token);
     
+    // If no Authorization header, check for query parameter token (for backup/updater scripts)
+    if (empty($token)) {
+        $token = $_GET['token'] ?? '';
+    }
+    
     if (empty($token)) {
         http_response_code(401);
-        echo json_encode(['error' => 'Unauthorized']);
+        echo json_encode(['error' => 'Unauthorized - No token provided']);
         exit;
     }
     

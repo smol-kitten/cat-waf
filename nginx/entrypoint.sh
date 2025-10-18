@@ -44,6 +44,40 @@ else
     echo "✅ Snakeoil certificate already exists"
 fi
 
+# Function to fix broken certificate symlinks
+fix_broken_symlinks() {
+    echo "🔍 Checking for broken certificate symlinks..."
+    find /etc/nginx/certs -type l | while read -r link; do
+        if [ ! -e "$link" ]; then
+            echo "⚠️  Found broken symlink: $link"
+            local dir=$(dirname "$link")
+            local domain=$(basename "$dir")
+            local filename=$(basename "$link")
+            
+            # Remove broken symlink
+            rm -f "$link"
+            echo "   🗑️  Removed broken symlink"
+            
+            # Check if we have snakeoil cert for this domain
+            if [ -f "/etc/nginx/certs/snakeoil/fullchain.pem" ]; then
+                echo "   📋 Using snakeoil certificate"
+                cp "/etc/nginx/certs/snakeoil/fullchain.pem" "$dir/fullchain.pem" 2>/dev/null || true
+                cp "/etc/nginx/certs/snakeoil/key.pem" "$dir/key.pem" 2>/dev/null || true
+            else
+                echo "   🔐 Generating new snakeoil certificate for $domain"
+                openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+                    -keyout "$dir/key.pem" \
+                    -out "$dir/fullchain.pem" \
+                    -subj "/CN=$domain" 2>/dev/null || true
+            fi
+        fi
+    done
+    echo "✅ Certificate symlink check complete"
+}
+
+# Fix any broken symlinks before proceeding
+fix_broken_symlinks
+
 # Install OWASP CRS if not present
 if [ ! -d "/etc/nginx/modsecurity/coreruleset" ]; then
     echo "🛡️ Installing OWASP ModSecurity Core Rule Set..."

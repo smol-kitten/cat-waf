@@ -69,12 +69,15 @@ class GeoIP {
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
             curl_setopt($ch, CURLOPT_TIMEOUT, 3);
             curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+            curl_setopt($ch, CURLOPT_ENCODING, 'UTF-8');
             
             $response = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
             curl_close($ch);
             
+            // Ensure UTF-8 encoding
             if ($httpCode === 200 && $response) {
+                $response = mb_convert_encoding($response, 'UTF-8', 'UTF-8');
                 $data = json_decode($response, true);
                 if ($data && $data['status'] === 'success') {
                     return [

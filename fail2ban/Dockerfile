@@ -8,6 +8,8 @@ RUN apk add --no-cache \
     iptables \
     whois \
     bash \
+    logrotate \
+    dcron \
     tzdata && \
     rm -rf /etc/fail2ban/jail.d/*
 
@@ -24,6 +26,7 @@ COPY jail.local /etc/fail2ban/jail.local
 COPY jail.d /etc/fail2ban/jail.d
 COPY filter.d /etc/fail2ban/filter.d
 COPY action.d /etc/fail2ban/action.d
+COPY logrotate.conf /etc/logrotate.d/fail2ban
 
 # Create state directory for persistent data
 RUN mkdir -p /etc/fail2ban/state

@@ -62,35 +62,24 @@ services:
     networks:
       - waf-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   migration-runner:
-    image: mariadb:latest
+    build:
+      context: .
+      dockerfile: mariadb/Dockerfile
     container_name: waf-migration-runner
-    command: >
-      sh -c '
-      echo "Waiting for MariaDB to be ready..." &&
-      sleep 5 &&
-      echo "Applying migrations..." &&
-      for migration in /migrations/*-migration-*.sql; do
-        if [ -f "$$migration" ]; then
-          echo "  → Applying: $$(basename $$migration)" &&
-          mariadb -h mariadb -u waf_user -p$$DB_PASSWORD waf_db < "$$migration" 2>&1 | grep -v "Warning: Using a password" || true
-        fi
-      done &&
-      echo "✅ Migrations completed!" &&
-      echo "Verifying schema..." &&
-      mariadb -h mariadb -u waf_user -p$$DB_PASSWORD waf_db -e "SELECT COUNT(*) as column_count FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = '"'"'waf_db'"'"' AND TABLE_NAME = '"'"'sites'"'"';" 2>&1 | grep -v "Warning" &&
-      echo "Schema verification complete!"
-      '
     environment:
       DB_PASSWORD: ${DB_PASSWORD:-changeme}
-    volumes:
-      # Mount local migration files
-      - ./mariadb/init:/migrations:ro
     networks:
       - waf-network
     depends_on:
-      - mariadb
+      mariadb:
+        condition: service_healthy
     restart: "no"
 
   dashboard:
@@ -107,6 +96,9 @@ services:
       - waf-fail2ban:/etc/fail2ban
       - ./fail2ban-socket:/var/run/fail2ban
       - /var/run/docker.sock:/var/run/docker.sock
+      # Mount updater compose file for reset functionality
+      - ./docker-compose.updater.yml:/compose-files/docker-compose.updater.yml
+
     networks:
       - waf-network
     restart: unless-stopped

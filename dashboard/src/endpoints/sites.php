@@ -101,10 +101,10 @@ function handleSites($method, $params, $db) {
                     ssl_challenge_type, cf_api_token, cf_zone_id,
                     enable_gzip, enable_brotli, compression_level, compression_types,                     
                     enable_image_optimization, image_quality, image_max_width,
-                    enable_waf_headers, enable_telemetry, custom_headers, ip_whitelist,
+                    enable_waf_headers, enable_telemetry, custom_headers, ip_whitelist, local_only,
                     wildcard_subdomains, disable_http_redirect, cf_bypass_ratelimit,
                     cf_custom_rate_limit, cf_rate_limit_burst)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             
             $stmt->execute([
@@ -129,7 +129,6 @@ function handleSites($method, $params, $db) {
                 $data['enable_brotli'] ?? 0,
                 $data['compression_level'] ?? 6,
                 $data['compression_types'] ?? 'text/html text/css text/javascript application/json application/xml',
-                $data['enable_caching'] ?? 1,
                 $data['enable_image_optimization'] ?? 0,
                 $data['image_quality'] ?? 85,
                 $data['image_max_width'] ?? 1920,
@@ -137,6 +136,7 @@ function handleSites($method, $params, $db) {
                 $data['enable_telemetry'] ?? 1,
                 $data['custom_headers'] ?? null,
                 $data['ip_whitelist'] ?? null,
+                $data['local_only'] ?? 0,
                 $data['wildcard_subdomains'] ?? 0,
                 $data['disable_http_redirect'] ?? 0,
                 $data['cf_bypass_ratelimit'] ?? 0,
@@ -179,7 +179,7 @@ function handleSites($method, $params, $db) {
                 'enable_modsecurity', 'enable_geoip_blocking', 'blocked_countries', 
                 'allowed_countries', 'custom_config', 'ssl_enabled', 'ssl_cert_path', 
                 'ssl_key_path', 'ssl_redirect', 'enable_gzip', 'enable_brotli', 
-                'compression_level', 'compression_types', 'enable_caching', 'enable_image_optimization', 
+                'compression_level', 'compression_types', 'enable_image_optimization', 
                 'image_quality', 'image_max_width', 'image_webp_conversion', 'enable_waf_headers', 
                 'enable_telemetry', 'enable_bot_protection', 'bot_protection_level', 'custom_headers', 
                 'ip_whitelist', 'backends', 'lb_method', 'health_check_enabled', 
@@ -252,9 +252,9 @@ function handleSites($method, $params, $db) {
                 'enable_modsecurity', 'enable_geoip_blocking', 'blocked_countries', 
                 'allowed_countries', 'custom_config', 'ssl_enabled', 'ssl_cert_path', 
                 'ssl_key_path', 'ssl_redirect', 'enable_gzip', 'enable_brotli', 
-                'compression_level', 'compression_types', 'enable_caching', 'enable_image_optimization', 'image_quality', 
+                'compression_level', 'compression_types', 'enable_image_optimization', 'image_quality', 
                 'image_max_width', 'enable_waf_headers', 'enable_telemetry', 
-                'enable_bot_protection', 'custom_headers', 'ip_whitelist', 'backends',
+                'enable_bot_protection', 'custom_headers', 'ip_whitelist', 'local_only', 'backends',
                 'lb_method', 'health_check_enabled', 'health_check_interval', 'health_check_path',
                 'wildcard_subdomains', 'custom_rate_limit', 'enable_rate_limit', 'hash_key',
                 'challenge_enabled', 'challenge_difficulty', 'challenge_duration', 
@@ -430,7 +430,6 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
     $enable_gzip = $siteData['enable_gzip'] ?? 1;
     $enable_brotli = $siteData['enable_brotli'] ?? 1;
     $compression_level = $siteData['compression_level'] ?? 6;
-    $enable_caching = $siteData['enable_caching'] ?? 1;
     $enable_image_opt = $siteData['enable_image_optimization'] ?? 0;
     $image_quality = $siteData['image_quality'] ?? 85;
     $enable_waf_headers = $siteData['enable_waf_headers'] ?? 1;
@@ -909,8 +908,17 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
     }
     */
     
-    // IP whitelist
-    if (isset($custom_config['ip_whitelist']) && !empty($custom_config['ip_whitelist'])) {
+    // Local-only access restriction (takes precedence over IP whitelist)
+    if (!empty($local_only)) {
+        $block .= "    # Local network only access\n";
+        $block .= "    allow 127.0.0.0/8;     # Localhost\n";
+        $block .= "    allow 10.0.0.0/8;      # Private Class A\n";
+        $block .= "    allow 172.16.0.0/12;   # Private Class B\n";
+        $block .= "    allow 192.168.0.0/16;  # Private Class C\n";
+        $block .= "    deny all;\n\n";
+    }
+    // IP whitelist (only if local_only is not enabled)
+    else if (isset($custom_config['ip_whitelist']) && !empty($custom_config['ip_whitelist'])) {
         $block .= "    # IP whitelist\n";
         $block .= "    allow " . str_replace(',', ";\n    allow ", $custom_config['ip_whitelist']) . ";\n";
         $block .= "    deny all;\n\n";

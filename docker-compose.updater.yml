@@ -1,0 +1,48 @@
+# Standalone updater service
+# Usage: docker-compose -f docker-compose.updater.yml up -d
+# This can run alongside the main deployment to manage updates and cleanup
+
+services:
+  waf-updater:
+    image: waf-updater:latest
+    container_name: waf-updater
+    restart: unless-stopped
+    environment:
+      # Update settings
+      AUTO_UPDATE: ${AUTO_UPDATE:-false}  # Set to 'true' to enable automatic updates
+      CHECK_INTERVAL: ${UPDATE_CHECK_INTERVAL:-3600}  # Check every hour
+      
+      # Dashboard API for backups
+      DASHBOARD_API_KEY: ${DASHBOARD_API_KEY:-change-this-default-token}
+      
+      # Project configuration
+      PROJECT_NAME: waf
+      COMPOSE_FILE: /compose/docker-compose.prebuilt.yml
+      COMPOSE_OVERRIDE: /compose-override/docker-compose.override.yml
+      
+      TZ: ${TZ:-Europe/Berlin}
+    volumes:
+      # Docker socket for managing containers
+      - /var/run/docker.sock:/var/run/docker.sock
+      
+      # Mount compose files (read-only)
+      - ./docker-compose.prebuilt.yml:/compose/docker-compose.prebuilt.yml
+      - ./docker-compose.yml:/compose/docker-compose.yml
+      - ./docker-compose.updater.yml:/compose/docker-compose.updater.yml
+      
+      # Backup storage (host mount for easy access)
+      - ./backups:/backups
+      
+      # Log access for cleanup
+      - waf-logs:/var/log
+    networks:
+      - waf-network
+
+networks:
+  waf-network:
+    driver: bridge
+
+volumes:
+  waf-logs:
+    external: true
+    name: waf-logs

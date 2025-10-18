@@ -6,11 +6,22 @@ CREATE DATABASE IF NOT EXISTS waf_db;
 USE waf_db;
 
 --
+-- Migration tracking table (must be created first)
+--
+
+CREATE TABLE IF NOT EXISTS `migration_logs` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `migration_name` varchar(255) NOT NULL,
+  `applied_at` timestamp NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `migration_name` (`migration_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
 -- Table structure for table `sites`
 --
 
-DROP TABLE IF EXISTS `sites`;
-CREATE TABLE `sites` (
+CREATE TABLE IF NOT EXISTS `sites` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `domain` varchar(255) NOT NULL,
   `wildcard_subdomains` tinyint(1) DEFAULT 0,
@@ -81,8 +92,7 @@ CREATE TABLE `sites` (
 -- Table structure for table `banned_ips`
 --
 
-DROP TABLE IF EXISTS `banned_ips`;
-CREATE TABLE `banned_ips` (
+CREATE TABLE IF NOT EXISTS `banned_ips` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `ip_address` varchar(45) NOT NULL,
   `reason` varchar(255) DEFAULT NULL,
@@ -104,8 +114,7 @@ CREATE TABLE `banned_ips` (
 -- Table structure for table `access_logs`
 --
 
-DROP TABLE IF EXISTS `access_logs`;
-CREATE TABLE `access_logs` (
+CREATE TABLE IF NOT EXISTS `access_logs` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `timestamp` timestamp NULL DEFAULT current_timestamp(),
   `ip_address` varchar(45) DEFAULT NULL,
@@ -134,8 +143,7 @@ CREATE TABLE `access_logs` (
 -- Table structure for table `modsec_events`
 --
 
-DROP TABLE IF EXISTS `modsec_events`;
-CREATE TABLE `modsec_events` (
+CREATE TABLE IF NOT EXISTS `modsec_events` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `unique_id` varchar(64) DEFAULT NULL,
   `timestamp` timestamp NULL DEFAULT current_timestamp(),
@@ -159,8 +167,7 @@ CREATE TABLE `modsec_events` (
 -- Table structure for table `api_tokens`
 --
 
-DROP TABLE IF EXISTS `api_tokens`;
-CREATE TABLE `api_tokens` (
+CREATE TABLE IF NOT EXISTS `api_tokens` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `token` varchar(255) NOT NULL,
   `description` varchar(255) DEFAULT NULL,
@@ -179,8 +186,7 @@ CREATE TABLE `api_tokens` (
 -- Table structure for table `settings`
 --
 
-DROP TABLE IF EXISTS `settings`;
-CREATE TABLE `settings` (
+CREATE TABLE IF NOT EXISTS `settings` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `setting_key` varchar(100) NOT NULL,
   `setting_value` text DEFAULT NULL,
@@ -195,8 +201,7 @@ CREATE TABLE `settings` (
 -- Table structure for table `bot_detections`
 --
 
-DROP TABLE IF EXISTS `bot_detections`;
-CREATE TABLE `bot_detections` (
+CREATE TABLE IF NOT EXISTS `bot_detections` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `timestamp` timestamp NULL DEFAULT current_timestamp(),
   `ip_address` varchar(45) DEFAULT NULL,
@@ -214,8 +219,7 @@ CREATE TABLE `bot_detections` (
 -- Table structure for table `request_telemetry`
 --
 
-DROP TABLE IF EXISTS `request_telemetry`;
-CREATE TABLE `request_telemetry` (
+CREATE TABLE IF NOT EXISTS `request_telemetry` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `timestamp` timestamp NULL DEFAULT current_timestamp(),
   `request_id` varchar(64) DEFAULT NULL,
@@ -234,3 +238,8 @@ CREATE TABLE `request_telemetry` (
   KEY `idx_request_id` (`request_id`),
   KEY `idx_domain` (`domain`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+
+-- Mark this migration as applied
+INSERT INTO migration_logs (migration_name, applied_at) 
+VALUES ('01-complete-schema.sql', NOW())
+ON DUPLICATE KEY UPDATE applied_at = NOW();

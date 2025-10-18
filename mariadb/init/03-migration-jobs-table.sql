@@ -11,3 +11,8 @@ CREATE TABLE IF NOT EXISTS `jobs` (
   INDEX idx_status (status),
   INDEX idx_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Mark this migration as applied
+INSERT INTO migration_logs (migration_name, applied_at) 
+VALUES ('03-migration-jobs-table.sql', NOW())
+ON DUPLICATE KEY UPDATE applied_at = NOW();
