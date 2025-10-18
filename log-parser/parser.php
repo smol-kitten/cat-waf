@@ -40,6 +40,18 @@ try {
 
 echo "Starting log parser...\n";
 
+// Cleanup old data on startup to prevent bloat
+echo "Cleaning up old data (older than 90 days)...\n";
+try {
+    $pdo->exec("DELETE FROM access_logs WHERE timestamp < DATE_SUB(NOW(), INTERVAL 90 DAY)");
+    $pdo->exec("DELETE FROM request_telemetry WHERE timestamp < DATE_SUB(NOW(), INTERVAL 90 DAY)");
+    $pdo->exec("DELETE FROM modsec_events WHERE timestamp < DATE_SUB(NOW(), INTERVAL 90 DAY)");
+    $pdo->exec("DELETE FROM bot_detections WHERE timestamp < DATE_SUB(NOW(), INTERVAL 90 DAY)");
+    echo "Cleanup complete.\n";
+} catch (Exception $e) {
+    error_log("Cleanup failed: " . $e->getMessage());
+}
+
 while (true) {
     // Find all access log files
     $logFiles = glob("$logDir/*-access.log");

@@ -213,16 +213,21 @@ function importBackup() {
     // Get import options from POST data
     $options = json_decode(file_get_contents('php://input'), true) ?? [];
     if (empty($options)) {
+        // Helper to check if value is truthy - accept '1', 'true', or true
+        $checkTrue = function($val) { 
+            return $val === '1' || $val === 'true' || $val === true || $val === 1; 
+        };
+        
         // Try form data
         $options = [
-            'import_sites' => isset($_POST['import_sites']) && $_POST['import_sites'] === 'true',
-            'import_settings' => isset($_POST['import_settings']) && $_POST['import_settings'] === 'true',
-            'import_telemetry' => isset($_POST['import_telemetry']) && $_POST['import_telemetry'] === 'true',
-            'import_bot_detections' => isset($_POST['import_bot_detections']) && $_POST['import_bot_detections'] === 'true',
-            'import_modsec_events' => isset($_POST['import_modsec_events']) && $_POST['import_modsec_events'] === 'true',
-            'import_access_logs' => isset($_POST['import_access_logs']) && $_POST['import_access_logs'] === 'true',
-            'import_block_rules' => isset($_POST['import_block_rules']) && $_POST['import_block_rules'] === 'true',
-            'import_rate_limits' => isset($_POST['import_rate_limits']) && $_POST['import_rate_limits'] === 'true',
+            'import_sites' => isset($_POST['import_sites']) && $checkTrue($_POST['import_sites']),
+            'import_settings' => isset($_POST['import_settings']) && $checkTrue($_POST['import_settings']),
+            'import_telemetry' => isset($_POST['import_telemetry']) && $checkTrue($_POST['import_telemetry']),
+            'import_bot_detections' => isset($_POST['import_bot_detections']) && $checkTrue($_POST['import_bot_detections']),
+            'import_modsec_events' => isset($_POST['import_modsec_events']) && $checkTrue($_POST['import_modsec_events']),
+            'import_access_logs' => isset($_POST['import_access_logs']) && $checkTrue($_POST['import_access_logs']),
+            'import_block_rules' => isset($_POST['import_block_rules']) && $checkTrue($_POST['import_block_rules']),
+            'import_rate_limits' => isset($_POST['import_rate_limits']) && $checkTrue($_POST['import_rate_limits']),
             'merge_mode' => $_POST['merge_mode'] ?? 'skip' // skip, replace, merge
         ];
     }

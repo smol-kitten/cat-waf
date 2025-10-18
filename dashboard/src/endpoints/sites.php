@@ -664,7 +664,8 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
                                                $enable_basic_auth, $basic_auth_username, $basic_auth_password,
                                                $enable_image_opt, $image_quality, $enable_bot_protection,
                                                false, false, false, false, // Disable challenge on HTTP when backend redirects
-                                               $cf_bypass_ratelimit, $cf_custom_rate_limit, $cf_rate_limit_burst);
+                                               $cf_bypass_ratelimit, $cf_custom_rate_limit, $cf_rate_limit_burst,
+                                               $enable_rate_limit, $rate_limit_burst);
         } else {
             // Redirect to HTTPS
             $config .= "    location / {\n";
@@ -679,7 +680,8 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
                                            $enable_basic_auth, $basic_auth_username, $basic_auth_password,
                                            $enable_image_opt, $image_quality, $enable_bot_protection,
                                            false, false, false, false, // No challenge on plain HTTP
-                                           $cf_bypass_ratelimit, $cf_custom_rate_limit, $cf_rate_limit_burst);
+                                           $cf_bypass_ratelimit, $cf_custom_rate_limit, $cf_rate_limit_burst,
+                                           $enable_rate_limit, $rate_limit_burst);
     }
     $config .= "}\n\n";
     
@@ -836,7 +838,8 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
                                            $enable_basic_auth, $basic_auth_username, $basic_auth_password,
                                            $enable_image_opt, $image_quality, $enable_bot_protection,
                                            $challenge_enabled, $challenge_difficulty, $challenge_duration, $challenge_bypass_cf,
-                                           $cf_bypass_ratelimit, $cf_custom_rate_limit, $cf_rate_limit_burst);
+                                           $cf_bypass_ratelimit, $cf_custom_rate_limit, $cf_rate_limit_burst,
+                                           $enable_rate_limit, $rate_limit_burst);
         $config .= "}\n";
     }
     
@@ -878,7 +881,8 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
                                $enable_basic_auth = false, $basic_auth_username = '', $basic_auth_password = '',
                                $enable_image_opt = false, $image_quality = 85, $enable_bot_protection = true,
                                $challenge_enabled = false, $challenge_difficulty = 18, $challenge_duration = 1, $challenge_bypass_cf = false,
-                               $cf_bypass_ratelimit = false, $cf_custom_rate_limit = 100, $cf_rate_limit_burst = 200) {
+                               $cf_bypass_ratelimit = false, $cf_custom_rate_limit = 100, $cf_rate_limit_burst = 200,
+                               $enable_rate_limit = 1, $rate_limit_burst = 20) {
     $block = "";
     
     // Ban list check
@@ -938,10 +942,13 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
     }
     
     // Rate limiting with Cloudflare bypass support
-    $burst = $custom_config['custom_rate_limit'] ?? 20;
-    $block .= "    # Rate limiting\n";
+    $burst = $rate_limit_burst ?? 20;
     
-    if ($cf_bypass_ratelimit) {
+    // Check if rate limiting is actually enabled for this site
+    if ($enable_rate_limit !== 0 && $enable_rate_limit !== false && $enable_rate_limit !== '0') {
+        $block .= "    # Rate limiting\n";
+        
+        if ($cf_bypass_ratelimit) {
         // Use geo module to detect Cloudflare IPs and apply different rate limits
         $block .= "    # Cloudflare IP bypass - use relaxed rate limits\n";
         $block .= "    set \$is_cf 0;\n";
@@ -958,11 +965,14 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
         $block .= "    if (\$is_cf = 1) {\n";
         $block .= "        limit_req zone=cloudflare burst={$cf_rate_limit_burst} nodelay;\n";
         $block .= "    }\n";
+        } else {
+            // Standard rate limiting
+            $block .= "    limit_req zone={$rate_limit} burst={$burst} nodelay;\n";
+        }
+        $block .= "    limit_conn addr 20;\n\n";
     } else {
-        // Standard rate limiting
-        $block .= "    limit_req zone={$rate_limit} burst={$burst} nodelay;\n";
+        $block .= "    # Rate limiting: DISABLED\n\n";
     }
-    $block .= "    limit_conn addr 20;\n\n";
     
     // ModSecurity
     $block .= "    # ModSecurity WAF\n";
