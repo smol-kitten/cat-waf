@@ -10,8 +10,13 @@ maxretry = 5
 banaction = nginx-banlist
 action = %(banaction)s[name=%(__name__)s, port="%(port)s", protocol="%(protocol)s"]
 
-# Backend
-backend = auto
+# Backend - use polling instead of auto to reduce CPU
+# 'polling' backend is more CPU-efficient for large log files
+backend = polling
+
+# Log processing optimization
+# Only scan last 10000 lines of log files to prevent high CPU on large logs
+maxlines = 10000
 
 # Email settings (optional)
 destemail = root@localhost
@@ -25,15 +30,20 @@ logpath = /var/log/fail2ban/fail2ban.log
 # Standard NGINX and SSH jails are disabled via jail.d/defaults-disabled.conf
 
 [modsecurity]
-enabled = true
+# Disabled due to CPU usage with large audit logs
+# Use sqli and xss jails instead which are more efficient
+enabled = false
 port = http,https
 logpath = /mnt/logs/modsec/modsec_audit.log
 maxretry = 5
 findtime = 600
 bantime = 3600
+# Poll log every 10 seconds instead of 1
+polltime = 10
 
 [modsecurity-severe]
-enabled = true
+# Disabled due to CPU usage with large audit logs
+enabled = false
 port = http,https
 logpath = /mnt/logs/modsec/modsec_audit.log
 maxretry = 2

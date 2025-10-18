@@ -17,6 +17,7 @@ services:
       # Data volumes (persistent across deployments)
       - waf-logs:/var/log
       - waf-certs:/etc/nginx/certs
+      - waf-certs:/acme.sh  # Mount acme storage at /acme.sh for direct access to certificates
       - waf-nginx-cache:/var/cache/nginx
       - waf-fail2ban:/etc/fail2ban
     networks:

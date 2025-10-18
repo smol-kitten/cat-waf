@@ -4719,3 +4719,225 @@ async function cleanupData(type) {
 
 window.cleanupData = cleanupData;
 window.loadCleanupStats = loadCleanupStats;
+
+// Backup & Restore Functions
+let backupInfoLoaded = false;
+let backupInfoLoading = false;
+
+async function loadBackupInfo() {
+    // Prevent concurrent calls
+    if (backupInfoLoading || backupInfoLoaded) return;
+    backupInfoLoading = true;
+    
+    try {
+        const response = await apiRequest('/backup/info');
+        if (response.success && response.info) {
+            const info = response.info;
+            const html = `
+                <p style="margin: 0.5rem 0;"><strong>Estimated Backup Size:</strong> ${info.estimated_size_mb} MB</p>
+                <p style="margin: 0.5rem 0;"><strong>Sites:</strong> ${info.sites.toLocaleString()}</p>
+                <p style="margin: 0.5rem 0;"><strong>Settings:</strong> ${info.settings.toLocaleString()}</p>
+                <p style="margin: 0.5rem 0;"><strong>Telemetry Records (30d):</strong> ${info.telemetry_30d.toLocaleString()}</p>
+                <p style="margin: 0.5rem 0;"><strong>Bot Detections (30d):</strong> ${info.bot_detections_30d.toLocaleString()}</p>
+                <p style="margin: 0.5rem 0;"><strong>ModSecurity Events (30d):</strong> ${info.modsec_events_30d.toLocaleString()}</p>
+                <p style="margin: 0.5rem 0;"><strong>Access Logs (7d):</strong> ${info.access_logs_7d.toLocaleString()}</p>
+            `;
+            document.getElementById('backupInfo').innerHTML = html;
+            backupInfoLoaded = true;
+        }
+    } catch (error) {
+        console.error('Error loading backup info:', error);
+        document.getElementById('backupInfo').innerHTML = `<p style="color: #d32f2f;">Error loading backup info</p>`;
+    } finally {
+        backupInfoLoading = false;
+    }
+}
+
+async function exportBackup() {
+    try {
+        showToast('Generating backup... This may take a few moments', 'info');
+        
+        // Use window.location to trigger download
+        const apiUrl = document.getElementById('apiUrl')?.value || 'http://dashboard:80';
+        const token = localStorage.getItem('apiToken');
+        
+        window.location.href = `${apiUrl}/backup/export?token=${encodeURIComponent(token)}`;
+        
+        setTimeout(() => {
+            showToast('Backup download started!', 'success');
+        }, 1000);
+        
+    } catch (error) {
+        console.error('Backup export error:', error);
+        showToast(`Failed to export backup: ${error.message}`, 'error');
+    }
+}
+
+async function importBackup() {
+    const fileInput = document.getElementById('backupFile');
+    if (!fileInput.files || fileInput.files.length === 0) {
+        showToast('Please select a backup file', 'error');
+        return;
+    }
+    
+    const confirmImport = confirm('Are you sure you want to import this backup? This will modify your current configuration.');
+    if (!confirmImport) return;
+    
+    try {
+        showToast('Importing backup... This may take a while', 'info');
+        
+        const formData = new FormData();
+        formData.append('backup', fileInput.files[0]);
+        formData.append('import_sites', document.getElementById('import_sites').checked);
+        formData.append('import_settings', document.getElementById('import_settings').checked);
+        formData.append('import_block_rules', document.getElementById('import_block_rules').checked);
+        formData.append('import_telemetry', document.getElementById('import_telemetry').checked);
+        formData.append('merge_mode', document.getElementById('merge_mode').value);
+        
+        const apiUrl = document.getElementById('apiUrl')?.value || 'http://dashboard:80';
+        const token = localStorage.getItem('apiToken');
+        
+        const response = await fetch(`${apiUrl}/backup/import`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            let message = 'Backup imported successfully!';
+            if (result.results && result.results.imported) {
+                const imported = result.results.imported;
+                message += '\n\nImported:';
+                if (imported.sites) {
+                    message += `\n• ${imported.sites.imported} sites (${imported.sites.skipped} skipped)`;
+                }
+                if (imported.settings) {
+                    message += `\n• ${imported.settings} settings`;
+                }
+                if (imported.custom_block_rules) {
+                    message += `\n• ${imported.custom_block_rules} custom block rules`;
+                }
+                if (imported.telemetry) {
+                    message += `\n• ${imported.telemetry.toLocaleString()} telemetry records`;
+                }
+            }
+            
+            showToast(message, 'success');
+            
+            // Clear file input
+            fileInput.value = '';
+            
+            // Reload page after 2 seconds to show updated data
+            setTimeout(() => {
+                location.reload();
+            }, 2000);
+            
+        } else {
+            throw new Error(result.error || 'Import failed');
+        }
+        
+    } catch (error) {
+        console.error('Backup import error:', error);
+        showToast(`Failed to import backup: ${error.message}`, 'error');
+    }
+}
+
+// Expose backup functions globally
+window.exportBackup = exportBackup;
+window.importBackup = importBackup;
+window.loadBackupInfo = loadBackupInfo;
+
+// Config Verification Functions
+async function verifySiteConfig(siteData) {
+    try {
+        const response = await apiRequest('/verify', {
+            method: 'POST',
+            body: JSON.stringify(siteData)
+        });
+        
+        return response;
+    } catch (error) {
+        console.error('Config verification error:', error);
+        return {
+            valid: false,
+            issues: [{
+                type: 'error',
+                category: 'system',
+                message: `Verification failed: ${error.message}`
+            }],
+            warnings: [],
+            summary: {
+                total_issues: 1,
+                total_warnings: 0,
+                can_save: false
+            }
+        };
+    }
+}
+
+async function verifyCurrentSiteConfig() {
+    if (!currentSiteData) {
+        showToast('No site data to verify', 'error');
+        return;
+    }
+    
+    showToast('Verifying configuration...', 'info');
+    
+    const result = await verifySiteConfig(currentSiteData);
+    
+    if (result.valid) {
+        showToast('✓ Configuration is valid!', 'success');
+    } else {
+        let message = 'Configuration has issues:\n\n';
+        
+        if (result.issues && result.issues.length > 0) {
+            message += '❌ Errors:\n';
+            result.issues.forEach(issue => {
+                message += `• [${issue.category}] ${issue.message}\n`;
+            });
+        }
+        
+        if (result.warnings && result.warnings.length > 0) {
+            message += '\n⚠️ Warnings:\n';
+            result.warnings.forEach(warning => {
+                message += `• [${warning.category}] ${warning.message}\n`;
+            });
+        }
+        
+        if (result.summary.can_save) {
+            message += '\n\nYou can still save, but warnings should be reviewed.';
+        }
+        
+        alert(message);
+    }
+    
+    return result;
+}
+
+// Expose verification functions
+window.verifySiteConfig = verifySiteConfig;
+window.verifyCurrentSiteConfig = verifyCurrentSiteConfig;
+
+// Load backup info when settings page loads
+let backupObserver = null;
+document.addEventListener('DOMContentLoaded', () => {
+    // Check if we're on settings page
+    if (backupObserver) backupObserver.disconnect();
+    backupObserver = new MutationObserver(() => {
+        const backupInfoEl = document.getElementById('backupInfo');
+        if (backupInfoEl && !backupInfoLoaded && !backupInfoLoading) {
+            loadBackupInfo();
+            // Disconnect after first successful load attempt
+            if (backupObserver) {
+                backupObserver.disconnect();
+                backupObserver = null;
+            }
+        }
+    });
+    backupObserver.observe(document.body, { childList: true, subtree: true });
+});
+

@@ -122,7 +122,7 @@ function getCertificateInfo($domain) {
 }
 
 function issueCertificate($domain) {
-    global $db;
+    $db = getDB();
     
     // Get site configuration for SSL challenge type
     $stmt = $db->prepare("SELECT ssl_challenge_type, cf_api_token, cf_zone_id FROM sites WHERE domain = ?");
@@ -203,6 +203,7 @@ function issueCertificate($domain) {
     
     // Create symlinks in nginx expected location
     if ($challengeType !== 'snakeoil') {
+        // Create symlinks in nginx expected location
         $linkCommand = sprintf(
             "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/certs/%s && ln -sf /acme.sh/%s/fullchain.pem /etc/nginx/certs/%s/fullchain.pem && ln -sf /acme.sh/%s/key.pem /etc/nginx/certs/%s/key.pem' 2>&1",
             escapeshellarg($domain),
@@ -240,7 +241,7 @@ function issueCertificate($domain) {
 }
 
 function renewCertificate($domain) {
-    global $db;
+    $db = getDB();
     
     // Get site configuration for SSL challenge type
     $stmt = $db->prepare("SELECT ssl_challenge_type, cf_api_token, cf_zone_id FROM sites WHERE domain = ?");
@@ -291,11 +292,95 @@ function renewCertificate($domain) {
     
     exec($command, $output, $returnCode);
     
+    $outputText = implode("\n", $output);
+
+    // If renew failed because the domain was never issued, try issuing it now
     if ($returnCode !== 0) {
+        error_log("Certificate renew failed for {$domain}, returnCode: {$returnCode}");
+        error_log("Output contains 'is not an issued domain': " . (strpos($outputText, 'is not an issued domain') !== false ? 'YES' : 'NO'));
+        error_log("Output: " . $outputText);
+        
+        if (strpos($outputText, 'is not an issued domain') !== false || strpos($outputText, 'No certificate found for') !== false) {
+            // Attempt to issue a new certificate (build issue command similar to renewAllCertificates)
+            if ($challengeType === 'dns-01') {
+                $cfApiKey = $site['cf_api_token'] ?: getenv('CLOUDFLARE_API_TOKEN') ?: getenv('CLOUDFLARE_API_KEY');
+                $cfZoneId = $site['cf_zone_id'];
+
+                // Prefer site-specific token, otherwise use global env token
+                $tokenToUse = !empty($site['cf_api_token']) ? $site['cf_api_token'] : (getenv('CLOUDFLARE_API_TOKEN') ?: getenv('CLOUDFLARE_API_KEY'));
+
+                $envVars = '';
+                if (!empty($tokenToUse)) {
+                    $envVars = sprintf('export CF_Token=%s; ', escapeshellarg($tokenToUse));
+                }
+                if (!empty($cfZoneId)) {
+                    $envVars .= sprintf('export CF_Zone_ID=%s; ', escapeshellarg($cfZoneId));
+                }
+
+                $issueCommand = sprintf(
+                    "docker exec waf-acme sh -c '%s/root/.acme.sh/acme.sh --issue --dns dns_cf -d %s --server letsencrypt --force' 2>&1",
+                    $envVars,
+                    escapeshellarg($domain)
+                );
+            } else {
+                // For snakeoil sites or http-01 fallback, try HTTP-01 issuance
+                $issueCommand = sprintf(
+                    "docker exec waf-acme sh -c '/root/.acme.sh/acme.sh --issue -d %s --webroot /var/www/certbot --server letsencrypt --force' 2>&1",
+                    escapeshellarg($domain)
+                );
+            }
+
+            unset($output);
+            exec($issueCommand, $output, $returnCode);
+            $issueOutput = implode("\n", $output);
+
+            if ($returnCode !== 0) {
+                http_response_code(500);
+                echo json_encode([
+                    'error' => 'Failed to issue certificate after renew reported missing',
+                    'renew_output' => $outputText,
+                    'issue_output' => $issueOutput,
+                    'challenge_method' => $challengeType
+                ]);
+                return;
+            }
+
+            // Link and reload
+            // First, create the intermediate symlinks in the acme.sh directory (to actual _ecc files)
+            $createAcmeSymlinks = sprintf(
+                "docker exec waf-nginx sh -c 'cd /acme.sh/%s && rm -f fullchain.pem key.pem && ln -s %s_ecc/fullchain.cer fullchain.pem && ln -s %s_ecc/%s.key key.pem' 2>&1",
+                escapeshellarg($domain),
+                escapeshellarg($domain),
+                escapeshellarg($domain),
+                escapeshellarg($domain)
+            );
+            exec($createAcmeSymlinks);
+            
+            // Then link from nginx certs to acme.sh
+            $linkCommand = sprintf(
+                "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/certs/%s && cd /etc/nginx/certs/%s && rm -f fullchain.pem key.pem && ln -sf /acme.sh/%s/fullchain.pem fullchain.pem && ln -sf /acme.sh/%s/key.pem key.pem' 2>&1",
+                escapeshellarg($domain),
+                escapeshellarg($domain),
+                escapeshellarg($domain),
+                escapeshellarg($domain)
+            );
+            exec($linkCommand);
+            exec("docker exec waf-nginx nginx -s reload 2>&1");
+
+            echo json_encode([
+                'success' => true,
+                'message' => "Certificate issued (after missing renew) for {$domain}",
+                'output' => $issueOutput,
+                'challenge_method' => $challengeType
+            ]);
+            return;
+        }
+
+        // Other failures: return original renew failure
         http_response_code(500);
         echo json_encode([
             'error' => 'Failed to renew certificate',
-            'output' => implode("\n", $output),
+            'output' => $outputText,
             'challenge_method' => $challengeType
         ]);
         return;
@@ -313,7 +398,7 @@ function renewCertificate($domain) {
 }
 
 function revokeCertificate($domain) {
-    global $db;
+    $db = getDB();
     
     $command = sprintf(
         "docker run --rm --name certbot -v /etc/letsencrypt:/etc/letsencrypt certbot/certbot revoke --cert-name %s --delete-after-revoke 2>&1",
@@ -353,7 +438,7 @@ function revokeCertificate($domain) {
 }
 
 function renewAllCertificates() {
-    global $db;
+    $db = getDB();
     
     // Get all sites with SSL enabled
     $stmt = $db->query("SELECT domain, ssl_challenge_type, cf_api_token, cf_zone_id FROM sites WHERE ssl_enabled = 1 AND ssl_challenge_type != 'snakeoil'");

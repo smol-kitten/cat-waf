@@ -1,6 +1,6 @@
 # CatWAF TODO List
 
-## ✅ Completed (Oct 15-17, 2025)
+## ✅ Completed (Oct 15-18, 2025)
 
 ### Phase 1: UI & Navigation
 - [x] Fix toggle/checkbox visibility (color scheme fix)
@@ -37,7 +37,7 @@
   - Stats endpoint now shows actual rule count
 - [x] Regenerate All Configs API
 
-### Phase 4: Certificate Automation (Oct 16-17, 2025)
+### Phase 4: Certificate Automation (Oct 16-18, 2025)
 - [x] Import/Export sites (merge/skip/replace modes)
 - [x] HTTP redirect control (disable_http_redirect)
 - [x] Cloudflare rate limit bypass
@@ -48,6 +48,23 @@
 - [x] Startup certificate safety checks
 - [x] Environment-based credentials
 - [x] Docker socket integration
+- [x] **Auto-Issue on Renew Failure** (Oct 18, 2025)
+  - Detects "is not an issued domain" during renewal
+  - Automatically attempts certificate issuance with `--force`
+  - Fixed database connection (`getDB()` instead of `global $db`)
+  - Proper two-tier symlink creation for ECC certificates
+  - Tested successfully with cat-boy.dev domain
+
+### Phase 5: Performance & Security Hardening (Oct 18, 2025)
+- [x] **Real IP Preservation**
+  - Added `real_ip_header X-Forwarded-For`
+  - Trust Docker networks (172.16.0.0/12, 10.0.0.0/8, 192.168.0.0/16)
+  - Enabled `real_ip_recursive` for multi-proxy chains
+- [x] **Cache Statistics Optimization**
+  - Created `nginx/cache-stats.sh` script
+  - Replaced 100+ docker exec calls with single script execution
+  - BusyBox-compatible commands (find + stat)
+  - Integrated into dashboard cache endpoint
 - [x] Special domain handling (_, *.local)
 - [x] Frontend error handling for certificates
 
@@ -114,6 +131,16 @@
 - [x] **Cache hit/miss display** - Frontend correctly shows rates from request_telemetry over last 1 hour
 - [x] **Bot Activity Chart fix** - Changed to show all available bot data instead of empty "last 24h from now" window
 - [x] **Security Events table scrolling** - Added max-height: 500px with sticky headers for long tables
+
+### New Migrations
+- [ ] Add full backup import/erxport including telemetry, sites(EVERYTHING), settings but no certs cache etc. as zip and import allows to choose what to import
+- [ ] Add guided fresh install migration wizard, export -> docker down -v to remove all and a new up with import
+- [ ] new settings flag for neu instance (ask for import or tutorial on first run) etc
+- [ ] Move from container to include migration script in main container and promt user to import, also keep track of applied migrations iin db, if fresh install automatically apply
+
+### New
+- [ ] Config verify (changes in backend get tested to verify endpoint is reachable etc), conflict detection etc
+- [ ] Better JOB tracking to visually inform about pending stuff like getting certs, regenerating configs, reloads pending/performing etc
 
 ## 📋 Backlog
 

@@ -164,6 +164,14 @@ try {
             require_once 'endpoints/cleanup.php';
             break;
             
+        case 'backup':
+            require_once 'endpoints/backup.php';
+            break;
+            
+        case 'verify':
+            require_once 'endpoints/verify.php';
+            break;
+            
         default:
             http_response_code(404);
             echo json_encode(['error' => 'Endpoint not found']);

@@ -550,6 +550,75 @@
                             </div>
                         </div>
 
+                        <!-- Backup & Restore Card -->
+                        <div class="settings-card" style="grid-column: 1 / -1;">
+                            <h3>💾 Backup & Restore</h3>
+                            <p style="color: #666; margin-bottom: 1.5rem;">
+                                Export your CatWAF configuration, sites, and data for backup or migration. Import from a previous backup to restore your setup.
+                            </p>
+                            
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+                                <!-- Export Section -->
+                                <div>
+                                    <h4>📤 Export Backup</h4>
+                                    <div id="backupInfo" style="background: #f5f5f5; padding: 1rem; border-radius: 8px; margin: 1rem 0; font-size: 0.9rem;">
+                                        <p style="margin: 0.5rem 0;"><strong>Estimating backup size...</strong></p>
+                                    </div>
+                                    <p style="font-size: 0.85rem; color: #666; margin-bottom: 1rem;">
+                                        Backup includes: sites, settings, telemetry (30 days), bot detections (30 days), security events (30 days), access logs (7 days), custom rules, and rate limit presets.
+                                        <br><br>
+                                        <strong>Note:</strong> Certificates and cache files are NOT included.
+                                    </p>
+                                    <button class="btn-primary" onclick="exportBackup()" style="width: 100%;">
+                                        <span style="font-size: 1.2rem;">⬇️</span> Download Backup
+                                    </button>
+                                </div>
+                                
+                                <!-- Import Section -->
+                                <div>
+                                    <h4>📥 Import Backup</h4>
+                                    <div style="background: #fff3cd; border: 1px solid #ffc107; padding: 1rem; border-radius: 8px; margin: 1rem 0;">
+                                        <p style="margin: 0; font-size: 0.85rem; color: #856404;">
+                                            ⚠️ <strong>Warning:</strong> Importing will modify your current configuration!
+                                        </p>
+                                    </div>
+                                    <div style="margin: 1rem 0;">
+                                        <label style="display: block; margin-bottom: 0.5rem;">Select backup file (.zip):</label>
+                                        <input type="file" id="backupFile" accept=".zip" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;">
+                                    </div>
+                                    <div style="margin: 1rem 0;">
+                                        <label style="display: block; margin-bottom: 0.5rem;"><strong>Import Options:</strong></label>
+                                        <label class="checkbox-label" style="display: block; margin: 0.5rem 0;">
+                                            <input type="checkbox" id="import_sites" checked>
+                                            <span>Sites Configuration</span>
+                                        </label>
+                                        <label class="checkbox-label" style="display: block; margin: 0.5rem 0;">
+                                            <input type="checkbox" id="import_settings" checked>
+                                            <span>Global Settings</span>
+                                        </label>
+                                        <label class="checkbox-label" style="display: block; margin: 0.5rem 0;">
+                                            <input type="checkbox" id="import_block_rules" checked>
+                                            <span>Custom Block Rules</span>
+                                        </label>
+                                        <label class="checkbox-label" style="display: block; margin: 0.5rem 0;">
+                                            <input type="checkbox" id="import_telemetry">
+                                            <span>Telemetry Data (optional)</span>
+                                        </label>
+                                    </div>
+                                    <div style="margin: 1rem 0;">
+                                        <label style="display: block; margin-bottom: 0.5rem;">Conflict Resolution:</label>
+                                        <select id="merge_mode" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;">
+                                            <option value="skip">Skip existing items (recommended)</option>
+                                            <option value="replace">Replace existing items</option>
+                                        </select>
+                                    </div>
+                                    <button class="btn-primary" onclick="importBackup()" style="width: 100%;">
+                                        <span style="font-size: 1.2rem;">⬆️</span> Import Backup
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Data Cleanup Card -->
                         <div class="settings-card" style="grid-column: 1 / -1;">
                             <h3>🗑️ Data Cleanup</h3>
@@ -901,6 +970,10 @@
                                 <span id="autoSaveIcon">💾</span>
                                 <span id="autoSaveText">Auto-save enabled</span>
                             </div>
+                            <button class="btn-secondary" onclick="verifyCurrentSiteConfig()" style="background: #17a2b8; color: white;" title="Verify configuration for issues">
+                                <span>🔍</span>
+                                <span>Verify Config</span>
+                            </button>
                             <button class="btn-secondary" onclick="navigateToPage('sites')">
                                 <span>←</span>
                                 <span>Back to Sites</span>

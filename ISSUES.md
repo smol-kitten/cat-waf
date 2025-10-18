@@ -17,8 +17,14 @@
 [X] Confidence in Bot Protection always showing null% - FIXED: Shows "N/A" when null, displays actual value when present
 [ ] Dashboard is actually web dashboard. The "dashboard" is just the api and management -> rename cleanly
 [X] Bot Activity (Last 24h) chart is all 0s even with data - FIXED: Changed chart to show all available bot data instead of forcing empty 24h window
-[ ] migrate sql files are AGAIN having duplicate preceeding numbers, fix to ensure working migfrations and check prebuild compose file all are present
-[ ] Bad Bots Blocked 698, but only a handfull in list and only testet few times. might be readded every reboot?
+[X] Migration sql files duplicate numbering - FIXED: Files properly numbered 01-04 (Oct 18, 2025)
+  - Repo files: 01-complete-schema.sql, 02-migration-redirect-cf-ratelimit.sql, 03-migration-jobs-table.sql, 04-custom-block-rules.sql
+  - Volume synced with repo files for fresh deployments
+[X] Bad Bots Blocked 698 - EXPLAINED: Historical entries from before IP preservation fix (Oct 18, 2025)
+  - 675 detections from Docker gateway IP 172.21.0.1 (before real_ip config)
+  - Log parser reads IP from NGINX logs (which showed gateway IP before fix)
+  - New detections after real_ip configuration will show actual client IPs
+  - Consider cleanup: DELETE FROM bot_detections WHERE ip_address='172.21.0.1';
 [X] Recent Security Events table very long - FIXED: Added scrollable container (max-height: 500px) with sticky headers
 [X] Recent Security events in Overview showing trash and not useful data - FIXED: Improved display to show domain, method, path, status, and rule details  
 >Recent Security Events  
@@ -51,9 +57,33 @@ dom1.tld	/assets/screenshots/2025-08-16_02.56.25.png	342ms	342ms	342ms	2
 [ ] Custom ModSecurity rules
 [ ] Auto bans
 [ ] Test if IP Bans work at all
-[ ] IP Preservation/Prevent translation to docker IP´s (maybe set docker network to host?)
+[X] IP Preservation/Prevent translation to docker IP´s - FIXED: Added real_ip module configuration (Oct 18, 2025)
+  - Added `real_ip_header X-Forwarded-For` to nginx.conf
+  - Trust Docker networks: 172.16.0.0/12, 10.0.0.0/8, 192.168.0.0/16, localhost
+  - Enabled `real_ip_recursive on` for multi-proxy chains
+  - Bot detections and logs will now capture real client IPs instead of Docker gateway IPs
 
 ## Recent Fixes / Notes (October 18, 2025)
+
+**Session 14 - Certificate Auto-Issue & Infrastructure (October 18, 2025):**
+- [x] **Auto-Issue on Renew Failure** - When acme.sh reports "is not an issued domain", automatically attempts certificate issuance
+  - Fixed database connection bug (`global $db` → `getDB()`)
+  - Detects renewal failures and triggers `--issue --force` command
+  - Proper two-tier symlink creation for ECC certificates
+  - Cloudflare token fallback: site-specific → global CLOUDFLARE_API_TOKEN
+  - Tested successfully with cat-boy.dev (valid Let's Encrypt cert issued)
+- [x] **Cache Statistics Optimization** - Replaced 100+ docker exec calls with single script
+  - Created `nginx/cache-stats.sh` with BusyBox-compatible commands
+  - Returns JSON with per-zone statistics (find + stat)
+  - Integrated into dashboard cache endpoint
+- [x] **Real IP Preservation** - Nginx now captures real client IPs instead of Docker gateway
+  - Added `real_ip_header X-Forwarded-For` configuration
+  - Trusts Docker networks (172.16.0.0/12, 10.0.0.0/8, 192.168.0.0/16)
+  - Enabled `real_ip_recursive on` for multi-proxy scenarios
+- [x] **Docker Volume Architecture** - Unified certificate access between containers
+  - Added `/acme.sh` mount to nginx container (same volume as `/etc/nginx/certs`)
+  - Enables flexible symlink strategies for certificate management
+  - Resolved symlink loop issues with proper cleanup
 
 **Session 8 - Backend & UI Enhancements:**
 - [x] Per-backend protocol toggles (HTTP/HTTPS/WS/WSS) added to site editor UI — allows enabling/disabling protocols per backend
