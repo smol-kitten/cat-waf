@@ -146,8 +146,9 @@ services:
       sh -c '
       echo "Downloading database schema and migrations..." &&
       wget -q https://raw.githubusercontent.com/smol-kitten/cat-waf/main/mariadb/init/01-complete-schema.sql -O /init/01-complete-schema.sql &&
-      wget -q https://raw.githubusercontent.com/smol-kitten/cat-waf/main/mariadb/init/06-migration-redirect-cf-ratelimit.sql -O /init/06-migration-redirect-cf-ratelimit.sql &&
-      wget -q https://raw.githubusercontent.com/smol-kitten/cat-waf/main/mariadb/init/06-custom-block-rules.sql -O /init/06-custom-block-rules.sql &&
+      wget -q https://raw.githubusercontent.com/smol-kitten/cat-waf/main/mariadb/init/02-migration-redirect-cf-ratelimit.sql -O /init/02-migration-redirect-cf-ratelimit.sql &&
+      wget -q https://raw.githubusercontent.com/smol-kitten/cat-waf/main/mariadb/init/03-migration-jobs-table.sql -O /init/03-migration-jobs-table.sql &&
+      wget -q https://raw.githubusercontent.com/smol-kitten/cat-waf/main/mariadb/init/04-custom-block-rules.sql -O /init/04-custom-block-rules.sql &&
       echo "Files downloaded successfully!" &&
       ls -lh /init/
       '
