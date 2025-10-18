@@ -4579,7 +4579,7 @@ async function importBackup() {
         formData.append('import_modsec_events', document.getElementById('import_modsec_events').checked);
         formData.append('merge_mode', document.getElementById('merge_mode').value);
         
-        const apiUrl = document.getElementById('apiUrl')?.value || 'http://dashboard:80';
+        const apiUrl = document.location.origin;
         const token = localStorage.getItem('apiToken');
         
         const response = await fetch(`${apiUrl}/backup/import`, {

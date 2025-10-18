@@ -234,7 +234,7 @@ force_reset() {
     log "⚠️  WARNING: This will delete ALL data (containers + volumes)!"
     
     cd /compose
-    local compose_cmd="docker compose -f $COMPOSE_FILE -p $PROJECT_NAME"
+    local compose_cmd="docker compose -f $COMPOSE_FILE"
     
     if [ -f "$COMPOSE_OVERRIDE" ]; then
         compose_cmd="$compose_cmd -f $COMPOSE_OVERRIDE"
@@ -254,6 +254,7 @@ force_reset() {
     log "" 
     
     log "Step 3/5: Starting core services (MariaDB, Migration-Runner, Dashboard)..."
+    log "$compose_cmd up -d mariadb migration-runner dashboard"
     $compose_cmd up -d mariadb migration-runner dashboard
     
     log ""

@@ -4,7 +4,7 @@
 
 services:
   waf-updater:
-    image: waf-updater:latest
+    image: ghcr.io/smol-kitten/cat-waf-updater:latest
     container_name: waf-updater
     restart: unless-stopped
     environment:
