@@ -3,43 +3,8 @@
 const API_BASE_URL = '/api';
 const API_TOKEN = localStorage.getItem('api_token') || '';
 
-// Toast Notification Utility
-const Toast = {
-    show: function(message, type = 'info') {
-        // Remove existing toast if any
-        const existing = document.getElementById('toast-notification');
-        if (existing) existing.remove();
-        
-        // Create toast element
-        const toast = document.createElement('div');
-        toast.id = 'toast-notification';
-        toast.className = `toast toast-${type}`;
-        toast.textContent = message;
-        toast.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 1rem 1.5rem;
-            background: ${type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : type === 'warning' ? '#f59e0b' : '#3b82f6'};
-            color: white;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            z-index: 10000;
-            animation: slideIn 0.3s ease-out;
-        `;
-        
-        document.body.appendChild(toast);
-        
-        // Auto-remove after 3 seconds
-        setTimeout(() => {
-            toast.style.animation = 'slideOut 0.3s ease-out';
-            setTimeout(() => toast.remove(), 300);
-        }, 3000);
-    }
-};
-
-// Alias for compatibility
-const showToast = (message, type) => Toast.show(message, type);
+// Toast system is now provided by toast.js - remove duplicate definition
+// showToast is defined globally by toast.js
 
 // HTML Escape Utility
 function escapeHtml(text) {
@@ -61,7 +26,7 @@ document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
         console.log('Quick search coming soon!');
-        Toast.show('Quick search coming soon! 🔍', 'info');
+        showToast('Quick search coming soon! 🔍', 'info');
     }
     
     // Ctrl/Cmd + S: Save (if in edit mode)
@@ -70,7 +35,7 @@ document.addEventListener('keydown', (e) => {
         if (saveBtn && saveBtn.offsetParent !== null) {
             e.preventDefault();
             saveBtn.click();
-            Toast.show('Saving... 💾', 'info');
+            showToast('Saving... 💾', 'info');
         }
     }
     
@@ -314,36 +279,36 @@ async function apiRequest(endpoint, methodOrOptions = {}, bodyData = null) {
         
         // Handle different HTTP status codes
         if (response.status === 401) {
-            Toast.show('Authentication failed. Please log in again.', 'error');
+            showToast('Authentication failed. Please log in again.', 'error');
             localStorage.removeItem('api_token');
             setTimeout(() => window.location.reload(), 2000);
             return null;
         }
         
         if (response.status === 403) {
-            Toast.show('Permission denied. Insufficient privileges.', 'error');
+            showToast('Permission denied. Insufficient privileges.', 'error');
             return null;
         }
         
         if (response.status === 404) {
-            Toast.show('Resource not found. Please refresh.', 'warning');
+            showToast('Resource not found. Please refresh.', 'warning');
             return null;
         }
         
         if (response.status === 429) {
-            Toast.show('Too many requests. Please slow down!', 'warning');
+            showToast('Too many requests. Please slow down!', 'warning');
             return null;
         }
         
         if (response.status >= 500) {
-            Toast.show('Server error. Please try again later.', 'error');
+            showToast('Server error. Please try again later.', 'error');
             return null;
         }
         
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             const errorMsg = errorData.error || errorData.message || response.statusText;
-            Toast.show(`Error: ${errorMsg}`, 'error');
+            showToast(`Error: ${errorMsg}`, 'error');
             throw new Error(errorMsg);
         }
         
@@ -353,9 +318,9 @@ async function apiRequest(endpoint, methodOrOptions = {}, bodyData = null) {
         
         // Network error
         if (error.name === 'TypeError' && error.message.includes('fetch')) {
-            Toast.show('Network error. Check your connection.', 'error');
+            showToast('Network error. Check your connection.', 'error');
         } else {
-            Toast.show('Request failed. Check console for details.', 'error');
+            showToast('Request failed. Check console for details.', 'error');
         }
         
         return null;
@@ -635,7 +600,7 @@ async function loadSites() {
         });
     } catch (error) {
         console.error('Error loading sites:', error);
-        Toast.show('❌ Failed to load sites', 'error');
+        showToast('❌ Failed to load sites', 'error');
     }
 }
 
@@ -714,7 +679,7 @@ async function loadBans() {
         });
     } catch (error) {
         console.error('Error loading bans:', error);
-        Toast.show('❌ Failed to load bans', 'error');
+        showToast('❌ Failed to load bans', 'error');
     }
 }
 
@@ -729,7 +694,7 @@ async function banIP(ip, reason, duration) {
         await loadBans();
     } catch (error) {
         console.error('Error banning IP:', error);
-        Toast.show('Failed to ban IP address', 'error');
+        showToast('Failed to ban IP address', 'error');
     }
 }
 
@@ -741,7 +706,7 @@ async function unbanIP(ip) {
         await loadBans();
     } catch (error) {
         console.error('Error unbanning IP:', error);
-        Toast.show('Failed to unban IP address', 'error');
+        showToast('Failed to unban IP address', 'error');
     }
 }
 
@@ -790,7 +755,7 @@ async function loadSecurityEvents() {
         });
     } catch (error) {
         console.error('Error loading security events:', error);
-        Toast.show('❌ Failed to load security events', 'error');
+        showToast('❌ Failed to load security events', 'error');
     }
 }
 
@@ -848,10 +813,10 @@ async function updateAutoBanSettings() {
             })
         });
         
-        Toast.show(`Auto-ban ${enableAutoBan ? 'enabled' : 'disabled'}`, 'success');
+        showToast(`Auto-ban ${enableAutoBan ? 'enabled' : 'disabled'}`, 'success');
     } catch (error) {
         console.error('Error updating auto-ban settings:', error);
-        Toast.show('Failed to update auto-ban settings', 'error');
+        showToast('Failed to update auto-ban settings', 'error');
     }
 }
 
@@ -1068,10 +1033,10 @@ async function saveSettings() {
             localStorage.setItem('api_token', settings.api_token);
         }
         
-        Toast.show('Settings saved successfully!', 'success');
+        showToast('Settings saved successfully!', 'success');
     } catch (error) {
         console.error('Error saving settings:', error);
-        Toast.show('Failed to save settings', 'error');
+        showToast('Failed to save settings', 'error');
     }
 }
 
@@ -1093,10 +1058,10 @@ window.saveWafSettings = async () => {
             }
         }
         
-        Toast.show('✅ WAF settings saved successfully!', 'success');
+        showToast('✅ WAF settings saved successfully!', 'success');
     } catch (error) {
         console.error('Error saving WAF settings:', error);
-        Toast.show('❌ Failed to save WAF settings', 'error');
+        showToast('❌ Failed to save WAF settings', 'error');
     }
 };
 
@@ -1112,7 +1077,7 @@ window.saveEmailSettings = async () => {
     };
     
     if (settings.email_enabled && (!settings.smtp_server || !settings.smtp_user)) {
-        Toast.show('Please fill in SMTP server and username', 'warning');
+        showToast('Please fill in SMTP server and username', 'warning');
         return;
     }
     
@@ -1127,10 +1092,10 @@ window.saveEmailSettings = async () => {
             }
         }
         
-        Toast.show('✅ Email settings saved successfully!', 'success');
+        showToast('✅ Email settings saved successfully!', 'success');
     } catch (error) {
         console.error('Error saving email settings:', error);
-        Toast.show('❌ Failed to save email settings', 'error');
+        showToast('❌ Failed to save email settings', 'error');
     }
 };
 
@@ -1274,17 +1239,19 @@ window.issueCertificate = async (domain) => {
         return;
     }
     
-    showToast(`Issuing certificate for ${domain}...`, 'info');
+    const toastId = showToast(`⏳ Issuing certificate for ${domain}... This may take 30-60 seconds.`, 'info', 60000);
     
     try {
-        await apiRequest(`/certificates/${domain}`, {
+        const response = await apiRequest(`/certificates/${domain}`, {
             method: 'POST'
         });
-        showToast(`Certificate issued successfully for ${domain}!`, 'success');
+        showToast(`✅ Certificate issued successfully for ${domain}!`, 'success');
         loadCertificateStatus();
+        // Reload sites list to update SSL status
+        if (typeof loadSites === 'function') loadSites();
     } catch (error) {
         console.error('Error issuing certificate:', error);
-        showToast(`Failed to issue certificate: ${error.message}`, 'error');
+        showToast(`❌ Failed to issue certificate: ${error.message}`, 'error', 10000);
     }
 };
 
@@ -1293,17 +1260,19 @@ window.renewCertificate = async (domain) => {
         return;
     }
     
-    showToast(`Renewing certificate for ${domain}...`, 'info');
+    const toastId = showToast(`⏳ Renewing certificate for ${domain}... This may take 30-60 seconds.`, 'info', 60000);
     
     try {
-        await apiRequest(`/certificates/${domain}/renew`, {
+        const response = await apiRequest(`/certificates/${domain}/renew`, {
             method: 'POST'
         });
-        showToast(`Certificate renewed successfully for ${domain}!`, 'success');
+        showToast(`✅ Certificate renewed successfully for ${domain}!`, 'success');
         loadCertificateStatus();
+        // Reload sites list to update SSL status
+        if (typeof loadSites === 'function') loadSites();
     } catch (error) {
         console.error('Error renewing certificate:', error);
-        showToast(`Failed to renew certificate: ${error.message}`, 'error');
+        showToast(`❌ Failed to renew certificate: ${error.message}`, 'error', 10000);
     }
 };
 
@@ -1358,6 +1327,84 @@ window.renewAllCertificates = async () => {
     }
 };
 
+window.rescanAllCertificates = async () => {
+    if (!confirm('Rescan and fix ALL SSL certificates?\n\nThis will:\n- Check if sites are using snakeoil when they should have real certificates\n- Copy certificates from acme.sh if available\n- Fix configuration inconsistencies\n\nThis process is safe and won\'t issue new certificates.\n\nContinue?')) {
+        return;
+    }
+    
+    showToast('🔍 Rescanning all certificates...', 'info', 30000);
+    
+    try {
+        const response = await apiRequest('/certificates/rescan', {
+            method: 'POST'
+        });
+        
+        if (response.success) {
+            let message = `Scanned ${response.total} certificates`;
+            if (response.fixed > 0) {
+                message += `, fixed ${response.fixed}`;
+            }
+            
+            showToast(`✅ ${message}`, response.fixed > 0 ? 'success' : 'info');
+            
+            // Show detailed results
+            if (response.results && response.results.length > 0) {
+                console.log('Certificate rescan results:', response.results);
+                const needsIssuance = response.results.filter(r => r.action === 'needs_issuance');
+                if (needsIssuance.length > 0) {
+                    setTimeout(() => {
+                        const domains = needsIssuance.map(s => s.domain).join('\\n- ');
+                        alert(`The following domains need certificates to be issued:\n\n- ${domains}\n\nPlease use the "Renew Now" button for each domain.`);
+                    }, 1000);
+                }
+            }
+            
+            loadCertificateStatus();
+            loadSites();
+        }
+    } catch (error) {
+        console.error('Error rescanning certificates:', error);
+        showToast(`❌ Failed to rescan certificates: ${error.message}`, 'error');
+    }
+};
+
+window.rescanCertificate = async (domain) => {
+    showToast(`🔍 Rescanning certificate for ${domain}...`, 'info', 10000);
+    
+    try {
+        const response = await apiRequest(`/certificates/rescan/${domain}`, {
+            method: 'POST'
+        });
+        
+        if (response.success) {
+            const result = response.result;
+            let message = `Certificate: ${result.current_cert_type}`;
+            
+            if (result.action === 'copied_from_acme') {
+                message = `✅ Fixed ${domain} - copied Let's Encrypt certificate from acme.sh`;
+                showToast(message, 'success');
+            } else if (result.action === 'reissued') {
+                message = `✅ Issued new certificate for ${domain}`;
+                showToast(message, 'success');
+            } else if (result.action === 'none') {
+                if (result.should_have_real_cert && result.current_cert_type === 'snakeoil') {
+                    message = `⚠️ ${domain} is using snakeoil but should have a real certificate. Please issue a certificate.`;
+                    showToast(message, 'warning');
+                } else {
+                    message = `✅ ${domain} certificate is correctly configured`;
+                    showToast(message, 'success');
+                }
+            }
+            
+            loadCertificateInfo();
+            loadSites();
+        }
+    } catch (error) {
+        console.error('Error rescanning certificate:', error);
+        showToast(`❌ Failed to rescan: ${error.message}`, 'error');
+    }
+};
+
 window.revokeCertificate = async (domain) => {
     if (!confirm(`⚠️ DANGER: Revoke SSL certificate for ${domain}?\n\nThis action cannot be undone and will immediately disable HTTPS for this domain.`)) {
         return;
@@ -1381,9 +1428,9 @@ window.saveApiToken = () => {
     const token = document.getElementById('apiToken').value.trim();
     if (token) {
         localStorage.setItem('api_token', token);
-        Toast.show('✅ API token saved!', 'success');
+        showToast('✅ API token saved!', 'success');
     } else {
-        Toast.show('Please enter a token', 'warning');
+        showToast('Please enter a token', 'warning');
     }
 };
 
@@ -1419,7 +1466,7 @@ function setupModals() {
             await loadSites();
         } catch (error) {
             console.error('Error adding site:', error);
-            Toast.show('Failed to add site', 'error');
+            showToast('Failed to add site', 'error');
             }
         });
     }
@@ -1692,7 +1739,7 @@ window.addSite = async () => {
     const customHeaders = document.getElementById('siteCustomHeaders')?.value.trim();
     
     if (!domain || !backend) {
-        Toast.show('Please fill in all required fields', 'warning');
+        showToast('Please fill in all required fields', 'warning');
         return;
     }
     
@@ -1739,11 +1786,11 @@ window.addSite = async () => {
         // Reset modal for next use
         resetSiteModal();
         
-        Toast.show('✅ Site added successfully!', 'success');
+        showToast('✅ Site added successfully!', 'success');
         await loadSites();
     } catch (error) {
         console.error('Error adding site:', error);
-        Toast.show('❌ Failed to add site: ' + error.message, 'error');
+        showToast('❌ Failed to add site: ' + error.message, 'error');
     }
 };
 window.banIp = async () => {
@@ -1753,7 +1800,7 @@ window.banIp = async () => {
     const permanent = document.getElementById('banPermanent').checked;
     
     if (!ip) {
-        Toast.show('Please enter an IP address', 'warning');
+        showToast('Please enter an IP address', 'warning');
         return;
     }
     
@@ -1775,11 +1822,11 @@ window.banIp = async () => {
         document.getElementById('banDuration').value = '3600';
         document.getElementById('banPermanent').checked = false;
         
-        Toast.show('✅ IP banned successfully!', 'success');
+        showToast('✅ IP banned successfully!', 'success');
         await loadBans();
     } catch (error) {
         console.error('Error banning IP:', error);
-        Toast.show('❌ Failed to ban IP: ' + error.message, 'error');
+        showToast('❌ Failed to ban IP: ' + error.message, 'error');
     }
 };
 window.showPage = navigateToPage;
@@ -1795,7 +1842,7 @@ window.copySite = async (id) => {
         });
         
         if (response && response.success) {
-            Toast.show(`✅ Site copied as: ${response.domain}`, 'success');
+            showToast(`✅ Site copied as: ${response.domain}`, 'success');
             await loadSites();
             
             // Open editor for the new copy
@@ -1805,7 +1852,7 @@ window.copySite = async (id) => {
         }
     } catch (error) {
         console.error('Error copying site:', error);
-        Toast.show('❌ Failed to copy site', 'error');
+        showToast('❌ Failed to copy site', 'error');
     }
 };
 
@@ -1818,7 +1865,7 @@ async function updateSite(id) {
     const geoipEnabled = document.getElementById('siteGeoIP').checked;
     
     if (!domain || !backend) {
-        Toast.show('Please fill in all required fields', 'warning');
+        showToast('Please fill in all required fields', 'warning');
         return;
     }
     
@@ -1840,10 +1887,10 @@ async function updateSite(id) {
         resetSiteModal();
         
         await loadSites();
-        Toast.show('✅ Site updated successfully!', 'success');
+        showToast('✅ Site updated successfully!', 'success');
     } catch (error) {
         console.error('Error updating site:', error);
-        Toast.show('❌ Failed to update site: ' + error.message, 'error');
+        showToast('❌ Failed to update site: ' + error.message, 'error');
     }
 }
 
@@ -1855,7 +1902,7 @@ window.deleteSite = async (id) => {
         await loadSites();
     } catch (error) {
         console.error('Error deleting site:', error);
-        Toast.show('Failed to delete site', 'error');
+        showToast('Failed to delete site', 'error');
     }
 };
 
@@ -2161,6 +2208,12 @@ async function loadTelemetryData() {
         // Load backend performance
         await loadBackendPerformance();
         
+        // Load top accessed endpoints
+        await loadTopEndpoints();
+        
+        // Load top 404s
+        await loadTop404s();
+        
         // Load response time distribution chart
         await loadResponseTimeChart();
     } catch (error) {
@@ -2318,6 +2371,87 @@ async function loadBackendPerformance() {
     }
 }
 
+async function loadTopEndpoints() {
+    try {
+        const timeRange = document.getElementById('telemetryTimeRange')?.value || '24h';
+        const response = await apiRequest(`/telemetry/top-endpoints?range=${timeRange}`);
+        const tbody = document.getElementById('topEndpointsBody');
+        
+        if (!response || response.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">No data available</td></tr>';
+            return;
+        }
+        
+        // Filter out challenge page and other internal endpoints
+        const filtered = response.filter(ep => {
+            const path = (ep.path || '').toLowerCase();
+            return !path.includes('/challenge.html') && !path.includes('/.well-known/');
+        });
+        
+        tbody.innerHTML = filtered.map(endpoint => {
+            // Truncate path if too long
+            let displayPath = endpoint.path || '/';
+            if (displayPath.length > 60) {
+                displayPath = displayPath.substring(0, 60) + '...';
+            }
+            
+            return `
+            <tr>
+                <td><strong>${endpoint.domain || 'unknown'}</strong></td>
+                <td><code title="${endpoint.path}">${displayPath}</code></td>
+                <td><span style="font-weight: 600; color: #3b82f6;">${endpoint.hit_count.toLocaleString()}</span></td>
+                <td>${endpoint.avg_response_time}ms</td>
+            </tr>
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('Error loading top endpoints:', error);
+        document.getElementById('topEndpointsBody').innerHTML = 
+            '<tr><td colspan="4" style="text-align: center; color: #ef4444;">Error loading data</td></tr>';
+    }
+}
+
+async function loadTop404s() {
+    try {
+        const timeRange = document.getElementById('telemetryTimeRange')?.value || '24h';
+        const response = await apiRequest(`/telemetry/top-404s?range=${timeRange}`);
+        const tbody = document.getElementById('top404sBody');
+        
+        if (!response || response.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">No 404 errors found</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = response.map(endpoint => {
+            // Truncate path if too long
+            let displayPath = endpoint.path || '/';
+            if (displayPath.length > 60) {
+                displayPath = displayPath.substring(0, 60) + '...';
+            }
+            
+            // Format timestamp
+            let lastSeen = 'Unknown';
+            if (endpoint.last_seen) {
+                const date = new Date(endpoint.last_seen);
+                lastSeen = date.toLocaleString();
+            }
+            
+            return `
+            <tr>
+                <td><strong>${endpoint.domain || 'unknown'}</strong></td>
+                <td><code title="${endpoint.path}">${displayPath}</code></td>
+                <td><span style="font-weight: 600; color: #ef4444;">${endpoint.hit_count.toLocaleString()}</span></td>
+                <td style="font-size: 0.85em; color: #6b7280;">${lastSeen}</td>
+            </tr>
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('Error loading top 404s:', error);
+        document.getElementById('top404sBody').innerHTML = 
+            '<tr><td colspan="4" style="text-align: center; color: #ef4444;">Error loading data</td></tr>';
+    }
+}
+
 // ============================================
 // GoAccess Analytics Page
 // ============================================
@@ -2375,12 +2509,12 @@ async function regenerateAllConfigs() {
     }
     
     try {
-        Toast.show('Regenerating all configurations...', 'info');
+        showToast('Regenerating all configurations...', 'info');
         await apiRequest('/regenerate/all', 'POST');
-        Toast.show('All configurations regenerated! NGINX will reload shortly.', 'success');
+        showToast('All configurations regenerated! NGINX will reload shortly.', 'success');
     } catch (error) {
         console.error('Error regenerating configs:', error);
-        Toast.show('Failed to regenerate configurations', 'error');
+        showToast('Failed to regenerate configurations', 'error');
     }
 }
 
@@ -2428,6 +2562,9 @@ async function loadSiteEditor(siteId) {
     
     console.log('Loading site editor for ID:', siteId);
     
+    // Reset editor tabs setup flag when switching sites
+    editorTabsSetup = false;
+    
     // Show editor nav item
     const editorNavItem = document.querySelector('.nav-item[data-page="site-editor"]');
     if (editorNavItem) {
@@ -2474,12 +2611,21 @@ async function loadSiteEditor(siteId) {
         
     } catch (error) {
         console.error('Error loading site:', error);
-        Toast.show('Failed to load site data', 'error');
+        showToast('Failed to load site data', 'error');
         navigateToPage('sites');
     }
 }
 
+// Track if editor tabs are already setup to prevent duplicate listeners
+let editorTabsSetup = false;
+
 function setupEditorTabs() {
+    // Prevent duplicate setup
+    if (editorTabsSetup) {
+        return;
+    }
+    editorTabsSetup = true;
+    
     const tabBtns = document.querySelectorAll('.tab-btn[data-editor-tab]');
     
     tabBtns.forEach(btn => {
@@ -3053,12 +3199,12 @@ function initializeBackends() {
         editorBackends = [{
             id: 0,
             address: address,
+            protocol: port === 443 ? 'https' : 'http',
             port: port,
-            useProtocolPorts: false,
-            httpPort: 80,
-            httpsPort: 443,
-            wsPort: 80,
-            wssPort: 443,
+            websocket_enabled: false,
+            websocket_protocol: port === 443 ? 'wss' : 'ws',
+            websocket_port: port,
+            websocket_path: '/',
             weight: 1,
             max_fails: 3,
             fail_timeout: 30,
@@ -3103,38 +3249,35 @@ function renderBackendsList() {
             </div>
             
             <div class="form-group">
-                <label style="display:block; margin-bottom: 0.25rem;">Protocols</label>
-                <div style="display:flex; gap: 0.75rem; flex-wrap:wrap;">
-                    <label class="checkbox-label" style="margin:0;">
-                        <input type="checkbox" class="backend-proto-enabled" data-proto="http" data-id="${backend.id}" ${backend.proto?.http !== false ? 'checked' : ''} onchange="toggleBackendProtocol(${backend.id}, 'http')">
-                        <span>HTTP</span>
-                    </label>
-                    <label class="checkbox-label" style="margin:0;">
-                        <input type="checkbox" class="backend-proto-enabled" data-proto="https" data-id="${backend.id}" ${backend.proto?.https !== false ? 'checked' : ''} onchange="toggleBackendProtocol(${backend.id}, 'https')">
-                        <span>HTTPS</span>
-                    </label>
-                    <label class="checkbox-label" style="margin:0;">
-                        <input type="checkbox" class="backend-proto-enabled" data-proto="websocket" data-id="${backend.id}" ${backend.proto?.websocket ? 'checked' : ''} onchange="toggleBackendProtocol(${backend.id}, 'websocket')">
-                        <span>WebSocket</span>
-                    </label>
+                <label style="display:block; margin-bottom: 0.25rem;">Protocol</label>
+                <div style="display:flex; gap: 0.75rem; align-items:center;">
+                    <select class="form-input backend-protocol" data-id="${backend.id}" onchange="updateEditorBackend(${backend.id})">
+                        <option value="http" ${(!backend.protocol || backend.protocol === 'http') ? 'selected' : ''}>HTTP</option>
+                        <option value="https" ${backend.protocol === 'https' ? 'selected' : ''}>HTTPS</option>
+                    </select>
+                    <div style="min-width:160px;">
+                        <label style="display:block; margin:0 0 0.25rem 0; font-size:0.9rem; color:var(--text-muted);">Port</label>
+                        <input type="number" class="form-input backend-port" data-id="${backend.id}" value="${backend.port || (backend.protocol === 'https' ? 443 : 80)}" min="1" max="65535" onchange="updateEditorBackend(${backend.id})">
+                    </div>
                 </div>
-                <small style="color: var(--text-muted); display:block; margin-top:0.5rem;">Select which protocols this backend supports</small>
+                <small style="color: var(--text-muted); display:block; margin-top:0.5rem;">Set the protocol and port used to contact this backend</small>
             </div>
 
-            <div class="backend-fields" style="display:flex; gap:1rem; flex-wrap:wrap;">
-                <div class="form-group" style="min-width:140px;">
-                    <label>HTTP Port</label>
-                    <input type="number" class="form-input backend-http-port" data-id="${backend.id}" value="${backend.httpPort || 80}" min="1" max="65535" onchange="updateEditorBackend(${backend.id})">
+            <div class="form-group" style="margin-top:0.5rem;">
+                <label style="display:block; margin-bottom: 0.25rem;">WebSocket</label>
+                <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
+                    <label class="checkbox-label" style="margin:0; display:flex; align-items:center; gap:0.5rem;">
+                        <input type="checkbox" class="backend-websocket-enabled" data-id="${backend.id}" ${backend.websocket_enabled ? 'checked' : ''} onchange="updateEditorBackend(${backend.id})">
+                        <span>Enable WebSocket</span>
+                    </label>
+                    <select class="form-input backend-websocket-protocol" data-id="${backend.id}" onchange="updateEditorBackend(${backend.id})">
+                        <option value="ws" ${(!backend.websocket_protocol || backend.websocket_protocol === 'ws') ? 'selected' : ''}>WS</option>
+                        <option value="wss" ${backend.websocket_protocol === 'wss' ? 'selected' : ''}>WSS</option>
+                    </select>
+                    <input type="number" class="form-input backend-websocket-port" data-id="${backend.id}" value="${backend.websocket_port || (backend.websocket_protocol === 'wss' ? 443 : 80)}" min="1" max="65535" onchange="updateEditorBackend(${backend.id})" style="width:120px;">
+                    <input type="text" class="form-input backend-websocket-path" data-id="${backend.id}" value="${backend.websocket_path || '/'}" onchange="updateEditorBackend(${backend.id})" style="min-width:120px;" placeholder="/">
                 </div>
-                <div class="form-group" style="min-width:140px;">
-                    <label>HTTPS Port</label>
-                    <input type="number" class="form-input backend-https-port" data-id="${backend.id}" value="${backend.httpsPort || 443}" min="1" max="65535" onchange="updateEditorBackend(${backend.id})">
-                </div>
-                <div class="form-group" style="min-width:140px;">
-                    <label>WebSocket Port</label>
-                    <input type="number" class="form-input backend-ws-port" data-id="${backend.id}" value="${backend.wsPort || 80}" min="1" max="65535" onchange="updateEditorBackend(${backend.id})">
-                    <small style="color: var(--text-muted);">For WS/WSS traffic</small>
-                </div>
+                <small style="color: var(--text-muted); display:block; margin-top:0.5rem;">Enable WS/WSS support and configure port/path</small>
             </div>
             
             <div class="backend-fields">
@@ -3169,9 +3312,12 @@ function addEditorBackend() {
     editorBackends.push({
         id: editorBackendIdCounter++,
         address: '',
-        httpPort: 80,
-        httpsPort: 443,
-        wsPort: 80,
+        protocol: 'http',
+        port: 80,
+        websocket_enabled: false,
+        websocket_protocol: 'ws',
+        websocket_port: 80,
+        websocket_path: '/',
         weight: 1,
         max_fails: 3,
         fail_timeout: 30,
@@ -3195,26 +3341,7 @@ function removeEditorBackend(id) {
     }
 }
 
-function toggleProtocolPorts(id) {
-    const backend = editorBackends.find(b => b.id === id);
-    if (!backend) return;
-    
-    const checkbox = document.querySelector(`.backend-use-protocol-ports[data-id="${id}"]`);
-    backend.useProtocolPorts = checkbox.checked;
-    
-    const protocolPortsDiv = document.getElementById(`backend-ports-${id}`);
-    const singlePortDiv = document.getElementById(`backend-single-port-${id}`);
-    
-    if (backend.useProtocolPorts) {
-        protocolPortsDiv.style.display = '';
-        singlePortDiv.style.display = 'none';
-    } else {
-        protocolPortsDiv.style.display = 'none';
-        singlePortDiv.style.display = '';
-    }
-    
-    updateEditorBackend(id);
-}
+
 
 function updateEditorBackend(id) {
     const backend = editorBackends.find(b => b.id === id);
@@ -3227,16 +3354,15 @@ function updateEditorBackend(id) {
     backend.backup = document.querySelector(`.backend-backup[data-id="${id}"]`)?.checked || false;
     backend.down = document.querySelector(`.backend-down[data-id="${id}"]`)?.checked || false;
     
-    // Protocol enable flags (simplified: http, https, websocket)
-    backend.proto = backend.proto || {};
-    backend.proto.http = document.querySelector(`.backend-proto-enabled[data-id="${id}"][data-proto="http"]`)?.checked || false;
-    backend.proto.https = document.querySelector(`.backend-proto-enabled[data-id="${id}"][data-proto="https"]`)?.checked || false;
-    backend.proto.websocket = document.querySelector(`.backend-proto-enabled[data-id="${id}"][data-proto="websocket"]`)?.checked || false;
+    // Single protocol + port
+    backend.protocol = document.querySelector(`.backend-protocol[data-id="${id}"]`)?.value || 'http';
+    backend.port = parseInt(document.querySelector(`.backend-port[data-id="${id}"]`)?.value) || (backend.protocol === 'https' ? 443 : 80);
 
-    // Simplified ports: HTTP, HTTPS, WebSocket
-    backend.httpPort = parseInt(document.querySelector(`.backend-http-port[data-id="${id}"]`)?.value) || 80;
-    backend.httpsPort = parseInt(document.querySelector(`.backend-https-port[data-id="${id}"]`)?.value) || 443;
-    backend.wsPort = parseInt(document.querySelector(`.backend-ws-port[data-id="${id}"]`)?.value) || 80;
+    // WebSocket settings
+    backend.websocket_enabled = document.querySelector(`.backend-websocket-enabled[data-id="${id}"]`)?.checked || false;
+    backend.websocket_protocol = document.querySelector(`.backend-websocket-protocol[data-id="${id}"]`)?.value || 'ws';
+    backend.websocket_port = parseInt(document.querySelector(`.backend-websocket-port[data-id="${id}"]`)?.value) || (backend.websocket_protocol === 'wss' ? 443 : 80);
+    backend.websocket_path = document.querySelector(`.backend-websocket-path[data-id="${id}"]`)?.value || '/';
     
     // Auto-save backends when updated
     clearTimeout(autoSaveTimeout);
@@ -3257,20 +3383,7 @@ function updateLBMethod() {
 }
 
 // Toggle a specific protocol enable/disable for a backend
-function toggleBackendProtocol(id, proto) {
-    const backend = editorBackends.find(b => b.id === id);
-    if (!backend) return;
-    backend.proto = backend.proto || {};
-    const checkbox = document.querySelector(`.backend-proto-enabled[data-id="${id}"][data-proto="${proto}"]`);
-    backend.proto[proto] = checkbox?.checked || false;
-    // Re-render to show/hide port inputs
-    renderBackendsList();
-    // Ensure values saved
-    updateEditorBackend(id);
-}
-
-// Expose for inline onclick handlers
-window.toggleBackendProtocol = toggleBackendProtocol;
+// legacy toggleBackendProtocol removed - protocol is now a single select per backend
 
 // Load certificate information for SSL/TLS tab
 async function loadCertificateInfo() {
@@ -3288,7 +3401,7 @@ async function loadCertificateInfo() {
         
         const response = await apiRequest(`/certificates/${domain}`);
         
-        if (response.error) {
+        if (!response || response.error || response.exists === false) {
             certInfoContent.innerHTML = `
                 <div style="color: var(--warning);">
                     <p style="margin: 0 0 0.5rem 0;">\u26a0\ufe0f No certificate found for ${domain}</p>
@@ -3342,10 +3455,14 @@ async function loadCertificateInfo() {
                     </div>
                 </div>
                 
-                <div style="margin-top: 0.5rem;">
+                <div style="margin-top: 0.5rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
                     <button class="btn-secondary" onclick="renewCertificate('${domain}')" style="width: 100%;">
                         <span>\ud83d\udd04</span>
                         <span>Renew Certificate</span>
+                    </button>
+                    <button class="btn-secondary" onclick="rescanCertificate('${domain}')" style="width: 100%;">
+                        <span>\ud83d\udd0d</span>
+                        <span>Rescan Certificate</span>
                     </button>
                 </div>
             </div>
@@ -3397,17 +3514,17 @@ function handleCertUpload(type) {
     if (file) {
         if (type === 'cert') {
             certFile = file;
-            Toast.show(`Certificate file selected: ${file.name}`, 'success');
+            showToast(`Certificate file selected: ${file.name}`, 'success');
         } else {
             keyFile = file;
-            Toast.show(`Private key file selected: ${file.name}`, 'success');
+            showToast(`Private key file selected: ${file.name}`, 'success');
         }
     }
 }
 
 async function uploadCustomCertificate() {
     if (!certFile || !keyFile) {
-        Toast.show('Please select both certificate and private key files', 'error');
+        showToast('Please select both certificate and private key files', 'error');
         return;
     }
     
@@ -3430,13 +3547,13 @@ async function uploadCustomCertificate() {
             throw new Error('Upload failed');
         }
         
-        Toast.show('Certificate uploaded successfully! NGINX will reload.', 'success');
+        showToast('Certificate uploaded successfully! NGINX will reload.', 'success');
         certFile = null;
         keyFile = null;
         
     } catch (error) {
         console.error('Error uploading certificate:', error);
-        Toast.show('Failed to upload certificate', 'error');
+        showToast('Failed to upload certificate', 'error');
     }
 }
 
@@ -3515,7 +3632,18 @@ async function saveSiteEditor() {
         }
         
         await apiRequest(`/sites/${currentSiteId}`, 'PUT', formData);
-        Toast.show('✅ Site saved successfully! Changes will apply in ~5 seconds.', 'success');
+        showToast('✅ Site saved successfully! Changes will apply in ~5 seconds.', 'success');
+        
+        // Auto-rescan certificates if SSL settings changed
+        if (formData.ssl_enabled || formData.ssl_challenge_type) {
+            try {
+                setTimeout(async () => {
+                    await apiRequest(`/certificates/rescan/${currentSiteData.domain}`, 'POST');
+                }, 3000); // Wait 3s for config to apply
+            } catch (error) {
+                console.log('Certificate rescan skipped:', error.message);
+            }
+        }
         
         // Dispatch event for tab switching
         window.dispatchEvent(new Event('siteSaved'));
@@ -3525,7 +3653,7 @@ async function saveSiteEditor() {
         
     } catch (error) {
         console.error('Error saving site:', error);
-        Toast.show('Failed to save site', 'error');
+        showToast('Failed to save site', 'error');
     }
 }
 
@@ -3579,7 +3707,7 @@ async function autoSaveField(fieldName, value) {
     } catch (error) {
         console.error('Auto-save error:', error);
         updateAutoSaveStatus('error', 'Failed to save');
-        Toast.show(`❌ ${error.message}`, 'error');
+        showToast(`❌ ${error.message}`, 'error');
     }
 }
 
@@ -3642,7 +3770,6 @@ window.setupAutoSave = setupAutoSave;
 window.addEditorBackend = addEditorBackend;
 window.removeEditorBackend = removeEditorBackend;
 window.updateEditorBackend = updateEditorBackend;
-window.toggleProtocolPorts = toggleProtocolPorts;
 window.updateLBMethod = updateLBMethod;
 window.toggleHealthChecks = toggleHealthChecks;
 window.handleCertUpload = handleCertUpload;
@@ -3849,7 +3976,7 @@ async function saveNewSite() {
         const backend_url = document.getElementById('new_backend_url')?.value;
         
         if (!domain || !backend_url) {
-            Toast.show('Please fill in domain and backend server', 'warning');
+            showToast('Please fill in domain and backend server', 'warning');
             return;
         }
         
@@ -3867,7 +3994,7 @@ async function saveNewSite() {
         };
         
         await apiRequest('/sites', 'POST', formData);
-        Toast.show('Site added successfully!', 'success');
+        showToast('Site added successfully!', 'success');
         
         // Clear form data
         currentSiteData = null;
@@ -3880,7 +4007,7 @@ async function saveNewSite() {
         
     } catch (error) {
         console.error('Error adding site:', error);
-        Toast.show('Failed to add site', 'error');
+        showToast('Failed to add site', 'error');
     }
 }
 
@@ -3908,7 +4035,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 window.exportSites = async function() {
     try {
-        Toast.show('Exporting sites...', 'info');
+        showToast('Exporting sites...', 'info');
         
         const response = await fetch(`${API_BASE_URL}/endpoints/sites-export.php?download=1`, {
             method: 'GET',
@@ -3931,10 +4058,10 @@ window.exportSites = async function() {
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
         
-        Toast.show('✅ Sites exported successfully!', 'success');
+        showToast('✅ Sites exported successfully!', 'success');
     } catch (error) {
         console.error('Error exporting sites:', error);
-        Toast.show('❌ Failed to export sites', 'error');
+        showToast('❌ Failed to export sites', 'error');
     }
 };
 
@@ -3965,7 +4092,7 @@ window.importSites = async function() {
         const dryRun = document.getElementById('importDryRun').checked;
         
         if (!jsonText) {
-            Toast.show('⚠️ Please provide JSON data', 'warning');
+            showToast('⚠️ Please provide JSON data', 'warning');
             return;
         }
         
@@ -3974,12 +4101,12 @@ window.importSites = async function() {
         try {
             jsonData = JSON.parse(jsonText);
         } catch (e) {
-            Toast.show('❌ Invalid JSON format', 'error');
+            showToast('❌ Invalid JSON format', 'error');
             return;
         }
         
         if (!jsonData.sites || !Array.isArray(jsonData.sites)) {
-            Toast.show('❌ Invalid format: Expected {sites: [...]}', 'error');
+            showToast('❌ Invalid format: Expected {sites: [...]}', 'error');
             return;
         }
         
@@ -3990,7 +4117,7 @@ window.importSites = async function() {
             }
         }
         
-        Toast.show(`${dryRun ? 'Validating' : 'Importing'} ${jsonData.sites.length} sites...`, 'info');
+        showToast(`${dryRun ? 'Validating' : 'Importing'} ${jsonData.sites.length} sites...`, 'info');
         
         const queryParams = new URLSearchParams({ mode });
         if (dryRun) queryParams.append('dry_run', '1');
@@ -4035,9 +4162,9 @@ window.importSites = async function() {
         previewContent.textContent = summary;
         
         if (dryRun) {
-            Toast.show('✅ Validation complete - Review results above', 'success');
+            showToast('✅ Validation complete - Review results above', 'success');
         } else {
-            Toast.show(`✅ Import complete! ${result.imported} added, ${result.updated} updated`, 'success');
+            showToast(`✅ Import complete! ${result.imported} added, ${result.updated} updated`, 'success');
             
             // Refresh sites list
             setTimeout(() => {
@@ -4048,7 +4175,7 @@ window.importSites = async function() {
         
     } catch (error) {
         console.error('Error importing sites:', error);
-        Toast.show(`❌ Import failed: ${error.message}`, 'error');
+        showToast(`❌ Import failed: ${error.message}`, 'error');
     }
 };
 
@@ -4056,7 +4183,7 @@ window.importSites = async function() {
 window.detectCloudflareZones = async function(siteId = null, force = false) {
     try {
         const loadingMsg = siteId ? 'Detecting Cloudflare zone...' : 'Detecting Cloudflare zones for all sites...';
-        Toast.show(loadingMsg, 'info');
+        showToast(loadingMsg, 'info');
         
         let url = `${API_BASE_URL}/endpoints/cloudflare-zone-detect.php`;
         const params = new URLSearchParams();
@@ -4078,7 +4205,7 @@ window.detectCloudflareZones = async function(siteId = null, force = false) {
         
         if (!response.ok) {
             if (result.error === 'Cloudflare credentials not configured') {
-                Toast.show('⚠️ Cloudflare API credentials not configured. Set CLOUDFLARE_API_TOKEN in docker-compose.yml', 'warning');
+                showToast('⚠️ Cloudflare API credentials not configured. Set CLOUDFLARE_API_TOKEN in docker-compose.yml', 'warning');
                 
                 // Show detailed instructions
                 const shouldShowHelp = confirm(
@@ -4110,7 +4237,7 @@ window.detectCloudflareZones = async function(siteId = null, force = false) {
         const total = result.detected + result.failed;
         const resultMsg = `✅ Detected ${result.detected}/${total} zones` + (result.failed > 0 ? ` (${result.failed} not found)` : '');
         
-        Toast.show(resultMsg, result.failed > 0 ? 'warning' : 'success');
+        showToast(resultMsg, result.failed > 0 ? 'warning' : 'success');
         
         // Show detailed results if available
         if (result.sites && result.sites.length > 0) {
@@ -4136,7 +4263,7 @@ window.detectCloudflareZones = async function(siteId = null, force = false) {
         
     } catch (error) {
         console.error('Error detecting Cloudflare zones:', error);
-        Toast.show(`❌ ${error.message}`, 'error');
+        showToast(`❌ ${error.message}`, 'error');
     }
 };
 
@@ -4179,7 +4306,7 @@ async function loadBlockRules() {
         `).join('');
     } catch (error) {
         console.error('Error loading block rules:', error);
-        Toast.show('Failed to load block rules', 'error');
+        showToast('Failed to load block rules', 'error');
     }
 }
 
@@ -4202,7 +4329,7 @@ async function editBlockRule(id) {
         const rule = rules.find(r => r.id === id);
         
         if (!rule) {
-            Toast.show('Rule not found', 'error');
+            showToast('Rule not found', 'error');
             return;
         }
         
@@ -4218,7 +4345,7 @@ async function editBlockRule(id) {
         openModal('blockRuleModal');
     } catch (error) {
         console.error('Error loading block rule:', error);
-        Toast.show('Failed to load rule details', 'error');
+        showToast('Failed to load rule details', 'error');
     }
 }
 
@@ -4232,7 +4359,7 @@ async function saveBlockRule() {
     const enabled = document.getElementById('blockRuleEnabled').checked;
     
     if (!name || !pattern) {
-        Toast.show('Name and pattern are required', 'error');
+        showToast('Name and pattern are required', 'error');
         return;
     }
     
@@ -4249,30 +4376,30 @@ async function saveBlockRule() {
         if (id) {
             // Update existing rule
             await apiRequest(`/custom-block-rules/${id}`, 'PUT', data);
-            Toast.show('Block rule updated successfully', 'success');
+            showToast('Block rule updated successfully', 'success');
         } else {
             // Create new rule
             await apiRequest('/custom-block-rules', 'POST', data);
-            Toast.show('Block rule created successfully', 'success');
+            showToast('Block rule created successfully', 'success');
         }
         
         closeModal('blockRuleModal');
         await loadBlockRules();
     } catch (error) {
         console.error('Error saving block rule:', error);
-        Toast.show(error.message || 'Failed to save block rule', 'error');
+        showToast(error.message || 'Failed to save block rule', 'error');
     }
 }
 
 async function toggleBlockRule(id, enabled) {
     try {
         await apiRequest(`/custom-block-rules/${id}`, 'PUT', { enabled: enabled ? 1 : 0 });
-        Toast.show(`Rule ${enabled ? 'enabled' : 'disabled'}`, 'success');
+        showToast(`Rule ${enabled ? 'enabled' : 'disabled'}`, 'success');
         // Reload to update the rules
         await loadBlockRules();
     } catch (error) {
         console.error('Error toggling block rule:', error);
-        Toast.show('Failed to toggle rule', 'error');
+        showToast('Failed to toggle rule', 'error');
         // Reload to reset the toggle state
         await loadBlockRules();
     }
@@ -4285,11 +4412,11 @@ async function deleteBlockRule(id) {
     
     try {
         await apiRequest(`/custom-block-rules/${id}`, 'DELETE');
-        Toast.show('Block rule deleted successfully', 'success');
+        showToast('Block rule deleted successfully', 'success');
         await loadBlockRules();
     } catch (error) {
         console.error('Error deleting block rule:', error);
-        Toast.show('Failed to delete block rule', 'error');
+        showToast('Failed to delete block rule', 'error');
     }
 }
 
@@ -4318,11 +4445,11 @@ function showModal(title, content) {
 async function viewRawConfig() {
     const id = currentSiteData?.id || currentSiteId;
     if (!id) {
-        Toast.show('No site selected', 'error');
+        showToast('No site selected', 'error');
         return;
     }
 
-    Toast.show('Fetching generated NGINX config...', 'info');
+    showToast('Fetching generated NGINX config...', 'info');
     try {
         const resp = await fetch(`${API_BASE_URL}/sites/${id}/config`, {
             headers: { 'Authorization': `Bearer ${API_TOKEN}` },
@@ -4336,7 +4463,7 @@ async function viewRawConfig() {
         showModal(`NGINX Config - ${currentSiteData?.domain || 'Site #' + id}`, text);
     } catch (err) {
         console.error('Error fetching config:', err);
-        Toast.show(`Failed to fetch config: ${err.message}`, 'error');
+        showToast(`Failed to fetch config: ${err.message}`, 'error');
     }
 }
 
@@ -4561,6 +4688,14 @@ async function importBackup() {
         return;
     }
     
+    const mergeMode = document.getElementById('merge_mode').value;
+    
+    // Extra warning for clear mode
+    if (mergeMode === 'clear') {
+        const confirmClear = confirm('⚠️ WARNING: CLEAR mode will DELETE ALL existing data, logs, sites, and telemetry before importing!\n\nThis action cannot be undone. Are you absolutely sure?');
+        if (!confirmClear) return;
+    }
+    
     const confirmImport = confirm('Are you sure you want to import this backup? This will modify your current configuration.');
     if (!confirmImport) return;
     
@@ -4594,6 +4729,11 @@ async function importBackup() {
         
         if (result.success) {
             let message = 'Backup imported successfully!';
+            
+            if (result.results && result.results.cleared) {
+                message += '\n\n✅ All existing data was cleared before import';
+            }
+            
             if (result.results && result.results.imported) {
                 const imported = result.results.imported;
                 message += '\n\nImported:';
@@ -4712,11 +4852,11 @@ async function verifySiteConfig(siteData) {
 
 async function verifyCurrentSiteConfig() {
     if (!currentSiteData) {
-        showToast('No site data to verify', 'error');
+        showToast('❌ No site data to verify', 'error');
         return;
     }
     
-    showToast('Verifying configuration...', 'info');
+    const toastId = showToast('🔍 Verifying configuration...', 'info', 10000);
     
     const result = await verifySiteConfig(currentSiteData);
     

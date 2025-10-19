@@ -13,6 +13,11 @@ echo ""
 echo "🐱 Starting CatWAF NGINX + ModSecurity v3..."
 echo ""
 
+# Clear all logs on startup to prevent duplicate telemetry entries
+echo "🧹 Clearing old logs to prevent duplicate telemetry entries..."
+find /var/log/nginx -type f -name "*.log" -exec truncate -s 0 {} \; 2>/dev/null || true
+echo "✅ Logs cleared"
+
 # Create symlink to fail2ban state volume for banlist
 if [ ! -f "/etc/nginx/banlist.conf" ]; then
     echo "🔗 Creating symlink to fail2ban banlist..."

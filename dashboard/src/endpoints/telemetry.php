@@ -183,6 +183,166 @@ function handleTelemetry($method, $params, $db) {
                 'data' => array_values($distribution)
             ]);
             break;
+        
+        case 'top-endpoints':
+            // Get top accessed endpoints per site (up to 3)
+            $siteId = isset($_GET['site_id']) ? (int)$_GET['site_id'] : null;
+            $range = $_GET['range'] ?? '24h';
+            
+            // Convert range to hours
+            $hours = 24;
+            if ($range === '1h') $hours = 1;
+            elseif ($range === '7d') $hours = 168;
+            
+            if ($siteId) {
+                // Get site domain for filtering
+                $stmt = $db->prepare("SELECT domain FROM sites WHERE id = ?");
+                $stmt->execute([$siteId]);
+                $site = $stmt->fetch();
+                
+                if (!$site) {
+                    sendResponse(['error' => 'Site not found'], 404);
+                    return;
+                }
+                
+                $domain = $site['domain'];
+                
+                // Top 3 accessed endpoints for this site
+                $stmt = $db->prepare("
+                    SELECT 
+                        SUBSTRING_INDEX(uri, '?', 1) AS path,
+                        COUNT(*) as hit_count,
+                        AVG(response_time) as avg_response_time
+                    FROM request_telemetry 
+                    WHERE domain = ?
+                        AND timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
+                        AND status_code < 400
+                    GROUP BY path
+                    ORDER BY hit_count DESC
+                    LIMIT 3
+                ");
+                $stmt->execute([$domain, $hours]);
+                $topEndpoints = $stmt->fetchAll();
+                
+                $formatted = array_map(function($row) {
+                    return [
+                        'path' => $row['path'] ?? '/',
+                        'hit_count' => (int)($row['hit_count'] ?? 0),
+                        'avg_response_time' => round(($row['avg_response_time'] ?? 0) * 1000, 1)
+                    ];
+                }, $topEndpoints);
+                
+                sendResponse($formatted);
+            } else {
+                // Get top endpoints across all sites
+                $stmt = $db->prepare("
+                    SELECT 
+                        domain,
+                        SUBSTRING_INDEX(uri, '?', 1) AS path,
+                        COUNT(*) as hit_count,
+                        AVG(response_time) as avg_response_time
+                    FROM request_telemetry 
+                    WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
+                        AND status_code < 400
+                    GROUP BY domain, path
+                    ORDER BY hit_count DESC
+                    LIMIT 10
+                ");
+                $stmt->execute([$hours]);
+                $topEndpoints = $stmt->fetchAll();
+                
+                $formatted = array_map(function($row) {
+                    return [
+                        'domain' => $row['domain'] ?? 'unknown',
+                        'path' => $row['path'] ?? '/',
+                        'hit_count' => (int)($row['hit_count'] ?? 0),
+                        'avg_response_time' => round(($row['avg_response_time'] ?? 0) * 1000, 1)
+                    ];
+                }, $topEndpoints);
+                
+                sendResponse($formatted);
+            }
+            break;
+        
+        case 'top-404s':
+            // Get most common 404 endpoints
+            $siteId = isset($_GET['site_id']) ? (int)$_GET['site_id'] : null;
+            $range = $_GET['range'] ?? '24h';
+            
+            // Convert range to hours
+            $hours = 24;
+            if ($range === '1h') $hours = 1;
+            elseif ($range === '7d') $hours = 168;
+            
+            if ($siteId) {
+                // Get site domain for filtering
+                $stmt = $db->prepare("SELECT domain FROM sites WHERE id = ?");
+                $stmt->execute([$siteId]);
+                $site = $stmt->fetch();
+                
+                if (!$site) {
+                    sendResponse(['error' => 'Site not found'], 404);
+                    return;
+                }
+                
+                $domain = $site['domain'];
+                
+                // Top 404s for this site
+                $stmt = $db->prepare("
+                    SELECT 
+                        SUBSTRING_INDEX(uri, '?', 1) AS path,
+                        COUNT(*) as hit_count,
+                        MAX(timestamp) as last_seen
+                    FROM request_telemetry 
+                    WHERE domain = ?
+                        AND timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
+                        AND status_code = 404
+                    GROUP BY path
+                    ORDER BY hit_count DESC
+                    LIMIT 10
+                ");
+                $stmt->execute([$domain, $hours]);
+                $top404s = $stmt->fetchAll();
+                
+                $formatted = array_map(function($row) {
+                    return [
+                        'path' => $row['path'] ?? '/',
+                        'hit_count' => (int)($row['hit_count'] ?? 0),
+                        'last_seen' => $row['last_seen'] ?? null
+                    ];
+                }, $top404s);
+                
+                sendResponse($formatted);
+            } else {
+                // Top 404s across all sites
+                $stmt = $db->prepare("
+                    SELECT 
+                        domain,
+                        SUBSTRING_INDEX(uri, '?', 1) AS path,
+                        COUNT(*) as hit_count,
+                        MAX(timestamp) as last_seen
+                    FROM request_telemetry 
+                    WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
+                        AND status_code = 404
+                    GROUP BY domain, path
+                    ORDER BY hit_count DESC
+                    LIMIT 10
+                ");
+                $stmt->execute([$hours]);
+                $top404s = $stmt->fetchAll();
+                
+                $formatted = array_map(function($row) {
+                    return [
+                        'domain' => $row['domain'] ?? 'unknown',
+                        'path' => $row['path'] ?? '/',
+                        'hit_count' => (int)($row['hit_count'] ?? 0),
+                        'last_seen' => $row['last_seen'] ?? null
+                    ];
+                }, $top404s);
+                
+                sendResponse($formatted);
+            }
+            break;
             
         default:
             sendResponse(['error' => 'Unknown action'], 404);

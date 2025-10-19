@@ -14,11 +14,11 @@ $botPatterns = [
         'ahrefsbot', 'semrushbot', 'mj12bot', 'dotbot', 'blexbot',
         'masscan', 'nmap', 'nikto', 'sqlmap', 'metasploit', 'w3af',
         'burp', 'zap', 'acunetix', 'nessus', 'openvas', 'qualys',
-        'apache-httpclient', 'java/', 'go-http-client', 'okhttp'
+        'apache-httpclient', 'java/', 'go-http-client', 'okhttp', 'facebookexternalhit',
     ],
     // Good bots (whitelisted)
     'good' => [
-        'googlebot', 'bingbot', 'slackbot', 'facebookexternalhit',
+        'googlebot', 'bingbot', 'slackbot', 
         'twitterbot', 'linkedinbot', 'discordbot', 'telegrambot',
         'whatsapp', 'applebot', 'duckduckbot', 'baiduspider', 'yandexbot'
     ]

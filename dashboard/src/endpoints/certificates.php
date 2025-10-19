@@ -26,6 +26,23 @@ if (preg_match('#/certificates/renew-all$#', $requestUri)) {
     exit;
 }
 
+// Check for rescan endpoints
+if (preg_match('#/certificates/rescan(?:/([^/]+))?$#', $requestUri, $rescanMatches)) {
+    error_log("Matched rescan endpoint");
+    if ($method === 'POST') {
+        $rescanDomain = $rescanMatches[1] ?? null;
+        if ($rescanDomain) {
+            rescanCertificate($rescanDomain);
+        } else {
+            rescanAllCertificates();
+        }
+    } else {
+        http_response_code(405);
+        echo json_encode(['error' => 'Method not allowed']);
+    }
+    exit;
+}
+
 // Parse domain from URI
 preg_match('#/certificates/([^/]+)(?:/(renew))?$#', $requestUri, $matches);
 $domain = $matches[1] ?? null;
@@ -85,6 +102,23 @@ function getCertificateInfo($domain) {
     $exists = trim(shell_exec($checkCmd));
     
     if ($exists !== 'exists') {
+        // Check if cert exists in acme.sh container before giving up
+        $acmeCertPath = "/acme.sh/{$domain}/{$domain}_ecc/fullchain.cer";
+        $checkAcmeCmd = "docker exec waf-acme test -f {$acmeCertPath} && echo 'exists' || echo 'missing' 2>&1";
+        $acmeExists = trim(shell_exec($checkAcmeCmd));
+        
+        if ($acmeExists === 'exists') {
+            // Certificate exists in acme.sh but not in nginx - return that it needs syncing
+            http_response_code(200);
+            echo json_encode([
+                'exists' => false,
+                'domain' => $domain,
+                'in_acme' => true,
+                'message' => 'Certificate found in acme.sh but not in nginx - run rescan to sync'
+            ]);
+            return;
+        }
+        
         http_response_code(404);
         echo json_encode([
             'exists' => false,
@@ -159,12 +193,16 @@ function issueCertificate($domain) {
             $envVars .= sprintf('export CF_Zone_ID=%s; ', escapeshellarg($cfZoneId));
         }
         
+        // Add wildcard subdomain support if enabled
+        $domains = escapeshellarg($domain);
+        if (!empty($site['wildcard_subdomains']) && $site['wildcard_subdomains'] == 1) {
+            $domains = sprintf("%s -d %s", escapeshellarg($domain), escapeshellarg("*.{$domain}"));
+        }
+        
         $command = sprintf(
-            "docker exec waf-acme sh -c '%s/root/.acme.sh/acme.sh --issue --dns dns_cf -d %s --server letsencrypt --cert-home /acme.sh/%s --key-file /acme.sh/%s/key.pem --fullchain-file /acme.sh/%s/fullchain.pem' 2>&1",
+            "docker exec waf-acme sh -c '%s/root/.acme.sh/acme.sh --issue --dns dns_cf -d %s --server letsencrypt --cert-home /acme.sh/%s' 2>&1",
             $envVars,
-            escapeshellarg($domain),
-            escapeshellarg($domain),
-            escapeshellarg($domain),
+            $domains,
             escapeshellarg($domain)
         );
     } elseif ($challengeType === 'snakeoil') {
@@ -179,10 +217,20 @@ function issueCertificate($domain) {
         );
     } else {
         // HTTP-01 Challenge (default)
+        // Add wildcard subdomain support if enabled (requires DNS-01)
+        $domains = escapeshellarg($domain);
+        if (!empty($site['wildcard_subdomains']) && $site['wildcard_subdomains'] == 1) {
+            // Wildcard requires DNS-01, fall back to DNS if wildcard is enabled
+            http_response_code(400);
+            echo json_encode([
+                'error' => 'Wildcard subdomains require DNS-01 challenge (Cloudflare)',
+                'hint' => 'Please set SSL Challenge Type to "dns-01" in site settings'
+            ]);
+            return;
+        }
+        
         $command = sprintf(
-            "docker exec waf-acme sh -c '/root/.acme.sh/acme.sh --issue -d %s --webroot /var/www/certbot --server letsencrypt --cert-home /acme.sh/%s --key-file /acme.sh/%s/key.pem --fullchain-file /acme.sh/%s/fullchain.pem --force' 2>&1",
-            escapeshellarg($domain),
-            escapeshellarg($domain),
+            "docker exec waf-acme sh -c '/root/.acme.sh/acme.sh --issue -d %s --webroot /var/www/certbot --server letsencrypt --cert-home /acme.sh/%s --force' 2>&1",
             escapeshellarg($domain),
             escapeshellarg($domain)
         );
@@ -201,8 +249,17 @@ function issueCertificate($domain) {
         return;
     }
     
-    // Create symlinks in nginx expected location
+    // Install certificate to target location
     if ($challengeType !== 'snakeoil') {
+        // Use acme.sh --install-cert to properly copy files without creating loops
+        $installCommand = sprintf(
+            "docker exec waf-acme sh -c '/root/.acme.sh/acme.sh --install-cert -d %s --key-file /acme.sh/%s/key.pem --fullchain-file /acme.sh/%s/fullchain.pem' 2>&1",
+            escapeshellarg($domain),
+            escapeshellarg($domain),
+            escapeshellarg($domain)
+        );
+        exec($installCommand, $installOutput);
+        
         // Create symlinks in nginx expected location
         $linkCommand = sprintf(
             "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/certs/%s && ln -sf /acme.sh/%s/fullchain.pem /etc/nginx/certs/%s/fullchain.pem && ln -sf /acme.sh/%s/key.pem /etc/nginx/certs/%s/key.pem' 2>&1",
@@ -219,14 +276,17 @@ function issueCertificate($domain) {
     $stmt = $db->prepare("UPDATE sites SET ssl_enabled = 1 WHERE domain = ?");
     $stmt->execute([$domain]);
     
+    // Copy certificate from acme.sh to nginx immediately
+    copyCertFromAcme($domain);
+    
     // Regenerate nginx config
     require_once __DIR__ . '/sites.php';
-    $stmt = $db->prepare("SELECT id FROM sites WHERE domain = ?");
+    $stmt = $db->prepare("SELECT * FROM sites WHERE domain = ?");
     $stmt->execute([$domain]);
-    $siteId = $stmt->fetchColumn();
+    $site = $stmt->fetch(PDO::FETCH_ASSOC);
     
-    if ($siteId) {
-        generateNginxConfig($siteId);
+    if ($site) {
+        generateSiteConfig($site['id'], $site);
     }
     
     // Reload nginx
@@ -277,10 +337,19 @@ function renewCertificate($domain) {
             $envVars .= sprintf('export CF_Zone_ID=%s; ', escapeshellarg($cfZoneId));
         }
         
+        // Add wildcard subdomain support if enabled
+        $domains = escapeshellarg($domain);
+        $stmt = $db->prepare("SELECT wildcard_subdomains FROM sites WHERE domain = ?");
+        $stmt->execute([$domain]);
+        $wildcardEnabled = $stmt->fetchColumn();
+        if (!empty($wildcardEnabled) && $wildcardEnabled == 1) {
+            $domains = sprintf("%s -d %s", escapeshellarg($domain), escapeshellarg("*.{$domain}"));
+        }
+        
         $command = sprintf(
             "docker exec waf-acme sh -c '%s/root/.acme.sh/acme.sh --renew --dns dns_cf -d %s --force' 2>&1",
             $envVars,
-            escapeshellarg($domain)
+            $domains
         );
     } else {
         // HTTP-01 Challenge (default)
@@ -422,12 +491,12 @@ function revokeCertificate($domain) {
     
     // Regenerate nginx config
     require_once __DIR__ . '/sites.php';
-    $stmt = $db->prepare("SELECT id FROM sites WHERE domain = ?");
+    $stmt = $db->prepare("SELECT * FROM sites WHERE domain = ?");
     $stmt->execute([$domain]);
-    $siteId = $stmt->fetchColumn();
+    $site = $stmt->fetch(PDO::FETCH_ASSOC);
     
-    if ($siteId) {
-        generateNginxConfig($siteId);
+    if ($site) {
+        generateSiteConfig($site['id'], $site);
     }
     
     echo json_encode([
@@ -499,19 +568,23 @@ function renewAllCertificates() {
                 $envVars .= sprintf('export CF_Zone_ID=%s; ', escapeshellarg($cfZoneId));
             }
             
+            // Add wildcard subdomain support if enabled
+            $domains = escapeshellarg($domain);
+            if (!empty($site['wildcard_subdomains']) && $site['wildcard_subdomains'] == 1) {
+                $domains = sprintf("%s -d %s", escapeshellarg($domain), escapeshellarg("*.{$domain}"));
+            }
+            
             // Try renew first, if fails try issue
             $renewCommand = sprintf(
                 "docker exec waf-acme sh -c '%s/root/.acme.sh/acme.sh --renew --dns dns_cf -d %s --force' 2>&1",
                 $envVars,
-                escapeshellarg($domain)
+                $domains
             );
             
             $issueCommand = sprintf(
-                "docker exec waf-acme sh -c '%s/root/.acme.sh/acme.sh --issue --dns dns_cf -d %s --server letsencrypt --cert-home /acme.sh/%s --key-file /acme.sh/%s/key.pem --fullchain-file /acme.sh/%s/fullchain.pem' 2>&1",
+                "docker exec waf-acme sh -c '%s/root/.acme.sh/acme.sh --issue --dns dns_cf -d %s --server letsencrypt --cert-home /acme.sh/%s' 2>&1",
                 $envVars,
-                escapeshellarg($domain),
-                escapeshellarg($domain),
-                escapeshellarg($domain),
+                $domains,
                 escapeshellarg($domain)
             );
         } else {
@@ -522,9 +595,7 @@ function renewAllCertificates() {
             );
             
             $issueCommand = sprintf(
-                "docker exec waf-acme sh -c '/root/.acme.sh/acme.sh --issue -d %s --webroot /var/www/certbot --server letsencrypt --cert-home /acme.sh/%s --key-file /acme.sh/%s/key.pem --fullchain-file /acme.sh/%s/fullchain.pem' 2>&1",
-                escapeshellarg($domain),
-                escapeshellarg($domain),
+                "docker exec waf-acme sh -c '/root/.acme.sh/acme.sh --issue -d %s --webroot /var/www/certbot --server letsencrypt --cert-home /acme.sh/%s' 2>&1",
                 escapeshellarg($domain),
                 escapeshellarg($domain)
             );
@@ -583,4 +654,192 @@ function renewAllCertificates() {
         'failed' => $failCount,
         'results' => $results
     ]);
+}
+
+/**
+ * Check if a certificate is a real Let's Encrypt cert or snakeoil
+ * Returns: 'letencrypt', 'snakeoil', 'custom', or 'missing'
+ */
+function checkCertificateType($domain) {
+    $certPath = "/etc/nginx/certs/{$domain}/fullchain.pem";
+    
+    // Check if cert exists in nginx
+    $checkCmd = "docker exec waf-nginx test -f {$certPath} && echo 'exists' || echo 'missing' 2>&1";
+    $exists = trim(shell_exec($checkCmd));
+    
+    if ($exists !== 'exists') {
+        return 'missing';
+    }
+    
+    // Read certificate and check issuer
+    $certData = shell_exec("docker exec waf-nginx cat {$certPath} 2>&1");
+    if (empty($certData)) {
+        return 'missing';
+    }
+    
+    $cert = openssl_x509_parse($certData);
+    if (!$cert) {
+        return 'missing';
+    }
+    
+    $issuer = $cert['issuer']['O'] ?? $cert['issuer']['CN'] ?? '';
+    $subject = $cert['subject']['CN'] ?? '';
+    
+    // Check if it's self-signed (subject == issuer for snakeoil)
+    if ($subject === $issuer || strpos($issuer, $domain) !== false) {
+        return 'snakeoil';
+    }
+    
+    // Check if it's Let's Encrypt
+    if (strpos($issuer, "Let's Encrypt") !== false || strpos($issuer, 'R3') !== false || strpos($issuer, 'E1') !== false) {
+        return 'letencrypt';
+    }
+    
+    // Otherwise it's a custom certificate
+    return 'custom';
+}
+
+/**
+ * Rescan a single domain's certificate and update if needed
+ */
+function rescanCertificate($domain) {
+    $db = getDB();
+    
+    // Get site info
+    $stmt = $db->prepare("SELECT id, ssl_challenge_type, ssl_enabled FROM sites WHERE domain = ?");
+    $stmt->execute([$domain]);
+    $site = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$site) {
+        http_response_code(404);
+        echo json_encode(['error' => 'Site not found']);
+        return;
+    }
+    
+    $certType = checkCertificateType($domain);
+    $shouldHaveRealCert = ($site['ssl_challenge_type'] !== 'snakeoil' && $site['ssl_enabled'] == 1);
+    
+    $result = [
+        'domain' => $domain,
+        'current_cert_type' => $certType,
+        'should_have_real_cert' => $shouldHaveRealCert,
+        'action' => 'none'
+    ];
+    
+    // If site should have a real cert but has snakeoil or missing
+    if ($shouldHaveRealCert && ($certType === 'snakeoil' || $certType === 'missing')) {
+        // Check if cert exists in acme.sh container
+        $acmeCertPath = "/acme.sh/{$domain}/{$domain}_ecc/fullchain.cer";
+        $checkAcmeCmd = "docker exec waf-acme test -f {$acmeCertPath} && echo 'exists' || echo 'missing' 2>&1";
+        $acmeExists = trim(shell_exec($checkAcmeCmd));
+        
+        if ($acmeExists === 'exists') {
+            // Copy from acme.sh to nginx
+            $result['action'] = 'copied_from_acme';
+            copyCertFromAcme($domain);
+        } else {
+            // Issue new certificate
+            $result['action'] = 'reissued';
+            issueCertificate($domain);
+            return; // issueCertificate handles the response
+        }
+    }
+    
+    // Regenerate nginx config to ensure consistency
+    require_once __DIR__ . '/sites.php';
+    generateSiteConfig($site['id'], $site);
+    
+    // Reload nginx
+    exec("docker exec waf-nginx nginx -s reload 2>&1");
+    
+    echo json_encode([
+        'success' => true,
+        'result' => $result
+    ]);
+}
+
+/**
+ * Rescan all sites and fix certificate issues
+ */
+function rescanAllCertificates() {
+    $db = getDB();
+    
+    $stmt = $db->query("SELECT id, domain, ssl_challenge_type, ssl_enabled FROM sites WHERE domain != '_'");
+    $sites = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    $results = [];
+    $fixedCount = 0;
+    
+    foreach ($sites as $site) {
+        $domain = $site['domain'];
+        $certType = checkCertificateType($domain);
+        $shouldHaveRealCert = ($site['ssl_challenge_type'] !== 'snakeoil' && $site['ssl_enabled'] == 1);
+        
+        $siteResult = [
+            'domain' => $domain,
+            'current_cert_type' => $certType,
+            'should_have_real_cert' => $shouldHaveRealCert,
+            'action' => 'none'
+        ];
+        
+        // If site should have a real cert but has snakeoil or missing
+        if ($shouldHaveRealCert && ($certType === 'snakeoil' || $certType === 'missing')) {
+            // Check if cert exists in acme.sh container
+            $acmeCertPath = "/acme.sh/{$domain}/{$domain}_ecc/fullchain.cer";
+            $checkAcmeCmd = "docker exec waf-acme test -f {$acmeCertPath} && echo 'exists' || echo 'missing' 2>&1";
+            $acmeExists = trim(shell_exec($checkAcmeCmd));
+            
+            if ($acmeExists === 'exists') {
+                // Copy from acme.sh to nginx
+                copyCertFromAcme($domain);
+                $siteResult['action'] = 'copied_from_acme';
+                $fixedCount++;
+            } else {
+                $siteResult['action'] = 'needs_issuance';
+                $siteResult['note'] = 'Certificate needs to be issued manually';
+            }
+        }
+        
+        // Regenerate nginx config
+        require_once __DIR__ . '/sites.php';
+        generateSiteConfig($site['id'], $site);
+        
+        $results[] = $siteResult;
+    }
+    
+    // Reload nginx
+    exec("docker exec waf-nginx nginx -s reload 2>&1");
+    
+    echo json_encode([
+        'success' => true,
+        'total' => count($sites),
+        'fixed' => $fixedCount,
+        'results' => $results
+    ]);
+}
+
+/**
+ * Helper function to copy certificate from acme.sh to nginx
+ */
+function copyCertFromAcme($domain) {
+    $acmeCertPath = "/acme.sh/{$domain}/{$domain}_ecc/fullchain.cer";
+    $acmeKeyPath = "/acme.sh/{$domain}/{$domain}_ecc/{$domain}.key";
+    
+    $nginxCertDir = "/etc/nginx/certs/{$domain}";
+    $nginxCertPath = "{$nginxCertDir}/fullchain.pem";
+    $nginxKeyPath = "{$nginxCertDir}/key.pem";
+    
+    // Create cert directory in nginx container and remove any old symlinks
+    $mkdirCmd = "docker exec waf-nginx sh -c 'mkdir -p {$nginxCertDir} && rm -f {$nginxCertPath} {$nginxKeyPath}' 2>&1";
+    shell_exec($mkdirCmd);
+    
+    // Copy cert: read from acme, write to nginx
+    $copyCertCmd = "docker exec waf-acme cat {$acmeCertPath} | docker exec -i waf-nginx sh -c 'cat > {$nginxCertPath}' 2>&1";
+    shell_exec($copyCertCmd);
+    
+    // Copy key: read from acme, write to nginx
+    $copyKeyCmd = "docker exec waf-acme cat {$acmeKeyPath} | docker exec -i waf-nginx sh -c 'cat > {$nginxKeyPath}' 2>&1";
+    shell_exec($copyKeyCmd);
+    
+    error_log("Copied Let's Encrypt certificate from acme.sh to nginx for {$domain}");
 }

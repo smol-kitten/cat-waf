@@ -74,24 +74,24 @@ services:
       timeout: 10s
       retries: 3
 
-  fail2ban:
-    image: ghcr.io/smol-kitten/cat-waf-fail2ban:latest
-    container_name: waf-fail2ban
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
-    volumes:
-      # Configuration files (consolidated into single volume)
-      - waf-fail2ban:/etc/fail2ban
-      # Data volumes (persistent logs - read-only)
-      - waf-logs:/mnt/logs:ro
-      # Socket for communication
-      - fail2ban-socket:/var/run/fail2ban
-    networks:
-      - waf-network
-    restart: unless-stopped
-    depends_on:
-      - nginx
+  #fail2ban:
+  #  image: ghcr.io/smol-kitten/cat-waf-fail2ban:latest
+  #  container_name: waf-fail2ban
+  #  cap_add:
+  #    - NET_ADMIN
+  #    - NET_RAW
+  #  volumes:
+  #    # Configuration files (consolidated into single volume)
+  #    - waf-fail2ban:/etc/fail2ban
+  #    # Data volumes (persistent logs - read-only)
+  #    - waf-logs:/mnt/logs:ro
+  #    # Socket for communication
+  #    - fail2ban-socket:/var/run/fail2ban
+  #  networks:
+  #    - waf-network
+  #  restart: unless-stopped
+  #  depends_on:
+  #    - nginx
 
   web-dashboard:
     image: ghcr.io/smol-kitten/cat-waf-web-dashboard:latest

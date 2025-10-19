@@ -44,5 +44,11 @@ if [ -f "/var/run/fail2ban/fail2ban.pid" ]; then
     rm -f /var/run/fail2ban/fail2ban.pid
 fi
 
-# Start fail2ban in foreground
-exec fail2ban-server -f
+# Clean old database to prevent slow startup from processing old bans
+if [ -f "/var/lib/fail2ban/fail2ban.sqlite3" ]; then
+    echo "Cleaning old fail2ban database..."
+    rm -f /var/lib/fail2ban/fail2ban.sqlite3
+fi
+
+# Start fail2ban in foreground with reduced startup checks
+exec fail2ban-server -f --logtarget=STDOUT

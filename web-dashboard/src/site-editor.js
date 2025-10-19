@@ -194,7 +194,16 @@ function debounce(func, wait) {
     };
 }
 
+// Track if conditional displays are already setup to prevent duplicate listeners
+let conditionalDisplaysSetup = false;
+
 function setupConditionalDisplays() {
+    // Prevent duplicate setup
+    if (conditionalDisplaysSetup) {
+        return;
+    }
+    conditionalDisplaysSetup = true;
+    
     // Add global debouncing for ALL checkboxes to prevent API spam
     document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
         let lastChangeTime = 0;
@@ -309,11 +318,16 @@ async function loadSiteData(silent = false) {
 }
 
 // Setup tab reload on change
+let lastActiveTab = null;
+
 function setupTabReload() {
+    // Tab reload disabled - data only reloaded on explicit save/refresh
+    // This prevents dozens of API calls when switching tabs
     document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            // Reload data silently when switching tabs to ensure fresh state
-            await loadSiteData(true);
+        btn.addEventListener('click', () => {
+            const tabName = btn.getAttribute('data-tab');
+            lastActiveTab = tabName;
+            // No auto-reload - user can manually refresh if needed
         });
     });
 }
@@ -679,6 +693,17 @@ function collectFormData() {
         data.backend_url = backends[0].address;
     }
     
+    // Backend protocol - use first backend's protocol
+    data.backend_protocol = (backends.length > 0 && backends[0].protocol) ? backends[0].protocol : 'http';
+    
+    // WebSocket settings - use first backend's WebSocket config
+    if (backends.length > 0) {
+        data.websocket_enabled = backends[0].websocket_enabled ? 1 : 0;
+        data.websocket_protocol = backends[0].websocket_protocol || 'ws';
+        data.websocket_port = backends[0].websocket_port || 80;
+        data.websocket_path = backends[0].websocket_path || '/';
+    }
+    
     data.lb_method = document.getElementById('lb_method').value;
     data.hash_key = document.getElementById('hash_key')?.value || '$request_uri';
     data.health_check_enabled = document.getElementById('health_check_enabled').checked ? 1 : 0;
@@ -743,6 +768,44 @@ function loadBackends() {
                         <span>Mark as Down</span>
                     </label>
                 </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Backend Protocol</label>
+                        <select class="backend-protocol" data-id="${backend.id}">
+                            <option value="http" ${(!backend.protocol || backend.protocol === 'http') ? 'selected' : ''}>HTTP</option>
+                            <option value="https" ${backend.protocol === 'https' ? 'selected' : ''}>HTTPS</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Port</label>
+                        <input type="number" class="backend-port" data-id="${backend.id}" value="${backend.port || (backend.protocol === 'https' ? 443 : 80)}" min="1" max="65535" placeholder="${backend.protocol === 'https' ? 443 : 80}">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="backend-websocket-enabled" data-id="${backend.id}" ${backend.websocket_enabled ? 'checked' : ''}>
+                        <span>Enable WebSocket</span>
+                    </label>
+                </div>
+                <div class="websocket-settings" data-id="${backend.id}" style="display: ${backend.websocket_enabled ? 'block' : 'none'}; margin-top: 1rem; padding: 1rem; background: var(--surface); border-radius: 8px;">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>WebSocket Protocol</label>
+                            <select class="backend-websocket-protocol" data-id="${backend.id}">
+                                <option value="ws" ${(!backend.websocket_protocol || backend.websocket_protocol === 'ws') ? 'selected' : ''}>WS</option>
+                                <option value="wss" ${backend.websocket_protocol === 'wss' ? 'selected' : ''}>WSS</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>WebSocket Port</label>
+                            <input type="number" class="backend-websocket-port" data-id="${backend.id}" value="${backend.websocket_port || (backend.websocket_protocol === 'wss' ? 443 : 80)}" min="1" max="65535" placeholder="${backend.websocket_protocol === 'wss' ? 443 : 80}">
+                        </div>
+                        <div class="form-group">
+                            <label>WebSocket Path</label>
+                            <input type="text" class="backend-websocket-path" data-id="${backend.id}" value="${backend.websocket_path || '/'}" placeholder="/">
+                        </div>
+                    </div>
+                </div>
             </div>
         `;
         backendsList.appendChild(backendCard);
@@ -752,11 +815,44 @@ function loadBackends() {
     document.querySelectorAll('.backend-address').forEach(input => {
         input.addEventListener('input', () => updateBackendFromUI());
     });
-    document.querySelectorAll('.backend-weight, .backend-max-fails, .backend-fail-timeout').forEach(input => {
+    document.querySelectorAll('.backend-weight, .backend-max-fails, .backend-fail-timeout, .backend-port, .backend-websocket-port').forEach(input => {
         input.addEventListener('input', () => updateBackendFromUI());
+    });
+    document.querySelectorAll('.backend-protocol, .backend-websocket-protocol').forEach(input => {
+        input.addEventListener('change', () => {
+            updateBackendFromUI();
+            // Update port placeholder when protocol changes
+            const id = input.getAttribute('data-id');
+            const isProtocol = input.classList.contains('backend-protocol');
+            if (isProtocol) {
+                const portInput = document.querySelector(`.backend-port[data-id="${id}"]`);
+                if (portInput && !portInput.value) {
+                    portInput.placeholder = input.value === 'https' ? '443' : '80';
+                }
+            } else {
+                const wsPortInput = document.querySelector(`.backend-websocket-port[data-id="${id}"]`);
+                if (wsPortInput && !wsPortInput.value) {
+                    wsPortInput.placeholder = input.value === 'wss' ? '443' : '80';
+                }
+            }
+        });
     });
     document.querySelectorAll('.backend-backup, .backend-down').forEach(input => {
         input.addEventListener('change', () => updateBackendFromUI());
+    });
+    document.querySelectorAll('.backend-websocket-enabled').forEach(input => {
+        input.addEventListener('change', () => {
+            updateBackendFromUI();
+            // Toggle WebSocket settings visibility
+            const id = input.getAttribute('data-id');
+            const wsSettings = document.querySelector(`.websocket-settings[data-id="${id}"]`);
+            if (wsSettings) {
+                wsSettings.style.display = input.checked ? 'block' : 'none';
+            }
+        });
+    });
+    document.querySelectorAll('.backend-websocket-path').forEach(input => {
+        input.addEventListener('input', () => updateBackendFromUI());
     });
 }
 
@@ -768,6 +864,12 @@ function updateBackendFromUI() {
         const fail_timeout = parseInt(document.querySelector(`.backend-fail-timeout[data-id="${backend.id}"]`)?.value) || 30;
         const backup = document.querySelector(`.backend-backup[data-id="${backend.id}"]`)?.checked || false;
         const down = document.querySelector(`.backend-down[data-id="${backend.id}"]`)?.checked || false;
+        const protocol = document.querySelector(`.backend-protocol[data-id="${backend.id}"]`)?.value || 'http';
+        const port = parseInt(document.querySelector(`.backend-port[data-id="${backend.id}"]`)?.value) || (protocol === 'https' ? 443 : 80);
+        const websocket_enabled = document.querySelector(`.backend-websocket-enabled[data-id="${backend.id}"]`)?.checked || false;
+        const websocket_protocol = document.querySelector(`.backend-websocket-protocol[data-id="${backend.id}"]`)?.value || 'ws';
+        const websocket_port = parseInt(document.querySelector(`.backend-websocket-port[data-id="${backend.id}"]`)?.value) || (websocket_protocol === 'wss' ? 443 : 80);
+        const websocket_path = document.querySelector(`.backend-websocket-path[data-id="${backend.id}"]`)?.value || '/';
         
         return {
             ...backend,
@@ -776,7 +878,13 @@ function updateBackendFromUI() {
             max_fails,
             fail_timeout,
             backup,
-            down
+            down,
+            protocol,
+            port,
+            websocket_enabled,
+            websocket_protocol,
+            websocket_port,
+            websocket_path
         };
     });
 }
@@ -789,7 +897,13 @@ function addBackend() {
         max_fails: 3,
         fail_timeout: 30,
         backup: false,
-        down: false
+        down: false,
+        protocol: 'http',
+        port: 80,
+        websocket_enabled: false,
+        websocket_protocol: 'ws',
+        websocket_port: 80,
+        websocket_path: '/'
     };
     backends.push(newBackend);
     loadBackends();

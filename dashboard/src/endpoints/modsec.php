@@ -24,7 +24,8 @@ function handleModSec($method, $params, $db) {
                 rule_id,
                 severity,
                 message as rule_message,
-                action
+                action,
+                CONCAT(method, ' ', COALESCE(uri, '/')) as endpoint
             FROM modsec_events";
             $whereParams = [];
             

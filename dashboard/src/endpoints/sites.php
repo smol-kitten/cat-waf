@@ -175,7 +175,7 @@ function handleSites($method, $params, $db) {
             $values = [];
             
             $updatableFields = [
-                'domain', 'backend_url', 'enabled', 'rate_limit_zone', 'rate_limit_burst', 
+                'domain', 'backend_url', 'backend_protocol', 'enabled', 'rate_limit_zone', 'rate_limit_burst', 
                 'enable_modsecurity', 'enable_geoip_blocking', 'blocked_countries', 
                 'allowed_countries', 'custom_config', 'ssl_enabled', 'ssl_cert_path', 
                 'ssl_key_path', 'ssl_redirect', 'enable_gzip', 'enable_brotli', 
@@ -189,7 +189,8 @@ function handleSites($method, $params, $db) {
                 'ssl_challenge_type', 'cf_api_token', 'cf_zone_id', 'error_page_404', 
                 'error_page_403', 'error_page_429', 'error_page_500', 'security_txt',
                 'enable_basic_auth', 'basic_auth_username', 'basic_auth_password',
-                'disable_http_redirect', 'cf_bypass_ratelimit', 'cf_custom_rate_limit', 'cf_rate_limit_burst'
+                'disable_http_redirect', 'cf_bypass_ratelimit', 'cf_custom_rate_limit', 'cf_rate_limit_burst',
+                'websocket_enabled', 'websocket_protocol', 'websocket_port', 'websocket_path'
             ];
             
             foreach ($updatableFields as $field) {
@@ -248,7 +249,7 @@ function handleSites($method, $params, $db) {
             
             // All updatable fields
             $updatableFields = [
-                'domain', 'backend_url', 'enabled', 'rate_limit_zone', 'rate_limit_burst', 
+                'domain', 'backend_url', 'backend_protocol', 'enabled', 'rate_limit_zone', 'rate_limit_burst', 
                 'enable_modsecurity', 'enable_geoip_blocking', 'blocked_countries', 
                 'allowed_countries', 'custom_config', 'ssl_enabled', 'ssl_cert_path', 
                 'ssl_key_path', 'ssl_redirect', 'enable_gzip', 'enable_brotli', 
@@ -259,7 +260,8 @@ function handleSites($method, $params, $db) {
                 'wildcard_subdomains', 'custom_rate_limit', 'enable_rate_limit', 'hash_key',
                 'challenge_enabled', 'challenge_difficulty', 'challenge_duration', 
                 'challenge_bypass_cf', 'ssl_challenge_type', 'cf_api_token', 'cf_zone_id',
-                'disable_http_redirect', 'cf_bypass_ratelimit', 'cf_custom_rate_limit', 'cf_rate_limit_burst'
+                'disable_http_redirect', 'cf_bypass_ratelimit', 'cf_custom_rate_limit', 'cf_rate_limit_burst',
+                'websocket_enabled', 'websocket_protocol', 'websocket_port', 'websocket_path'
             ];
             
             foreach ($updatableFields as $field) {
@@ -449,6 +451,11 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
     $challenge_duration = $siteData['challenge_duration'] ?? 1;
     $challenge_bypass_cf = $siteData['challenge_bypass_cf'] ?? 0;
     
+    // Rate limiting configuration
+    $enable_rate_limit = $siteData['enable_rate_limit'] ?? 1;
+    $rate_limit_burst = $siteData['rate_limit_burst'] ?? 20;
+    $custom_rate_limit = $siteData['custom_rate_limit'] ?? 10;
+    
     // Error pages configuration
     $error_page_mode = $siteData['error_page_mode'] ?? 'template'; // 'template' or 'custom'
     $error_page_403 = $siteData['error_page_403'] ?? '/errors/403.html';
@@ -475,61 +482,33 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
     
     // Create upstream name (sanitize domain)
     $upstream_name = preg_replace('/[^a-z0-9_]/', '_', strtolower($domain)) . '_backend';
-    // Determine whether backend speaks HTTPS (auto-detect)
-    $use_https_backend = false;
-    // If backend_raw explicitly specifies scheme
-    if (stripos($backend_raw, 'https://') === 0) {
-        $use_https_backend = true;
-    } else {
-        // If backend includes explicit port 443
-        $port = null;
-        if (preg_match('/:[0-9]+$/', $backend)) {
-            $port = (int)substr($backend, strrpos($backend, ':') + 1);
-            if ($port === 443) {
-                $use_https_backend = true;
-            }
-        }
-        
-        // If not port 443, probe the backend for redirect to https (quick detection)
-        if (!$use_https_backend) {
-            error_log("About to probe {$domain} at {$backend}");
-            $probeCmd = "curl -s -I -m 2 -H 'Host: {$domain}' http://{$backend}";
-            $probeOutput = shell_exec($probeCmd);
-            error_log("Probe {$domain} result: " . ($probeOutput ? substr($probeOutput, 0, 200) : 'NULL'));
-            if ($probeOutput !== null && $probeOutput !== '') {
-                $probeLines = explode("\n", $probeOutput);
-                foreach ($probeLines as $line) {
-                    if (stripos($line, 'Location:') === 0 && stripos($line, 'https://') !== false) {
-                        $use_https_backend = true;
-                        error_log("Detected HTTPS redirect for {$domain}: {$line}");
-                        break;
-                    }
-                }
+    
+    // Get backend protocol configuration from database
+    $backend_protocol = $siteData['backend_protocol'] ?? 'http';
+    $backend_speaks_https = ($backend_protocol === 'https');
+    
+    // Check if any backend in the array specifies https protocol
+    if ($backends && is_array($backends) && count($backends) > 0) {
+        foreach ($backends as $backend_config) {
+            $backend_proto = $backend_config['protocol'] ?? '';
+            if ($backend_proto === 'https') {
+                $backend_speaks_https = true;
+                break;
             }
         }
     }
-
+    
     // Record upstream https usage in a global map so generateLocationBlock can use it
     if (!isset($GLOBALS['upstream_https'])) $GLOBALS['upstream_https'] = [];
-    
-    // Determine if backend SPEAKS https natively or just REDIRECTS to https
-    $backend_speaks_https = false;
-    if (stripos($backend_raw, 'https://') === 0 || (isset($port) && $port === 443)) {
-        $backend_speaks_https = true;
-    }
-    
     $GLOBALS['upstream_https'][$upstream_name] = $backend_speaks_https;
-
-    // If backend REDIRECTS to HTTPS (but doesn't speak it), disable nginx HTTP->HTTPS redirect
-    // to avoid redirect loops - the backend will handle the redirect.
-    // We'll still proxy as HTTP so the backend sees the HTTP request and can redirect.
-    if ($use_https_backend && !$backend_speaks_https) {
-        error_log("Backend {$backend} for {$domain} redirects to HTTPS - disabling nginx redirect");
-        $siteData['disable_http_redirect'] = 1;
-        $disable_http_redirect = 1;
-    } else {
-        error_log("Backend {$backend} for {$domain}: use_https={$use_https_backend}, speaks_https={$backend_speaks_https}, disable_redirect={$disable_http_redirect}");
-    }
+    
+    // WebSocket configuration
+    $websocket_enabled = $siteData['websocket_enabled'] ?? 0;
+    $websocket_protocol = $siteData['websocket_protocol'] ?? 'ws';
+    $websocket_port = $siteData['websocket_port'] ?? null;
+    $websocket_path = $siteData['websocket_path'] ?? '/';
+    
+    error_log("Backend protocol for {$domain}: {$backend_protocol}, WebSocket: " . ($websocket_enabled ? "enabled ({$websocket_protocol})" : "disabled"));
     
     // Build NGINX config
     $config = "# Auto-generated config for {$domain}\n";
@@ -547,8 +526,8 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
     if ($backends && is_array($backends) && count($backends) > 0) {
         foreach ($backends as $backend_config) {
             $server = $backend_config['address'] ?? '';
-            $port = $backend_config['port'] ?? null; // Fallback port
-            $useProtocolPorts = $backend_config['useProtocolPorts'] ?? false;
+            $protocol = $backend_config['protocol'] ?? $backend_protocol; // Use backend's protocol or site's default
+            $port = $backend_config['port'] ?? ($protocol === 'https' ? 443 : 80);
             $weight = $backend_config['weight'] ?? 1;
             $max_fails = $backend_config['max_fails'] ?? 3;
             $fail_timeout = $backend_config['fail_timeout'] ?? 30;
@@ -556,32 +535,9 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
             $down = ($backend_config['down'] ?? false) ? ' down' : '';
             
             if (!empty($server)) {
-                // Build server address with port
-                // If not using protocol-specific ports, use the fallback port
-                if (!$useProtocolPorts && $port) {
-                    $server = "{$server}:{$port}";
-                } elseif ($useProtocolPorts) {
-                    // For protocol-specific ports, we need to determine which protocol to use
-                    // For now, try HTTP port first, then HTTPS, then fallback
-                    $httpPort = $backend_config['httpPort'] ?? null;
-                    $httpsPort = $backend_config['httpsPort'] ?? null;
-                    $proto = $backend_config['proto'] ?? [];
-                    
-                    // Determine which port to use based on enabled protocols
-                    if (!empty($proto['http']) && $httpPort) {
-                        $server = "{$server}:{$httpPort}";
-                    } elseif (!empty($proto['https']) && $httpsPort) {
-                        $server = "{$server}:{$httpsPort}";
-                    } elseif ($httpPort) {
-                        $server = "{$server}:{$httpPort}";
-                    } elseif ($httpsPort) {
-                        $server = "{$server}:{$httpsPort}";
-                    } elseif ($port) {
-                        $server = "{$server}:{$port}";
-                    }
-                }
-                
-                $config .= "    server {$server}";
+                // Build complete server address with protocol and port
+                // Format: address:port (e.g., 10.10.0.1:443)
+                $config .= "    server {$server}:{$port}";
                 if ($weight != 1) $config .= " weight={$weight}";
                 $config .= " max_fails={$max_fails} fail_timeout={$fail_timeout}s";
                 $config .= $backup . $down;
@@ -665,7 +621,7 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
                                                $enable_image_opt, $image_quality, $enable_bot_protection,
                                                false, false, false, false, // Disable challenge on HTTP when backend redirects
                                                $cf_bypass_ratelimit, $cf_custom_rate_limit, $cf_rate_limit_burst,
-                                               $enable_rate_limit, $rate_limit_burst);
+                                               $enable_rate_limit, $rate_limit_burst, $custom_rate_limit);
         } else {
             // Redirect to HTTPS
             $config .= "    location / {\n";
@@ -681,7 +637,7 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
                                            $enable_image_opt, $image_quality, $enable_bot_protection,
                                            false, false, false, false, // No challenge on plain HTTP
                                            $cf_bypass_ratelimit, $cf_custom_rate_limit, $cf_rate_limit_burst,
-                                           $enable_rate_limit, $rate_limit_burst);
+                                           $enable_rate_limit, $rate_limit_burst, $custom_rate_limit);
     }
     $config .= "}\n\n";
     
@@ -839,7 +795,13 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
                                            $enable_image_opt, $image_quality, $enable_bot_protection,
                                            $challenge_enabled, $challenge_difficulty, $challenge_duration, $challenge_bypass_cf,
                                            $cf_bypass_ratelimit, $cf_custom_rate_limit, $cf_rate_limit_burst,
-                                           $enable_rate_limit, $rate_limit_burst);
+                                           $enable_rate_limit, $rate_limit_burst, $custom_rate_limit);
+        
+        // Add WebSocket location block if enabled
+        if ($websocket_enabled) {
+            $config .= generateWebSocketLocation($upstream_name, $websocket_path, $websocket_protocol, $websocket_port, $backend);
+        }
+        
         $config .= "}\n";
     }
     
@@ -882,7 +844,7 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
                                $enable_image_opt = false, $image_quality = 85, $enable_bot_protection = true,
                                $challenge_enabled = false, $challenge_difficulty = 18, $challenge_duration = 1, $challenge_bypass_cf = false,
                                $cf_bypass_ratelimit = false, $cf_custom_rate_limit = 100, $cf_rate_limit_burst = 200,
-                               $enable_rate_limit = 1, $rate_limit_burst = 20) {
+                               $enable_rate_limit = 1, $rate_limit_burst = 20, $custom_rate_limit = 10) {
     $block = "";
     
     // Ban list check
@@ -942,34 +904,42 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
     }
     
     // Rate limiting with Cloudflare bypass support
-    $burst = $rate_limit_burst ?? 20;
-    
     // Check if rate limiting is actually enabled for this site
-    if ($enable_rate_limit !== 0 && $enable_rate_limit !== false && $enable_rate_limit !== '0') {
-        $block .= "    # Rate limiting\n";
+    if ($enable_rate_limit == 1 || $enable_rate_limit === true || $enable_rate_limit === '1') {
+        $burst = intval($rate_limit_burst) > 0 ? intval($rate_limit_burst) : 20;
+        $rate_value = intval($custom_rate_limit) > 0 ? intval($custom_rate_limit) : 10;
         
-        if ($cf_bypass_ratelimit) {
-        // Use geo module to detect Cloudflare IPs and apply different rate limits
-        $block .= "    # Cloudflare IP bypass - use relaxed rate limits\n";
-        $block .= "    set \$is_cf 0;\n";
-        $block .= "    # Check if request is from Cloudflare (via CF-Connecting-IP header)\n";
-        $block .= "    if (\$http_cf_connecting_ip != \"\") {\n";
-        $block .= "        set \$is_cf 1;\n";
-        $block .= "    }\n\n";
-        
-        $block .= "    # Apply different rate limits for CF vs direct access\n";
-        $block .= "    if (\$is_cf = 0) {\n";
-        $block .= "        limit_req zone={$rate_limit} burst={$burst} nodelay;\n";
-        $block .= "    }\n";
-        $block .= "    # Cloudflare gets higher limits (defined globally in nginx.conf)\n";
-        $block .= "    if (\$is_cf = 1) {\n";
-        $block .= "        limit_req zone=cloudflare burst={$cf_rate_limit_burst} nodelay;\n";
-        $block .= "    }\n";
+        // If burst is extremely high (>10000), treat as disabled (user wants unlimited)
+        if ($burst > 10000) {
+            $block .= "    # Rate limiting: DISABLED (burst value too high, treating as unlimited)\n\n";
         } else {
-            // Standard rate limiting
-            $block .= "    limit_req zone={$rate_limit} burst={$burst} nodelay;\n";
+            $block .= "    # Rate limiting: ENABLED (rate={$rate_value}r/s, burst={$burst})\n";
+            
+            if ($cf_bypass_ratelimit) {
+            // Use geo module to detect Cloudflare IPs and apply different rate limits
+            $block .= "    # Cloudflare IP bypass - use relaxed rate limits\n";
+            $block .= "    set \$is_cf 0;\n";
+            $block .= "    # Check if request is from Cloudflare (via CF-Connecting-IP header)\n";
+            $block .= "    if (\$http_cf_connecting_ip != \"\") {\n";
+            $block .= "        set \$is_cf 1;\n";
+            $block .= "    }\n\n";
+            
+            $block .= "    # Apply different rate limits for CF vs direct access\n";
+            $block .= "    if (\$is_cf = 0) {\n";
+            $block .= "        limit_req zone={$rate_limit} burst={$burst} nodelay;\n";
+            $block .= "    }\n";
+            $block .= "    # Cloudflare gets higher limits (defined globally in nginx.conf)\n";
+            $block .= "    if (\$is_cf = 1) {\n";
+            $cf_burst = intval($cf_rate_limit_burst) > 0 ? intval($cf_rate_limit_burst) : 200;
+            $block .= "        limit_req zone=cloudflare burst={$cf_burst} nodelay;\n";
+            $block .= "    }\n";
+            } else {
+                // Standard rate limiting
+                $block .= "    limit_req zone={$rate_limit} burst={$burst} nodelay;\n";
+            }
+            $conn_limit = 20; // Default connection limit
+            $block .= "    limit_conn addr {$conn_limit};\n\n";
         }
-        $block .= "    limit_conn addr 20;\n\n";
     } else {
         $block .= "    # Rate limiting: DISABLED\n\n";
     }
@@ -1149,6 +1119,45 @@ function removeSiteConfig($siteId) {
         $htpasswdCmd = "docker exec waf-nginx rm -f {$htpasswd_path} 2>&1";
         exec($htpasswdCmd);
     }
+}
+
+/**
+ * Generate WebSocket location block
+ */
+function generateWebSocketLocation($upstream_name, $ws_path, $ws_protocol, $ws_port, $backend_address) {
+    $block = "\n    # WebSocket support\n";
+    $block .= "    location {$ws_path} {\n";
+    
+    // Determine WebSocket target
+    $ws_target = $upstream_name;
+    if ($ws_port) {
+        // If specific WebSocket port is defined, create direct proxy target
+        // Strip port from backend if present
+        $backend_host = preg_replace('/:[0-9]+$/', '', $backend_address);
+        $ws_target_url = ($ws_protocol === 'wss' ? 'https' : 'http') . "://{$backend_host}:{$ws_port}";
+        $block .= "        proxy_pass {$ws_target_url};\n";
+    } else {
+        // Use same upstream with WebSocket protocol
+        $proxy_scheme = ($ws_protocol === 'wss') ? 'https' : 'http';
+        $block .= "        proxy_pass {$proxy_scheme}://{$ws_target};\n";
+    }
+    
+    // WebSocket headers
+    $block .= "        proxy_http_version 1.1;\n";
+    $block .= "        proxy_set_header Upgrade \$http_upgrade;\n";
+    $block .= "        proxy_set_header Connection \"upgrade\";\n";
+    $block .= "        proxy_set_header Host \$host;\n";
+    $block .= "        proxy_set_header X-Real-IP \$remote_addr;\n";
+    $block .= "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;\n";
+    $block .= "        proxy_set_header X-Forwarded-Proto \$scheme;\n";
+    
+    // WebSocket timeouts
+    $block .= "        proxy_read_timeout 3600s;\n";
+    $block .= "        proxy_send_timeout 3600s;\n";
+    
+    $block .= "    }\n";
+    
+    return $block;
 }
 
 // Trigger background certificate issuance

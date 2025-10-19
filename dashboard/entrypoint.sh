@@ -1,6 +1,11 @@
 #!/bin/sh
 set -e
 
+# Clear old logs to prevent duplicate telemetry entries
+echo "🧹 Clearing old logs..."
+find /var/log -type f -name "*.log" -exec truncate -s 0 {} \; 2>/dev/null || true
+echo "✅ Logs cleared"
+
 # Fix permissions on shared volumes
 echo "Fixing permissions on shared volumes..."
 chown -R www-data:www-data /etc/nginx/sites-enabled 2>/dev/null || true

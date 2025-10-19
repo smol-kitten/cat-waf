@@ -50,16 +50,15 @@ if (!isBackupAllowed()) {
     exit;
 }
 
-header('Content-Type: application/json');
-
 $method = $_SERVER['REQUEST_METHOD'];
 // Parse URI without query string
 $requestUri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
-// Parse action from URI
+// Parse action from URI - handle both /api/backup/import and /backup/import
 if (preg_match('#/backup/(export|import|info)$#', $requestUri, $matches)) {
     $action = $matches[1];
 } else {
+    header('Content-Type: application/json');
     http_response_code(400);
     echo json_encode(['error' => 'Invalid endpoint. Use /backup/export, /backup/import, or /backup/info']);
     exit;
@@ -67,6 +66,7 @@ if (preg_match('#/backup/(export|import|info)$#', $requestUri, $matches)) {
 
 switch ($method) {
     case 'GET':
+        header('Content-Type: application/json');
         if ($action === 'export') {
             exportBackup();
         } elseif ($action === 'info') {
@@ -78,15 +78,18 @@ switch ($method) {
         break;
     
     case 'POST':
+        // Don't set Content-Type header for POST - let importBackup handle it
         if ($action === 'import') {
             importBackup();
         } else {
+            header('Content-Type: application/json');
             http_response_code(405);
             echo json_encode(['error' => 'Method not allowed for this endpoint']);
         }
         break;
     
     default:
+        header('Content-Type: application/json');
         http_response_code(405);
         echo json_encode(['error' => 'Method not allowed']);
 }
@@ -228,7 +231,7 @@ function importBackup() {
             'import_access_logs' => isset($_POST['import_access_logs']) && $checkTrue($_POST['import_access_logs']),
             'import_block_rules' => isset($_POST['import_block_rules']) && $checkTrue($_POST['import_block_rules']),
             'import_rate_limits' => isset($_POST['import_rate_limits']) && $checkTrue($_POST['import_rate_limits']),
-            'merge_mode' => $_POST['merge_mode'] ?? 'skip' // skip, replace, merge
+            'merge_mode' => $_POST['merge_mode'] ?? 'skip' // skip, replace, clear
         ];
     }
     
@@ -272,6 +275,25 @@ function importBackup() {
             'metadata' => $metadata,
             'imported' => []
         ];
+        
+        // Clear all data if mode is 'clear'
+        if ($options['merge_mode'] === 'clear') {
+            error_log("Import: CLEAR mode - wiping all existing data before import");
+            
+            // Clear data tables (keep schema and migrations)
+            $db->exec("DELETE FROM access_logs");
+            $db->exec("DELETE FROM request_telemetry");
+            $db->exec("DELETE FROM bot_detections");
+            $db->exec("DELETE FROM modsec_events");
+            $db->exec("DELETE FROM custom_block_rules");
+            $db->exec("DELETE FROM banned_ips");
+            $db->exec("DELETE FROM sites");
+            $db->exec("DELETE FROM jobs");
+            // Keep settings and api_tokens - these are system config
+            
+            error_log("Import: All data tables cleared");
+            $results['cleared'] = true;
+        }
         
         // Import sites
         if ($options['import_sites'] ?? false) {
@@ -439,10 +461,31 @@ function importBackup() {
         array_map('unlink', glob($tmpDir . '/*'));
         rmdir($tmpDir);
         
+        // Auto-rescan certificates if sites were imported
+        $certRescanResult = null;
+        if (($options['import_sites'] ?? false) && ($results['imported']['sites'] ?? 0) > 0) {
+            try {
+                // Run certificate rescan asynchronously to avoid blocking response
+                $rescanCmd = "docker exec waf-dashboard php -r \"
+                    require_once '/var/www/html/config.php';
+                    require_once '/var/www/html/endpoints/certificates.php';
+                    ob_start();
+                    rescanAllCertificates();
+                    ob_end_clean();
+                \" > /dev/null 2>&1 &";
+                exec($rescanCmd);
+                $certRescanResult = 'started';
+            } catch (Exception $e) {
+                error_log("Failed to start certificate rescan: " . $e->getMessage());
+                $certRescanResult = 'failed';
+            }
+        }
+        
         echo json_encode([
             'success' => true,
             'message' => 'Backup imported successfully',
-            'results' => $results
+            'results' => $results,
+            'certificate_rescan' => $certRescanResult
         ]);
         
     } catch (Exception $e) {
