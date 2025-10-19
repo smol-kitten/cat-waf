@@ -1002,6 +1002,12 @@ async function loadSettings() {
             }
         });
         
+        // Load development mode setting
+        const devModeCheckbox = document.getElementById('dev_mode_headers');
+        if (devModeCheckbox && settings.dev_mode_headers !== undefined) {
+            devModeCheckbox.checked = settings.dev_mode_headers === '1' || settings.dev_mode_headers === 'true';
+        }
+        
         // Load certificate status
         loadCertificateStatus();
         
@@ -4495,6 +4501,36 @@ async function loadCleanupStats() {
             
     } catch (error) {
         console.error('Error loading cleanup stats:', error);
+    }
+}
+
+async function saveDevModeSetting() {
+    const enabled = document.getElementById('dev_mode_headers')?.checked;
+    
+    try {
+        const response = await apiRequest('/settings', {
+            method: 'POST',
+            body: JSON.stringify({
+                dev_mode_headers: enabled ? '1' : '0'
+            })
+        });
+        
+        showToast(
+            enabled 
+                ? '✅ Development mode enabled! Regenerate site configs to apply.' 
+                : '✅ Development mode disabled! Regenerate site configs to apply.',
+            'success'
+        );
+        
+        // Show reminder to regenerate configs
+        if (enabled || !enabled) {
+            setTimeout(() => {
+                showToast('💡 Remember to regenerate all site configs for changes to take effect', 'info');
+            }, 2000);
+        }
+    } catch (error) {
+        console.error('Error saving dev mode setting:', error);
+        showToast('Failed to save development mode setting', 'error');
     }
 }
 

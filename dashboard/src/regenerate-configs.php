@@ -5,6 +5,15 @@ require_once 'endpoints/sites.php';
 
 $db = getDB();
 
+// Clean up orphaned config files first
+echo "Checking for orphaned config files...\n";
+$cleanupCount = cleanupOrphanedConfigs($db);
+if ($cleanupCount > 0) {
+    echo "✅ Removed {$cleanupCount} orphaned config(s)\n\n";
+} else {
+    echo "✅ No orphaned configs found\n\n";
+}
+
 // Get all enabled sites
 $stmt = $db->query("SELECT id, domain FROM sites WHERE enabled = 1");
 $sites = $stmt->fetchAll();

@@ -584,6 +584,31 @@
                             </div>
                         </div>
 
+                        <!-- Development Mode Card -->
+                        <div class="settings-card" style="grid-column: 1 / -1; border: 2px solid #8b5cf6; background: #f5f3ff;">
+                            <h3 style="color: #5b21b6; font-weight: 700;">🔧 Development Mode</h3>
+                            <p style="margin-bottom: 1.5rem; font-weight: 500;">
+                                Enable detailed debugging headers in responses to help troubleshoot backend issues. Shows backend address, response times, connection times, and more.
+                            </p>
+                            
+                            <div style="display: flex; align-items: center; gap: 1rem; padding: 1rem; background: #fff; border-radius: 8px; border: 1px solid #e5e7eb;">
+                                <label class="switch">
+                                    <input type="checkbox" id="dev_mode_headers" onchange="saveDevModeSetting()">
+                                    <span class="slider round"></span>
+                                </label>
+                                <div>
+                                    <strong>Enable Development Headers</strong>
+                                    <div style="font-size: 0.9em; color: #6b7280; margin-top: 0.25rem;">
+                                        Adds X-Dev-* headers with backend debugging info (Backend-Addr, Response-Time, Connect-Time, etc.)
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style="margin-top: 1rem; padding: 0.75rem; background: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
+                                <strong>⚠️ Note:</strong> Development headers expose internal backend topology. Disable in production environments for security.
+                            </div>
+                        </div>
+
                         <!-- Data Cleanup Card -->
                         <div class="settings-card" style="grid-column: 1 / -1; border: 2px solid #f59e0b; color: #fffbeb;">
                             <h3 style="color: #92400e; font-weight: 700;">🗑️ Data Cleanup</h3>

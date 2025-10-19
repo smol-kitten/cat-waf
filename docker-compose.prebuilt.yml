@@ -10,6 +10,7 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "443:443/udp"  # HTTP/3 QUIC support
     volumes:
       # All configuration now in volumes (managed via Docker)
       - waf-nginx-conf:/etc/nginx/conf.d

@@ -646,8 +646,19 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
         $config .= "server {\n";
         $config .= "    listen 443 ssl;\n";
         $config .= "    listen [::]:443 ssl;\n";
+        $config .= "    listen 443 quic;\n";  // HTTP/3 QUIC (reuseport removed - causes conflicts with multiple sites)
+        $config .= "    listen [::]:443 quic;\n";  // HTTP/3 QUIC IPv6
         $config .= "    http2 on;\n";
+        $config .= "    http3 on;\n";
         $config .= "    server_name {$server_name};\n\n";
+        
+        // HTTP/3 optimizations
+        $config .= "    # HTTP/3 configuration\n";
+        $config .= "    quic_retry on;\n";  // Enable 0-RTT resume
+        $config .= "    ssl_early_data on;\n";  // Enable 0-RTT
+        $config .= "    quic_gso on;\n";  // Enable GSO for better performance
+        $config .= "    add_header Alt-Svc 'h3=\":443\"; ma=86400' always;\n\n";
+        
         
         // Error pages
         $config .= "    # Custom error pages\n";
@@ -771,6 +782,11 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
         
         // HSTS
         $config .= "    add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;\n\n";
+        
+        // Client body size (support for large file uploads like Bitwarden attachments)
+        $config .= "    # Client settings\n";
+        $config .= "    client_max_body_size 256M;\n";
+        $config .= "    client_body_buffer_size 128k;\n\n";
         
         // Compression
         if ($enable_gzip) {
@@ -975,6 +991,28 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
         $block .= "\n";
     }
     
+    // Development mode headers - check if enabled in settings
+    global $db;
+    if (!isset($db)) $db = getDB();
+    $devModeStmt = $db->prepare("SELECT setting_value FROM settings WHERE setting_key = 'dev_mode_headers'");
+    $devModeStmt->execute();
+    $devModeResult = $devModeStmt->fetch(PDO::FETCH_ASSOC);
+    $devModeEnabled = $devModeResult && $devModeResult['setting_value'] === '1';
+    
+    if ($devModeEnabled) {
+        $block .= "    # Development Mode Headers (Debug Info)\n";
+        $block .= "    add_header X-Dev-Backend-Addr \$upstream_addr always;\n";
+        $block .= "    add_header X-Dev-Backend-Status \$upstream_status always;\n";
+        $block .= "    add_header X-Dev-Backend-Response-Time \$upstream_response_time always;\n";
+        $block .= "    add_header X-Dev-Backend-Connect-Time \$upstream_connect_time always;\n";
+        $block .= "    add_header X-Dev-Backend-Header-Time \$upstream_header_time always;\n";
+        $block .= "    add_header X-Dev-Proxy-Host \$proxy_host always;\n";
+        $block .= "    add_header X-Dev-Upstream-Name \"{$upstream}\" always;\n";
+        $block .= "    add_header X-Dev-Request-Uri \$request_uri always;\n";
+        $block .= "    add_header X-Dev-Server-Name \$server_name always;\n";
+        $block .= "\n";
+    }
+    
     // Custom headers
     if (!empty($custom_headers)) {
         $block .= "    # Custom headers\n";
@@ -1077,13 +1115,19 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
     $block .= "        proxy_set_header X-Real-IP \$remote_addr;\n";
     $block .= "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;\n";
     $block .= "        proxy_set_header X-Forwarded-Proto \$scheme;\n";
+    $block .= "        proxy_set_header X-Forwarded-Host \$host;\n";  // Bitwarden compatibility
     $block .= "        proxy_set_header Upgrade \$http_upgrade;\n";
-    $block .= "        proxy_set_header Connection \"upgrade\";\n\n";
+    $block .= "        proxy_set_header Connection \$connection_upgrade;\n";  // Use map for dynamic Connection header
+    $block .= "\n";
+    
+    $block .= "        # Proxy settings\n";
+    $block .= "        proxy_redirect off;\n";  // Let backend control redirects
+    $block .= "        proxy_buffering off;\n";  // Better for streaming/WebSocket
     
     $block .= "        # Timeouts\n";
-    $block .= "        proxy_connect_timeout 60s;\n";
-    $block .= "        proxy_send_timeout 60s;\n";
-    $block .= "        proxy_read_timeout 60s;\n";
+    $block .= "        proxy_connect_timeout 90s;\n";  // Increased for Bitwarden
+    $block .= "        proxy_send_timeout 90s;\n";
+    $block .= "        proxy_read_timeout 90s;\n";
     $block .= "    }\n\n";
     
     return $block;
@@ -1119,6 +1163,66 @@ function removeSiteConfig($siteId) {
         $htpasswdCmd = "docker exec waf-nginx rm -f {$htpasswd_path} 2>&1";
         exec($htpasswdCmd);
     }
+}
+
+/**
+ * Clean up orphaned NGINX config files that don't have a corresponding site in the database
+ * Returns the number of configs removed
+ */
+function cleanupOrphanedConfigs($db) {
+    $removed = 0;
+    
+    // Get all domains from database
+    $stmt = $db->query("SELECT domain FROM sites");
+    $dbDomains = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'domain');
+    
+    // Get all config files from nginx container
+    $listCmd = "docker exec waf-nginx find /etc/nginx/sites-enabled -name '*.conf' -type f 2>&1";
+    exec($listCmd, $configFiles, $returnCode);
+    
+    if ($returnCode !== 0) {
+        error_log("Failed to list config files: " . implode("\n", $configFiles));
+        return 0;
+    }
+    
+    foreach ($configFiles as $configPath) {
+        // Extract domain from filename (e.g., /etc/nginx/sites-enabled/example.com.conf -> example.com)
+        $filename = basename($configPath);
+        $domain = str_replace('.conf', '', $filename);
+        
+        // Skip special files
+        if (empty($domain) || $domain[0] === '.') {
+            continue;
+        }
+        
+        // Check if domain exists in database
+        if (!in_array($domain, $dbDomains)) {
+            error_log("Found orphaned config: {$domain}.conf");
+            
+            // Remove orphaned config
+            $removeCmd = "docker exec waf-nginx rm -f {$configPath} 2>&1";
+            exec($removeCmd, $removeOutput, $removeReturn);
+            
+            if ($removeReturn === 0) {
+                error_log("Removed orphaned config: {$domain}.conf");
+                $removed++;
+                
+                // Also remove htpasswd if exists
+                $htpasswd_path = "/etc/nginx/htpasswd/{$domain}";
+                $htpasswdCmd = "docker exec waf-nginx rm -f {$htpasswd_path} 2>&1";
+                exec($htpasswdCmd);
+            } else {
+                error_log("Failed to remove orphaned config {$domain}.conf: " . implode("\n", $removeOutput));
+            }
+        }
+    }
+    
+    if ($removed > 0) {
+        // Trigger reload if we removed any configs
+        touch("/etc/nginx/sites-enabled/.reload_needed");
+    }
+    
+    return $removed;
 }
 
 /**

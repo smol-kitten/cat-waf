@@ -54,6 +54,12 @@ jobs:
             type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/dev' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+          # Automatically delete untagged images after 7 days and keep only 5 recent SHA tags
+          flavor: |
+            latest=auto
+          labels: |
+            org.opencontainers.image.description=CatWAF NGINX with ModSecurity
+            maintainer=${{ github.repository_owner }}
       
       - name: Build and push
         uses: docker/build-push-action@v5
