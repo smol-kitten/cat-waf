@@ -2211,6 +2211,9 @@ async function loadTelemetryData() {
         // Load slowest endpoints
         await loadSlowestEndpoints();
         
+        // Load site performance (new)
+        await loadSitePerformance();
+        
         // Load backend performance
         await loadBackendPerformance();
         
@@ -2222,6 +2225,9 @@ async function loadTelemetryData() {
         
         // Load response time distribution chart
         await loadResponseTimeChart();
+        
+        // Load site list for recent requests dropdown
+        await loadRecentRequestsSiteList();
     } catch (error) {
         console.error('Error loading telemetry data:', error);
     }
@@ -2296,7 +2302,8 @@ async function loadResponseTimeChart() {
 
 async function loadSlowestEndpoints() {
     try {
-        const response = await apiRequest('/telemetry/slowest-endpoints?limit=50');
+        const excludeParam = excludedSites.length > 0 ? `&exclude=${excludedSites.join(',')}` : '';
+        const response = await apiRequest(`/telemetry/slowest-endpoints?limit=50${excludeParam}`);
         const tbody = document.getElementById('slowestEndpointsBody');
         
         if (!response || response.length === 0) {
@@ -2455,6 +2462,194 @@ async function loadTop404s() {
         console.error('Error loading top 404s:', error);
         document.getElementById('top404sBody').innerHTML = 
             '<tr><td colspan="4" style="text-align: center; color: #ef4444;">Error loading data</td></tr>';
+    }
+}
+
+// Site performance metrics
+let excludedSites = [];
+
+async function loadSitePerformance() {
+    try {
+        const timeRange = document.getElementById('telemetryTimeRange')?.value || '24h';
+        const excludeParam = excludedSites.length > 0 ? `&exclude=${excludedSites.join(',')}` : '';
+        const response = await apiRequest(`/telemetry/site-performance?range=${timeRange}${excludeParam}`);
+        const tbody = document.getElementById('sitePerformanceBody');
+        
+        if (!response || response.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No site data available</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = response.map(site => {
+            const errorBadgeClass = site.error_rate > 5 ? 'badge-danger' : site.error_rate > 1 ? 'badge-warning' : 'badge-success';
+            
+            return `
+            <tr>
+                <td><strong>${site.domain}</strong></td>
+                <td>${site.hits.toLocaleString()}</td>
+                <td>${site.avg_response}ms</td>
+                <td style="font-size: 0.85em; color: #6b7280;">${site.min_response}ms / ${site.max_response}ms</td>
+                <td>
+                    <span class="badge badge-danger" style="margin-right: 4px;" title="Server Errors (5xx)">${site.server_errors}</span>
+                    <span class="badge badge-warning" title="Client Errors (4xx)">${site.client_errors}</span>
+                </td>
+                <td>
+                    <span class="badge ${errorBadgeClass}">
+                        ${site.error_rate}%
+                    </span>
+                </td>
+            </tr>
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('Error loading site performance:', error);
+        document.getElementById('sitePerformanceBody').innerHTML = 
+            '<tr><td colspan="6" style="text-align: center; color: #ef4444;">Error loading data</td></tr>';
+    }
+}
+
+// Site filter for slowest endpoints
+async function toggleSiteFilter() {
+    const panel = document.getElementById('siteFilterPanel');
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        await loadSiteFilterCheckboxes();
+    } else {
+        panel.style.display = 'none';
+    }
+}
+
+async function loadSiteFilterCheckboxes() {
+    try {
+        const response = await apiRequest('/sites');
+        const sites = response?.sites || [];
+        const container = document.getElementById('siteFilterCheckboxes');
+        
+        if (!sites || sites.length === 0) {
+            container.innerHTML = '<div style="text-align: center; color: #9ca3af;">No sites available</div>';
+            return;
+        }
+        
+        container.innerHTML = sites.map(site => {
+            const isExcluded = excludedSites.includes(site.domain);
+            return `
+                <label style="display: flex; align-items: center; gap: 8px; padding: 8px; background: white; border-radius: 6px; cursor: pointer;">
+                    <input type="checkbox" 
+                           class="site-filter-checkbox" 
+                           data-domain="${site.domain}" 
+                           ${isExcluded ? '' : 'checked'}>
+                    <span style="font-size: 0.9em;">${site.domain}</span>
+                </label>
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('Error loading site filter checkboxes:', error);
+    }
+}
+
+function selectAllSites() {
+    document.querySelectorAll('.site-filter-checkbox').forEach(cb => cb.checked = true);
+}
+
+function deselectAllSites() {
+    document.querySelectorAll('.site-filter-checkbox').forEach(cb => cb.checked = false);
+}
+
+async function applySiteFilter() {
+    const checkboxes = document.querySelectorAll('.site-filter-checkbox');
+    excludedSites = [];
+    
+    checkboxes.forEach(cb => {
+        if (!cb.checked) {
+            excludedSites.push(cb.dataset.domain);
+        }
+    });
+    
+    // Hide the filter panel
+    document.getElementById('siteFilterPanel').style.display = 'none';
+    
+    // Reload slowest endpoints and site performance with the filter
+    await loadSlowestEndpoints();
+    await loadSitePerformance();
+    
+    toast.success(`Filter applied! ${excludedSites.length} site(s) excluded`);
+}
+
+// Recent requests inspector
+async function loadRecentRequestsSiteList() {
+    try {
+        const response = await apiRequest('/sites');
+        const sites = response?.sites || [];
+        const select = document.getElementById('recentRequestsSiteSelect');
+        
+        if (!sites || sites.length === 0) {
+            select.innerHTML = '<option value="">No sites available</option>';
+            return;
+        }
+        
+        select.innerHTML = '<option value="">Select a site...</option>' + 
+            sites.map(site => `<option value="${site.domain}">${site.domain}</option>`).join('');
+    } catch (error) {
+        console.error('Error loading site list for recent requests:', error);
+    }
+}
+
+async function loadRecentRequests() {
+    try {
+        const domain = document.getElementById('recentRequestsSiteSelect')?.value;
+        const limit = document.getElementById('recentRequestsLimit')?.value || 10;
+        const tbody = document.getElementById('recentRequestsBody');
+        
+        if (!domain) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #9ca3af;">Select a site to view recent requests</td></tr>';
+            return;
+        }
+        
+        const response = await apiRequest(`/telemetry/recent-requests?domain=${encodeURIComponent(domain)}&limit=${limit}`);
+        
+        if (!response || response.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No recent requests found</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = response.map(req => {
+            // Format timestamp
+            const timestamp = new Date(req.timestamp);
+            const timeStr = timestamp.toLocaleTimeString();
+            
+            // Status code badge
+            let statusClass = 'badge-success';
+            if (req.status_code >= 500) statusClass = 'badge-danger';
+            else if (req.status_code >= 400) statusClass = 'badge-warning';
+            else if (req.status_code >= 300) statusClass = 'badge-info';
+            
+            // Response time color
+            let responseTimeColor = '#10b981'; // green
+            if (req.response_time > 1000) responseTimeColor = '#ef4444'; // red
+            else if (req.response_time > 500) responseTimeColor = '#f59e0b'; // orange
+            else if (req.response_time > 200) responseTimeColor = '#3b82f6'; // blue
+            
+            // Truncate URI if too long
+            let displayUri = req.uri;
+            if (displayUri.length > 80) {
+                displayUri = displayUri.substring(0, 80) + '...';
+            }
+            
+            return `
+            <tr>
+                <td style="font-size: 0.85em; color: #6b7280; white-space: nowrap;">${timeStr}</td>
+                <td><span class="badge badge-info">${req.method}</span></td>
+                <td><code title="${req.uri}" style="font-size: 0.85em;">${displayUri}</code></td>
+                <td><span class="badge ${statusClass}">${req.status_code}</span></td>
+                <td style="color: ${responseTimeColor}; font-weight: 600;">${req.response_time}ms</td>
+                <td style="font-size: 0.85em; color: #6b7280;">${req.backend_server || 'N/A'}</td>
+            </tr>
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('Error loading recent requests:', error);
+        document.getElementById('recentRequestsBody').innerHTML = 
+            '<tr><td colspan="6" style="text-align: center; color: #ef4444;">Error loading requests</td></tr>';
     }
 }
 

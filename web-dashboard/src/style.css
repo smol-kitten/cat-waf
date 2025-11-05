@@ -1090,6 +1090,11 @@ tbody tr:hover {
     font-weight: 700;
 }
 
+.badge-info {
+    background: rgba(59, 130, 246, 0.1);
+    color: #2563eb;
+}
+
 .badge-critical {
     background: rgba(220, 38, 38, 0.3);
     color: #7f1d1d;

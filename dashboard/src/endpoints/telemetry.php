@@ -62,26 +62,38 @@ function handleTelemetry($method, $params, $db) {
             
         case 'slowest-endpoints':
             $limit = min((int)($_GET['limit'] ?? 10), 100);
+            $excludeDomains = isset($_GET['exclude']) ? explode(',', $_GET['exclude']) : [];
             
             try {
-                    // Normalize URI by stripping volatile query parameters (t, ts, nonce, _)
-                    $stmt = $db->prepare("
-                        SELECT 
-                            domain,
-                            SUBSTRING_INDEX(uri, '?', 1) AS path,
-                            AVG(response_time) as avg_response,
-                            COUNT(*) as request_count,
-                            MAX(response_time) as p95,
-                            MAX(response_time) as p99
-                        FROM request_telemetry 
-                        WHERE timestamp > DATE_SUB(NOW(), INTERVAL 24 HOUR)
-                        AND response_time IS NOT NULL
-                        AND response_time > 0
-                        GROUP BY domain, path
-                        ORDER BY avg_response DESC
-                        LIMIT ?
-                    ");
-                $stmt->execute([$limit]);
+                $excludePlaceholders = '';
+                $params = [];
+                
+                if (!empty($excludeDomains)) {
+                    $excludePlaceholders = ' AND domain NOT IN (' . implode(',', array_fill(0, count($excludeDomains), '?')) . ')';
+                    $params = $excludeDomains;
+                }
+                
+                $params[] = $limit;
+                
+                // Normalize URI by stripping volatile query parameters (t, ts, nonce, _)
+                $stmt = $db->prepare("
+                    SELECT 
+                        domain,
+                        SUBSTRING_INDEX(uri, '?', 1) AS path,
+                        AVG(response_time) as avg_response,
+                        COUNT(*) as request_count,
+                        MAX(response_time) as p95,
+                        MAX(response_time) as p99
+                    FROM request_telemetry 
+                    WHERE timestamp > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                    AND response_time IS NOT NULL
+                    AND response_time > 0
+                    $excludePlaceholders
+                    GROUP BY domain, path
+                    ORDER BY avg_response DESC
+                    LIMIT ?
+                ");
+                $stmt->execute($params);
                 
                 $results = $stmt->fetchAll();
                 
@@ -342,6 +354,112 @@ function handleTelemetry($method, $params, $db) {
                 
                 sendResponse($formatted);
             }
+            break;
+        
+        case 'site-performance':
+            // Get performance metrics grouped by site/domain
+            $range = $_GET['range'] ?? '24h';
+            $excludeDomains = isset($_GET['exclude']) ? explode(',', $_GET['exclude']) : [];
+            
+            // Convert range to hours
+            $hours = 24;
+            if ($range === '1h') $hours = 1;
+            elseif ($range === '7d') $hours = 168;
+            
+            $excludePlaceholders = '';
+            $params = [$hours];
+            
+            if (!empty($excludeDomains)) {
+                $excludePlaceholders = ' AND domain NOT IN (' . implode(',', array_fill(0, count($excludeDomains), '?')) . ')';
+                $params = array_merge($params, $excludeDomains);
+            }
+            
+            $stmt = $db->prepare("
+                SELECT 
+                    domain,
+                    COUNT(*) as hits,
+                    AVG(response_time) as avg_response,
+                    MIN(response_time) as min_response,
+                    MAX(response_time) as max_response,
+                    SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as errors,
+                    SUM(CASE WHEN status_code >= 500 THEN 1 ELSE 0 END) as server_errors,
+                    SUM(CASE WHEN status_code >= 400 AND status_code < 500 THEN 1 ELSE 0 END) as client_errors
+                FROM request_telemetry 
+                WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
+                    AND response_time IS NOT NULL
+                    AND status_code IS NOT NULL
+                    $excludePlaceholders
+                GROUP BY domain
+                ORDER BY hits DESC
+            ");
+            $stmt->execute($params);
+            
+            $results = $stmt->fetchAll();
+            
+            // Format the results
+            $formatted = array_map(function($row) {
+                $hits = (int)$row['hits'];
+                $errors = (int)$row['errors'];
+                $errorRate = $hits > 0 ? round(($errors / $hits) * 100, 2) : 0;
+                
+                return [
+                    'domain' => $row['domain'] ?? 'unknown',
+                    'hits' => $hits,
+                    'avg_response' => round(($row['avg_response'] ?? 0) * 1000, 1),
+                    'min_response' => round(($row['min_response'] ?? 0) * 1000, 1),
+                    'max_response' => round(($row['max_response'] ?? 0) * 1000, 1),
+                    'errors' => $errors,
+                    'server_errors' => (int)$row['server_errors'],
+                    'client_errors' => (int)$row['client_errors'],
+                    'error_rate' => $errorRate
+                ];
+            }, $results);
+            
+            sendResponse($formatted);
+            break;
+        
+        case 'recent-requests':
+            // Get recent requests for a specific site
+            $domain = $_GET['domain'] ?? null;
+            $limit = min((int)($_GET['limit'] ?? 10), 100);
+            
+            if (!$domain) {
+                sendResponse(['error' => 'Domain parameter required'], 400);
+                return;
+            }
+            
+            $stmt = $db->prepare("
+                SELECT 
+                    timestamp,
+                    method,
+                    uri,
+                    status_code,
+                    response_time,
+                    backend_server,
+                    user_agent
+                FROM request_telemetry 
+                WHERE domain = ?
+                ORDER BY timestamp DESC
+                LIMIT ?
+            ");
+            $stmt->execute([$domain, $limit]);
+            
+            $results = $stmt->fetchAll();
+            
+            // Format the results
+            $formatted = array_map(function($row) {
+                return [
+                    'timestamp' => $row['timestamp'],
+                    'method' => $row['method'] ?? 'GET',
+                    'uri' => $row['uri'] ?? '/',
+                    'status_code' => (int)($row['status_code'] ?? 0),
+                    'response_time' => round(($row['response_time'] ?? 0) * 1000, 1),
+                    'backend_server' => $row['backend_server'] ?? 'unknown',
+                    'user_agent' => $row['user_agent'] ?? ''
+                ];
+            }, $results);
+            
+            sendResponse($formatted);
             break;
             
         default:
