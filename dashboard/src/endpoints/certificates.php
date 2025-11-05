@@ -9,6 +9,35 @@ require_once __DIR__ . '/../config.php';
 
 header('Content-Type: application/json');
 
+/**
+ * Extract base domain from subdomain or domain
+ * Examples: subdomain.example.com -> example.com, example.co.uk -> example.co.uk
+ */
+function extractRootDomain($domain) {
+    // Remove wildcard prefix
+    $domain = preg_replace('/^\*\./', '', $domain);
+    
+    // Split by dots
+    $parts = explode('.', $domain);
+    $count = count($parts);
+    
+    // Handle special TLDs (co.uk, com.au, etc.)
+    if ($count >= 3 && in_array($parts[$count - 2] . '.' . $parts[$count - 1], [
+        'co.uk', 'com.au', 'co.nz', 'co.za', 'com.br', 'com.mx',
+        'co.jp', 'co.in', 'co.kr', 'ac.uk', 'gov.uk', 'org.uk'
+    ])) {
+        return $parts[$count - 3] . '.' . $parts[$count - 2] . '.' . $parts[$count - 1];
+    }
+    
+    // Return last two parts (domain.tld)
+    if ($count >= 2) {
+        return $parts[$count - 2] . '.' . $parts[$count - 1];
+    }
+    
+    return $domain;
+}
+
+
 $method = $_SERVER['REQUEST_METHOD'];
 $requestUri = $_SERVER['REQUEST_URI'];
 
@@ -169,18 +198,24 @@ function issueCertificate($domain) {
         return;
     }
     
-    $challengeType = $site['ssl_challenge_type'] ?? 'http-01';
+    $challengeType = $site['ssl_challenge_type'] ?? 'dns-01';  // Default to DNS-01 for wildcard support
     $email = getenv('ACME_EMAIL') ?: 'admin@localhost';
+    
+    // Extract base domain from subdomain (subdomain.example.com -> example.com)
+    $baseDomain = extractRootDomain($domain);
+    
+    // ALWAYS issue certificate for base domain + wildcard to prevent certificate proliferation
+    // This prevents dozens of individual subdomain certificates and rate limit issues
     
     // Build acme.sh command based on challenge type
     if ($challengeType === 'dns-01') {
-        // DNS Challenge with Cloudflare
+        // DNS Challenge with Cloudflare (REQUIRED for wildcard certificates)
         $cfApiKey = $site['cf_api_token'] ?: getenv('CLOUDFLARE_API_TOKEN') ?: getenv('CLOUDFLARE_API_KEY');
         $cfZoneId = $site['cf_zone_id'];
         
         if (empty($cfApiKey)) {
             http_response_code(400);
-            echo json_encode(['error' => 'Cloudflare API token not configured']);
+            echo json_encode(['error' => 'Cloudflare API token not configured. DNS-01 challenge required for wildcard certificates.']);
             return;
         }
         
@@ -193,20 +228,17 @@ function issueCertificate($domain) {
             $envVars .= sprintf('export CF_Zone_ID=%s; ', escapeshellarg($cfZoneId));
         }
         
-        // Add wildcard subdomain support if enabled
-        $domains = escapeshellarg($domain);
-        if (!empty($site['wildcard_subdomains']) && $site['wildcard_subdomains'] == 1) {
-            $domains = sprintf("%s -d %s", escapeshellarg($domain), escapeshellarg("*.{$domain}"));
-        }
+        // ALWAYS issue with base domain + wildcard to consolidate certificates
+        $domains = sprintf("%s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
         
         $command = sprintf(
             "docker exec waf-acme sh -c '%s/root/.acme.sh/acme.sh --issue --dns dns_cf -d %s --server letsencrypt --cert-home /acme.sh/%s' 2>&1",
             $envVars,
             $domains,
-            escapeshellarg($domain)
+            escapeshellarg($baseDomain)  // Store cert with base domain name
         );
     } elseif ($challengeType === 'snakeoil') {
-        // Generate self-signed certificate
+        // Generate self-signed certificate (no wildcard needed for testing)
         $certDir = "/etc/nginx/certs/{$domain}";
         $command = sprintf(
             "docker exec waf-nginx sh -c 'mkdir -p %s && openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout %s/key.pem -out %s/fullchain.pem -subj \"/CN=%s\"' 2>&1",
@@ -216,24 +248,15 @@ function issueCertificate($domain) {
             escapeshellarg($domain)
         );
     } else {
-        // HTTP-01 Challenge (default)
-        // Add wildcard subdomain support if enabled (requires DNS-01)
-        $domains = escapeshellarg($domain);
-        if (!empty($site['wildcard_subdomains']) && $site['wildcard_subdomains'] == 1) {
-            // Wildcard requires DNS-01, fall back to DNS if wildcard is enabled
-            http_response_code(400);
-            echo json_encode([
-                'error' => 'Wildcard subdomains require DNS-01 challenge (Cloudflare)',
-                'hint' => 'Please set SSL Challenge Type to "dns-01" in site settings'
-            ]);
-            return;
-        }
-        
-        $command = sprintf(
-            "docker exec waf-acme sh -c '/root/.acme.sh/acme.sh --issue -d %s --webroot /var/www/certbot --server letsencrypt --cert-home /acme.sh/%s --force' 2>&1",
-            escapeshellarg($domain),
-            escapeshellarg($domain)
-        );
+        // HTTP-01 Challenge NOT RECOMMENDED - forces DNS-01 for wildcard support
+        http_response_code(400);
+        echo json_encode([
+            'error' => 'HTTP-01 challenge not supported for wildcard certificates',
+            'hint' => 'All certificates now use base domain + wildcard to prevent certificate proliferation. Please set SSL Challenge Type to "dns-01" (Cloudflare) in site settings.',
+            'base_domain' => $baseDomain,
+            'certificate_will_cover' => [$baseDomain, "*.{$baseDomain}"]
+        ]);
+        return;
     }
     
     exec($command, $output, $returnCode);
@@ -251,25 +274,46 @@ function issueCertificate($domain) {
     
     // Install certificate to target location
     if ($challengeType !== 'snakeoil') {
+        // Certificate is stored at base domain path (e.g., /acme.sh/example.com/)
+        // This covers both example.com and *.example.com
+        
         // Use acme.sh --install-cert to properly copy files without creating loops
         $installCommand = sprintf(
             "docker exec waf-acme sh -c '/root/.acme.sh/acme.sh --install-cert -d %s --key-file /acme.sh/%s/key.pem --fullchain-file /acme.sh/%s/fullchain.pem' 2>&1",
-            escapeshellarg($domain),
-            escapeshellarg($domain),
-            escapeshellarg($domain)
+            escapeshellarg($baseDomain),
+            escapeshellarg($baseDomain),
+            escapeshellarg($baseDomain)
         );
         exec($installCommand, $installOutput);
         
         // Create symlinks in nginx expected location
-        $linkCommand = sprintf(
-            "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/certs/%s && ln -sf /acme.sh/%s/fullchain.pem /etc/nginx/certs/%s/fullchain.pem && ln -sf /acme.sh/%s/key.pem /etc/nginx/certs/%s/key.pem' 2>&1",
-            escapeshellarg($domain),
-            escapeshellarg($domain),
-            escapeshellarg($domain),
-            escapeshellarg($domain),
-            escapeshellarg($domain)
-        );
-        exec($linkCommand);
+        // For subdomains: link subdomain.example.com -> example.com certificate
+        // For base domain: link example.com -> example.com certificate
+        if ($domain !== $baseDomain) {
+            // This is a subdomain, create symlink to base domain certificate
+            $linkCommand = sprintf(
+                "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/certs/%s && ln -sf /acme.sh/%s/fullchain.pem /etc/nginx/certs/%s/fullchain.pem && ln -sf /acme.sh/%s/key.pem /etc/nginx/certs/%s/key.pem' 2>&1",
+                escapeshellarg($domain),
+                escapeshellarg($baseDomain),  // Point to base domain cert
+                escapeshellarg($domain),
+                escapeshellarg($baseDomain),  // Point to base domain cert
+                escapeshellarg($domain)
+            );
+            exec($linkCommand);
+            error_log("Created symlink for subdomain {$domain} -> {$baseDomain} certificate");
+        } else {
+            // This is the base domain, create normal symlink
+            $linkCommand = sprintf(
+                "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/certs/%s && ln -sf /acme.sh/%s/fullchain.pem /etc/nginx/certs/%s/fullchain.pem && ln -sf /acme.sh/%s/key.pem /etc/nginx/certs/%s/key.pem' 2>&1",
+                escapeshellarg($domain),
+                escapeshellarg($baseDomain),
+                escapeshellarg($domain),
+                escapeshellarg($baseDomain),
+                escapeshellarg($domain)
+            );
+            exec($linkCommand);
+            error_log("Created certificate symlink for base domain {$baseDomain}");
+        }
     }
     
     // Update site to enable SSL
@@ -295,6 +339,8 @@ function issueCertificate($domain) {
     echo json_encode([
         'success' => true,
         'message' => "Certificate issued successfully for {$domain}",
+        'base_domain' => $baseDomain,
+        'certificate_covers' => [$baseDomain, "*.{$baseDomain}"],
         'output' => implode("\n", $output),
         'challenge_method' => $challengeType
     ]);
@@ -314,7 +360,10 @@ function renewCertificate($domain) {
         return;
     }
     
-    $challengeType = $site['ssl_challenge_type'] ?? 'http-01';
+    $challengeType = $site['ssl_challenge_type'] ?? 'dns-01';  // Default to DNS-01 for wildcard support
+    
+    // Extract base domain - all certificates are issued for base + wildcard
+    $baseDomain = extractRootDomain($domain);
     
     // Build acme.sh command based on challenge type
     if ($challengeType === 'dns-01') {
@@ -337,14 +386,8 @@ function renewCertificate($domain) {
             $envVars .= sprintf('export CF_Zone_ID=%s; ', escapeshellarg($cfZoneId));
         }
         
-        // Add wildcard subdomain support if enabled
-        $domains = escapeshellarg($domain);
-        $stmt = $db->prepare("SELECT wildcard_subdomains FROM sites WHERE domain = ?");
-        $stmt->execute([$domain]);
-        $wildcardEnabled = $stmt->fetchColumn();
-        if (!empty($wildcardEnabled) && $wildcardEnabled == 1) {
-            $domains = sprintf("%s -d %s", escapeshellarg($domain), escapeshellarg("*.{$domain}"));
-        }
+        // ALWAYS renew with base domain + wildcard (same as issuance)
+        $domains = sprintf("%s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
         
         $command = sprintf(
             "docker exec waf-acme sh -c '%s/root/.acme.sh/acme.sh --renew --dns dns_cf -d %s --force' 2>&1",
@@ -352,11 +395,14 @@ function renewCertificate($domain) {
             $domains
         );
     } else {
-        // HTTP-01 Challenge (default)
-        $command = sprintf(
-            "docker exec waf-acme sh -c '/root/.acme.sh/acme.sh --renew -d %s --webroot /var/www/certbot --force' 2>&1",
-            escapeshellarg($domain)
-        );
+        // HTTP-01 not supported for wildcard certificates
+        http_response_code(400);
+        echo json_encode([
+            'error' => 'HTTP-01 challenge not supported for wildcard certificates',
+            'hint' => 'All certificates now use base domain + wildcard. Please set SSL Challenge Type to "dns-01" (Cloudflare) in site settings.',
+            'base_domain' => $baseDomain
+        ]);
+        return;
     }
     
     exec($command, $output, $returnCode);
@@ -370,7 +416,7 @@ function renewCertificate($domain) {
         error_log("Output: " . $outputText);
         
         if (strpos($outputText, 'is not an issued domain') !== false || strpos($outputText, 'No certificate found for') !== false) {
-            // Attempt to issue a new certificate (build issue command similar to renewAllCertificates)
+            // Attempt to issue a new certificate with base domain + wildcard
             if ($challengeType === 'dns-01') {
                 $cfApiKey = $site['cf_api_token'] ?: getenv('CLOUDFLARE_API_TOKEN') ?: getenv('CLOUDFLARE_API_KEY');
                 $cfZoneId = $site['cf_zone_id'];
@@ -386,17 +432,23 @@ function renewCertificate($domain) {
                     $envVars .= sprintf('export CF_Zone_ID=%s; ', escapeshellarg($cfZoneId));
                 }
 
+                // Issue with base domain + wildcard
+                $domains = sprintf("%s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
                 $issueCommand = sprintf(
-                    "docker exec waf-acme sh -c '%s/root/.acme.sh/acme.sh --issue --dns dns_cf -d %s --server letsencrypt --force' 2>&1",
+                    "docker exec waf-acme sh -c '%s/root/.acme.sh/acme.sh --issue --dns dns_cf -d %s --server letsencrypt --cert-home /acme.sh/%s --force' 2>&1",
                     $envVars,
-                    escapeshellarg($domain)
+                    $domains,
+                    escapeshellarg($baseDomain)
                 );
             } else {
-                // For snakeoil sites or http-01 fallback, try HTTP-01 issuance
-                $issueCommand = sprintf(
-                    "docker exec waf-acme sh -c '/root/.acme.sh/acme.sh --issue -d %s --webroot /var/www/certbot --server letsencrypt --force' 2>&1",
-                    escapeshellarg($domain)
-                );
+                // HTTP-01 not supported for wildcard certificates
+                http_response_code(400);
+                echo json_encode([
+                    'error' => 'Cannot issue certificate: HTTP-01 challenge not supported for wildcard certificates',
+                    'hint' => 'Please set SSL Challenge Type to "dns-01" (Cloudflare) in site settings.',
+                    'base_domain' => $baseDomain
+                ]);
+                return;
             }
 
             unset($output);
@@ -409,36 +461,44 @@ function renewCertificate($domain) {
                     'error' => 'Failed to issue certificate after renew reported missing',
                     'renew_output' => $outputText,
                     'issue_output' => $issueOutput,
-                    'challenge_method' => $challengeType
+                    'challenge_method' => $challengeType,
+                    'base_domain' => $baseDomain
                 ]);
                 return;
             }
 
-            // Link and reload
-            // First, create the intermediate symlinks in the acme.sh directory (to actual _ecc files)
-            $createAcmeSymlinks = sprintf(
-                "docker exec waf-nginx sh -c 'cd /acme.sh/%s && rm -f fullchain.pem key.pem && ln -s %s_ecc/fullchain.cer fullchain.pem && ln -s %s_ecc/%s.key key.pem' 2>&1",
-                escapeshellarg($domain),
-                escapeshellarg($domain),
-                escapeshellarg($domain),
-                escapeshellarg($domain)
-            );
-            exec($createAcmeSymlinks);
+            // Link certificate from base domain to actual domain (if subdomain)
+            if ($domain !== $baseDomain) {
+                // This is a subdomain, create symlink to base domain certificate
+                $linkCommand = sprintf(
+                    "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/certs/%s && ln -sf /acme.sh/%s/fullchain.pem /etc/nginx/certs/%s/fullchain.pem && ln -sf /acme.sh/%s/key.pem /etc/nginx/certs/%s/key.pem' 2>&1",
+                    escapeshellarg($domain),
+                    escapeshellarg($baseDomain),
+                    escapeshellarg($domain),
+                    escapeshellarg($baseDomain),
+                    escapeshellarg($domain)
+                );
+                exec($linkCommand);
+            } else {
+                // This is the base domain, create normal symlink
+                $linkCommand = sprintf(
+                    "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/certs/%s && ln -sf /acme.sh/%s/fullchain.pem /etc/nginx/certs/%s/fullchain.pem && ln -sf /acme.sh/%s/key.pem /etc/nginx/certs/%s/key.pem' 2>&1",
+                    escapeshellarg($domain),
+                    escapeshellarg($baseDomain),
+                    escapeshellarg($domain),
+                    escapeshellarg($baseDomain),
+                    escapeshellarg($domain)
+                );
+                exec($linkCommand);
+            }
             
-            // Then link from nginx certs to acme.sh
-            $linkCommand = sprintf(
-                "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/certs/%s && cd /etc/nginx/certs/%s && rm -f fullchain.pem key.pem && ln -sf /acme.sh/%s/fullchain.pem fullchain.pem && ln -sf /acme.sh/%s/key.pem key.pem' 2>&1",
-                escapeshellarg($domain),
-                escapeshellarg($domain),
-                escapeshellarg($domain),
-                escapeshellarg($domain)
-            );
-            exec($linkCommand);
             exec("docker exec waf-nginx nginx -s reload 2>&1");
 
             echo json_encode([
                 'success' => true,
                 'message' => "Certificate issued (after missing renew) for {$domain}",
+                'base_domain' => $baseDomain,
+                'certificate_covers' => [$baseDomain, "*.{$baseDomain}"],
                 'output' => $issueOutput,
                 'challenge_method' => $challengeType
             ]);
@@ -461,6 +521,8 @@ function renewCertificate($domain) {
     echo json_encode([
         'success' => true,
         'message' => "Certificate renewed successfully for {$domain}",
+        'base_domain' => $baseDomain,
+        'certificate_covers' => [$baseDomain, "*.{$baseDomain}"],
         'output' => implode("\n", $output),
         'challenge_method' => $challengeType
     ]);
@@ -525,10 +587,11 @@ function renewAllCertificates() {
     $results = [];
     $successCount = 0;
     $failCount = 0;
+    $processedBaseDomains = [];  // Track which base domains we've already processed
     
     foreach ($sites as $site) {
         $domain = $site['domain'];
-        $challengeType = $site['ssl_challenge_type'] ?? 'http-01';
+        $challengeType = $site['ssl_challenge_type'] ?? 'dns-01';
         
         // Skip wildcard domains and internal domains
         if (strpos($domain, '*') !== false || strpos($domain, '.local') !== false || $domain === '_') {
@@ -540,7 +603,22 @@ function renewAllCertificates() {
             continue;
         }
         
-        error_log("Processing certificate for {$domain} using {$challengeType}");
+        // Extract base domain - only process each base domain once
+        $baseDomain = extractRootDomain($domain);
+        
+        if (isset($processedBaseDomains[$baseDomain])) {
+            $results[] = [
+                'domain' => $domain,
+                'status' => 'skipped',
+                'reason' => "Already processed as part of {$baseDomain} wildcard certificate"
+            ];
+            continue;
+        }
+        
+        // Mark this base domain as processed
+        $processedBaseDomains[$baseDomain] = true;
+        
+        error_log("Processing certificate for {$domain} (base: {$baseDomain}) using {$challengeType}");
         
         // Build acme.sh command
         if ($challengeType === 'dns-01') {
@@ -551,6 +629,7 @@ function renewAllCertificates() {
             if (empty($cfApiKey)) {
                 $results[] = [
                     'domain' => $domain,
+                    'base_domain' => $baseDomain,
                     'status' => 'failed',
                     'error' => 'Missing Cloudflare API token'
                 ];
@@ -559,7 +638,6 @@ function renewAllCertificates() {
             }
             
             // Build environment variables for acme.sh
-            // If site has custom token, use it; otherwise acme container already has CF_Token from docker-compose
             $envVars = '';
             if (!empty($site['cf_api_token'])) {
                 $envVars = sprintf('export CF_Token=%s; ', escapeshellarg($site['cf_api_token']));
@@ -568,11 +646,8 @@ function renewAllCertificates() {
                 $envVars .= sprintf('export CF_Zone_ID=%s; ', escapeshellarg($cfZoneId));
             }
             
-            // Add wildcard subdomain support if enabled
-            $domains = escapeshellarg($domain);
-            if (!empty($site['wildcard_subdomains']) && $site['wildcard_subdomains'] == 1) {
-                $domains = sprintf("%s -d %s", escapeshellarg($domain), escapeshellarg("*.{$domain}"));
-            }
+            // ALWAYS use base domain + wildcard to consolidate certificates
+            $domains = sprintf("%s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
             
             // Try renew first, if fails try issue
             $renewCommand = sprintf(
@@ -585,20 +660,18 @@ function renewAllCertificates() {
                 "docker exec waf-acme sh -c '%s/root/.acme.sh/acme.sh --issue --dns dns_cf -d %s --server letsencrypt --cert-home /acme.sh/%s' 2>&1",
                 $envVars,
                 $domains,
-                escapeshellarg($domain)
+                escapeshellarg($baseDomain)
             );
         } else {
-            // HTTP-01 Challenge
-            $renewCommand = sprintf(
-                "docker exec waf-acme sh -c '/root/.acme.sh/acme.sh --renew -d %s --webroot /var/www/certbot --force' 2>&1",
-                escapeshellarg($domain)
-            );
-            
-            $issueCommand = sprintf(
-                "docker exec waf-acme sh -c '/root/.acme.sh/acme.sh --issue -d %s --webroot /var/www/certbot --server letsencrypt --cert-home /acme.sh/%s' 2>&1",
-                escapeshellarg($domain),
-                escapeshellarg($domain)
-            );
+            // HTTP-01 Challenge NOT SUPPORTED for wildcard certificates
+            $results[] = [
+                'domain' => $domain,
+                'base_domain' => $baseDomain,
+                'status' => 'failed',
+                'error' => 'HTTP-01 challenge not supported for wildcard certificates. Please use dns-01 (Cloudflare).'
+            ];
+            $failCount++;
+            continue;
         }
         
         // Try to renew first
@@ -607,7 +680,7 @@ function renewAllCertificates() {
         
         // Check if cert doesn't exist or if we need to issue
         if ($returnCode !== 0 && strpos($outputText, 'is not an issued domain') !== false) {
-            error_log("Certificate not found for {$domain}, issuing new certificate...");
+            error_log("Certificate not found for {$baseDomain}, issuing new certificate...");
             unset($output);
             exec($issueCommand, $output, $returnCode);
             $outputText = implode("\n", $output);
@@ -626,6 +699,8 @@ function renewAllCertificates() {
         if ($isSuccess) {
             $results[] = [
                 'domain' => $domain,
+                'base_domain' => $baseDomain,
+                'certificate_covers' => [$baseDomain, "*.{$baseDomain}"],
                 'status' => 'success',
                 'method' => $challengeType,
                 'action' => $action
@@ -634,6 +709,7 @@ function renewAllCertificates() {
         } else {
             $results[] = [
                 'domain' => $domain,
+                'base_domain' => $baseDomain,
                 'status' => 'failed',
                 'error' => implode("\n", array_slice($output, -3))
             ];
@@ -648,8 +724,9 @@ function renewAllCertificates() {
     
     echo json_encode([
         'success' => true,
-        'message' => "Processed {$successCount} certificates, {$failCount} failed",
+        'message' => "Processed {$successCount} base domain certificates (covering multiple subdomains), {$failCount} failed",
         'total' => count($sites),
+        'processed_base_domains' => count($processedBaseDomains),
         'succeeded' => $successCount,
         'failed' => $failCount,
         'results' => $results
