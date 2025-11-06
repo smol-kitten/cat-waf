@@ -3874,6 +3874,19 @@ function updateEditorBackend(id) {
     backend.websocket_port = parseInt(document.querySelector(`.backend-websocket-port[data-id="${id}"]`)?.value) || (backend.websocket_protocol === 'wss' ? 443 : 80);
     backend.websocket_path = document.querySelector(`.backend-websocket-path[data-id="${id}"]`)?.value || '/';
     
+    // Extract WebSocket settings from first enabled backend and set at site level
+    const wsBackend = editorBackends.find(b => b.websocket_enabled);
+    if (wsBackend) {
+        // Update site-level WebSocket fields
+        autoSaveField('websocket_enabled', 1);
+        autoSaveField('websocket_protocol', wsBackend.websocket_protocol);
+        autoSaveField('websocket_port', wsBackend.websocket_port);
+        autoSaveField('websocket_path', wsBackend.websocket_path);
+    } else {
+        // No WebSocket enabled backends
+        autoSaveField('websocket_enabled', 0);
+    }
+    
     // Auto-save backends when updated
     clearTimeout(autoSaveTimeout);
     autoSaveTimeout = setTimeout(() => {
