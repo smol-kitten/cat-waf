@@ -829,6 +829,12 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
             $config .= "    brotli_comp_level {$compression_level};\n";
             $config .= "    brotli_types text/plain text/css application/json application/javascript text/xml application/xml text/javascript image/svg+xml;\n\n";
         }
+
+        // Add WebSocket location block to HTTPS (for wss:// connections from browsers)
+        // WebSocket should be available on HTTPS when SSL is enabled, regardless of backend protocol
+        if ($websocket_enabled) {
+            $config .= generateWebSocketLocation($upstream_name, $websocket_path, $websocket_protocol, $websocket_port, $backend);
+        }
         
         $config .= generateLocationBlock($upstream_name, $domain, $modsec_enabled, $geoip_enabled,
                                            $blocked_countries, $rate_limit_zone, $custom_config,
@@ -838,13 +844,7 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
                                            $challenge_enabled, $challenge_difficulty, $challenge_duration, $challenge_bypass_cf,
                                            $cf_bypass_ratelimit, $cf_custom_rate_limit, $cf_rate_limit_burst,
                                            $enable_rate_limit, $rate_limit_burst, $custom_rate_limit);
-        
-        // Add WebSocket location block to HTTPS (for wss:// connections from browsers)
-        // WebSocket should be available on HTTPS when SSL is enabled, regardless of backend protocol
-        if ($websocket_enabled) {
-            $config .= generateWebSocketLocation($upstream_name, $websocket_path, $websocket_protocol, $websocket_port, $backend);
-        }
-        
+                
         $config .= "}\n";
     }
     
