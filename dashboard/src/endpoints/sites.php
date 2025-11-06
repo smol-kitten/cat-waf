@@ -666,6 +666,12 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
                                            $cf_bypass_ratelimit, $cf_custom_rate_limit, $cf_rate_limit_burst,
                                            $enable_rate_limit, $rate_limit_burst, $custom_rate_limit);
     }
+    
+    // Add WebSocket location to HTTP block if protocol is ws (not wss)
+    if ($websocket_enabled && strtolower($websocket_protocol) === 'ws') {
+        $config .= generateWebSocketLocation($upstream_name, $websocket_path, $websocket_protocol, $websocket_port, $backend);
+    }
+    
     $config .= "}\n\n";
     
     // HTTPS server (if SSL enabled)
@@ -829,8 +835,8 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
                                            $cf_bypass_ratelimit, $cf_custom_rate_limit, $cf_rate_limit_burst,
                                            $enable_rate_limit, $rate_limit_burst, $custom_rate_limit);
         
-        // Add WebSocket location block if enabled
-        if ($websocket_enabled) {
+        // Add WebSocket location block to HTTPS if protocol is wss (not ws)
+        if ($websocket_enabled && strtolower($websocket_protocol) === 'wss') {
             $config .= generateWebSocketLocation($upstream_name, $websocket_path, $websocket_protocol, $websocket_port, $backend);
         }
         
