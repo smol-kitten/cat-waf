@@ -636,9 +636,12 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
     $config .= "        default_type \"text/plain\";\n";
     $config .= "    }\n\n";
     
-    // Add WebSocket location to HTTP block BEFORE redirect (if protocol is ws, not wss)
+    // Add WebSocket location to HTTP block BEFORE redirect
     // This must come before the catch-all redirect so nginx evaluates it first
-    if ($websocket_enabled && strtolower($websocket_protocol) === 'ws') {
+    // Add WebSocket to HTTP block if:
+    // 1. WebSocket is enabled, AND
+    // 2. Either not using SSL, OR using SSL but also want HTTP WebSocket access
+    if ($websocket_enabled) {
         $config .= generateWebSocketLocation($upstream_name, $websocket_path, $websocket_protocol, $websocket_port, $backend);
     }
     
@@ -836,8 +839,9 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
                                            $cf_bypass_ratelimit, $cf_custom_rate_limit, $cf_rate_limit_burst,
                                            $enable_rate_limit, $rate_limit_burst, $custom_rate_limit);
         
-        // Add WebSocket location block to HTTPS if protocol is wss (not ws)
-        if ($websocket_enabled && strtolower($websocket_protocol) === 'wss') {
+        // Add WebSocket location block to HTTPS (for wss:// connections from browsers)
+        // WebSocket should be available on HTTPS when SSL is enabled, regardless of backend protocol
+        if ($websocket_enabled) {
             $config .= generateWebSocketLocation($upstream_name, $websocket_path, $websocket_protocol, $websocket_port, $backend);
         }
         
