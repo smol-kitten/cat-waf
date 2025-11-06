@@ -432,6 +432,7 @@ function renewCertificate($domain) {
                     } else {
                         $envOptions = '';
                     }
+                    
                     if (!empty($cfZoneId)) {
                         $envOptions .= ' -e CF_Zone_ID=' . escapeshellarg($cfZoneId);
                     }
@@ -444,6 +445,7 @@ function renewCertificate($domain) {
                         $envOptions,
                         escapeshellarg($innerIssue)
                     );
+                }
             } else {
                 // HTTP-01 not supported for wildcard certificates
                 http_response_code(400);
