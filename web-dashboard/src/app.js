@@ -408,14 +408,31 @@ function getStatusColor(statusCode) {
 }
 
 function updateCharts(data) {
-    // Transform requests_over_time to chart format
-    const trafficData = {
+    console.log('📊 updateCharts called with data:', data);
+    
+    // Check if we have the new format (labels, status_2xx, etc.) or old format (requests_over_time)
+    const hasNewFormat = data.labels && Array.isArray(data.labels);
+    
+    const trafficData = hasNewFormat ? {
+        labels: data.labels || [],
+        status_2xx: data.status_2xx || [],
+        status_3xx: data.status_3xx || [],
+        status_4xx: data.status_4xx || [],
+        status_5xx: data.status_5xx || []
+    } : {
+        // Fallback: transform old requests_over_time format
         labels: (data.requests_over_time || []).map(r => {
             const date = new Date(r.hour);
             return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         }),
-        requests: (data.requests_over_time || []).map(r => parseInt(r.count))
+        requests: (data.requests_over_time || []).map(r => parseInt(r.count)),
+        status_2xx: [],
+        status_3xx: [],
+        status_4xx: [],
+        status_5xx: []
     };
+    
+    console.log('📈 Traffic data prepared:', trafficData);
     
     // Transform status_codes to pie chart format with proper colors
     const statusCodes = data.status_codes || [];
@@ -440,15 +457,27 @@ function updateTrafficChart(data) {
         charts.traffic.destroy();
     }
     
+    console.log('🎨 updateTrafficChart with data:', data);
+    
     // Use actual data or show empty chart
     const hasData = data && data.labels && data.labels.length > 0;
-    const labels = hasData ? data.labels : ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00'];
+    const labels = hasData ? data.labels : ['No Data'];
     
     // Group requests by status code ranges for stacked chart
-    const status2xx = hasData ? (data.status_2xx || data.requests.map(() => 0)) : [0, 0, 0, 0, 0, 0];
-    const status3xx = hasData ? (data.status_3xx || data.requests.map(() => 0)) : [0, 0, 0, 0, 0, 0];
-    const status4xx = hasData ? (data.status_4xx || data.requests.map(() => 0)) : [0, 0, 0, 0, 0, 0];
-    const status5xx = hasData ? (data.status_5xx || data.requests.map(() => 0)) : [0, 0, 0, 0, 0, 0];
+    const status2xx = hasData && data.status_2xx && data.status_2xx.length > 0 
+        ? data.status_2xx 
+        : (hasData && data.requests ? data.requests : [0]);
+    const status3xx = hasData && data.status_3xx && data.status_3xx.length > 0 
+        ? data.status_3xx 
+        : [0];
+    const status4xx = hasData && data.status_4xx && data.status_4xx.length > 0 
+        ? data.status_4xx 
+        : [0];
+    const status5xx = hasData && data.status_5xx && data.status_5xx.length > 0 
+        ? data.status_5xx 
+        : [0];
+    
+    console.log('📊 Chart datasets:', { status2xx, status3xx, status4xx, status5xx });
     
     charts.traffic = new Chart(ctx.getContext('2d'), {
         type: 'bar',
@@ -2151,7 +2180,8 @@ async function loadBotProtectionData() {
 async function loadBotActivityChart() {
     try {
         const response = await apiRequest('/bots?limit=1000');
-        const bots = response?.bots || [];
+        // API returns array directly, not { bots: [...] }
+        const bots = Array.isArray(response) ? response : (response?.bots || []);
         
         console.log('🤖 Bot Activity Chart - Loading data:', bots.length, 'bots');
         
@@ -5314,7 +5344,7 @@ async function saveBackupSettings() {
 async function loadBackupSettings() {
     try {
         const response = await apiRequest('/settings');
-        if (response.settings) {
+        if (response.settings && Array.isArray(response.settings)) {
             const backupLocalOnly = response.settings.find(s => s.setting_key === 'backup_local_only');
             if (backupLocalOnly && document.getElementById('backupLocalOnly')) {
                 document.getElementById('backupLocalOnly').checked = backupLocalOnly.setting_value === '1';
