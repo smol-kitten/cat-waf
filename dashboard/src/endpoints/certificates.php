@@ -229,10 +229,10 @@ function issueCertificate($domain) {
         }
 
         // ALWAYS issue with base domain + wildcard to consolidate certificates
-        $domains = sprintf("%s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
+        $domains = sprintf("-d %s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
 
         // Build the inner acme.sh command and safely quote it for sh -c
-        $innerCmd = sprintf("/root/.acme.sh/acme.sh --issue --dns dns_cf -d %s --server letsencrypt --cert-home /acme.sh/%s", $domains, escapeshellarg($baseDomain));
+        $innerCmd = sprintf("/root/.acme.sh/acme.sh --issue --dns dns_cf %s --server letsencrypt --cert-home /acme.sh/%s", $domains, escapeshellarg($baseDomain));
         $command = sprintf(
             "docker exec %s waf-acme sh -c %s 2>&1",
             $envOptions,
@@ -437,8 +437,8 @@ function renewCertificate($domain) {
                     }
 
                     // Issue with base domain + wildcard
-                    $domains = sprintf("%s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
-                    $innerIssue = sprintf("/root/.acme.sh/acme.sh --issue --dns dns_cf -d %s --server letsencrypt --cert-home /acme.sh/%s --force", $domains, escapeshellarg($baseDomain));
+                    $domains = sprintf("-d %s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
+                    $innerIssue = sprintf("/root/.acme.sh/acme.sh --issue --dns dns_cf %s --server letsencrypt --cert-home /acme.sh/%s --force", $domains, escapeshellarg($baseDomain));
                     $issueCommand = sprintf(
                         "docker exec %s waf-acme sh -c %s 2>&1",
                         $envOptions,
