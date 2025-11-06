@@ -138,7 +138,9 @@ function getCertificateInfo($domain) {
     
     // Find which cert path exists
     foreach ($certPaths as $path) {
-        $checkCmd = sprintf("docker exec waf-nginx sh -c 'test -f %s && echo exists || echo not_found'", escapeshellarg($path));
+        // Use double quotes for sh -c and escape the path properly
+        $escapedPath = str_replace("'", "'\\''", $path);
+        $checkCmd = sprintf("docker exec waf-nginx sh -c 'test -f \"%s\" && echo exists || echo not_found'", $escapedPath);
         $result = trim(shell_exec($checkCmd));
         if ($result === 'exists') {
             $certPath = $path;
@@ -161,7 +163,8 @@ function getCertificateInfo($domain) {
         ];
         
         foreach ($acmeCheckPaths as $acmePath) {
-            $checkAcmeCmd = sprintf("docker exec waf-acme sh -c 'test -f %s && echo exists || echo missing' 2>&1", escapeshellarg($acmePath));
+            $escapedPath = str_replace("'", "'\\''", $acmePath);
+            $checkAcmeCmd = sprintf("docker exec waf-acme sh -c 'test -f \"%s\" && echo exists || echo missing' 2>&1", $escapedPath);
             $result = trim(shell_exec($checkAcmeCmd));
             if ($result === 'exists') {
                 http_response_code(200);
@@ -931,6 +934,9 @@ function rescanCertificate($domain) {
  * Rescan all sites and fix certificate issues
  */
 function rescanAllCertificates() {
+    // Increase execution time for bulk operations
+    set_time_limit(300); // 5 minutes
+    
     $db = getDB();
     
     $stmt = $db->query("SELECT id, domain, ssl_challenge_type, ssl_enabled FROM sites WHERE domain != '_'");
@@ -953,19 +959,59 @@ function rescanAllCertificates() {
         
         // If site should have a real cert but has snakeoil or missing
         if ($shouldHaveRealCert && ($certType === 'snakeoil' || $certType === 'missing')) {
-            // Check if cert exists in acme.sh container
-            $acmeCertPath = "/acme.sh/{$domain}/{$domain}_ecc/fullchain.cer";
-            $checkAcmeCmd = "docker exec waf-acme test -f {$acmeCertPath} && echo 'exists' || echo 'missing' 2>&1";
-            $acmeExists = trim(shell_exec($checkAcmeCmd));
+            // Extract base domain for wildcard cert lookup
+            $baseDomain = extractRootDomain($domain);
             
-            if ($acmeExists === 'exists') {
-                // Copy from acme.sh to nginx
-                copyCertFromAcme($domain);
-                $siteResult['action'] = 'copied_from_acme';
+            // Check if cert exists for base domain in acme.sh container
+            $checkPaths = [
+                "/acme.sh/{$baseDomain}/fullchain.pem",
+                "/acme.sh/{$baseDomain}/{$baseDomain}.cer",
+                "/acme.sh/{$baseDomain}/{$baseDomain}_ecc/fullchain.cer",
+                "/acme.sh/{$domain}/fullchain.pem",
+                "/acme.sh/{$domain}/{$domain}.cer",
+                "/acme.sh/{$domain}/{$domain}_ecc/fullchain.cer"
+            ];
+            
+            $acmeExists = false;
+            foreach ($checkPaths as $path) {
+                $escapedPath = str_replace("'", "'\\''", $path);
+                $checkCmd = sprintf("docker exec waf-acme sh -c 'test -f \"%s\" && echo exists || echo missing' 2>&1", $escapedPath);
+                if (trim(shell_exec($checkCmd)) === 'exists') {
+                    $acmeExists = true;
+                    $siteResult['found_cert_at'] = $path;
+                    break;
+                }
+            }
+            
+            if ($acmeExists) {
+                // Create symlink from domain to base domain certificate
+                if ($domain !== $baseDomain) {
+                    $linkCmd = sprintf(
+                        "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/certs/%s && ln -sf /acme.sh/%s/fullchain.pem /etc/nginx/certs/%s/fullchain.pem && ln -sf /acme.sh/%s/key.pem /etc/nginx/certs/%s/key.pem' 2>&1",
+                        escapeshellarg($domain),
+                        escapeshellarg($baseDomain),
+                        escapeshellarg($domain),
+                        escapeshellarg($baseDomain),
+                        escapeshellarg($domain)
+                    );
+                } else {
+                    $linkCmd = sprintf(
+                        "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/certs/%s && ln -sf /acme.sh/%s/fullchain.pem /etc/nginx/certs/%s/fullchain.pem && ln -sf /acme.sh/%s/key.pem /etc/nginx/certs/%s/key.pem' 2>&1",
+                        escapeshellarg($domain),
+                        escapeshellarg($baseDomain),
+                        escapeshellarg($domain),
+                        escapeshellarg($baseDomain),
+                        escapeshellarg($domain)
+                    );
+                }
+                exec($linkCmd);
+                $siteResult['action'] = 'linked_to_base_domain';
+                $siteResult['base_domain'] = $baseDomain;
                 $fixedCount++;
             } else {
                 $siteResult['action'] = 'needs_issuance';
                 $siteResult['note'] = 'Certificate needs to be issued manually';
+                $siteResult['base_domain'] = $baseDomain;
             }
         }
         
@@ -974,6 +1020,8 @@ function rescanAllCertificates() {
         generateSiteConfig($site['id'], $site);
         
         $results[] = $siteResult;
+        //add some time to execution time
+        set_time_limit(300);
     }
     
     // Reload nginx
