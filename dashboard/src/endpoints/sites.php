@@ -1,5 +1,33 @@
 <?php
 
+/**
+ * Extract root domain from a subdomain
+ * Examples: subdomain.example.com -> example.com, example.co.uk -> example.co.uk
+ */
+function extractRootDomain($domain) {
+    // Remove wildcard prefix
+    $domain = preg_replace('/^\*\./', '', $domain);
+    
+    // Split by dots
+    $parts = explode('.', $domain);
+    $count = count($parts);
+    
+    // Handle special TLDs (co.uk, com.au, etc.)
+    if ($count >= 3 && in_array($parts[$count - 2] . '.' . $parts[$count - 1], [
+        'co.uk', 'com.au', 'co.nz', 'co.za', 'com.br', 'com.mx',
+        'co.jp', 'co.in', 'co.kr', 'ac.uk', 'gov.uk', 'org.uk'
+    ])) {
+        return $parts[$count - 3] . '.' . $parts[$count - 2] . '.' . $parts[$count - 1];
+    }
+    
+    // Return last two parts (domain.tld)
+    if ($count >= 2) {
+        return $parts[$count - 2] . '.' . $parts[$count - 1];
+    }
+    
+    return $domain;
+}
+
 // Generate APR1-MD5 hash for htpasswd (Apache compatible)
 function generateApr1Hash($plainpasswd) {
     $salt = substr(str_shuffle("abcdefghijklmnopqrstuvwxyz0123456789"), 0, 8);
@@ -747,14 +775,18 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
             }
         }
         
+        // Determine certificate path - use base domain for wildcard coverage
+        $baseDomain = extractRootDomain($domain);
+        $certDomain = $baseDomain; // Always use base domain cert (covers wildcards)
+        
         if ($ssl_challenge_type === 'snakeoil') {
-            // Use self-signed snakeoil certificate
+            // Use self-signed snakeoil certificate (domain-specific)
             $config .= "    ssl_certificate /etc/nginx/certs/{$domain}/fullchain.pem;\n";
             $config .= "    ssl_certificate_key /etc/nginx/certs/{$domain}/key.pem;\n";
         } else {
-            // Use Let's Encrypt certificate (from acme.sh)
-            $config .= "    ssl_certificate /etc/nginx/certs/{$domain}/fullchain.pem;\n";
-            $config .= "    ssl_certificate_key /etc/nginx/certs/{$domain}/key.pem;\n";
+            // Use Let's Encrypt certificate from base domain (wildcard support)
+            $config .= "    ssl_certificate /etc/nginx/certs/{$certDomain}/fullchain.pem;\n";
+            $config .= "    ssl_certificate_key /etc/nginx/certs/{$certDomain}/key.pem;\n";
         }
         $config .= "    ssl_protocols TLSv1.2 TLSv1.3;\n";
         $config .= "    ssl_ciphers HIGH:!aNULL:!MD5;\n";

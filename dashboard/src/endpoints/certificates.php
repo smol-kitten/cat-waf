@@ -141,8 +141,8 @@ function getCertificateInfo($domain) {
         // Use double quotes for sh -c and escape the path properly
         $escapedPath = str_replace("'", "'\\''", $path);
         $checkCmd = sprintf("docker exec waf-nginx sh -c 'test -f \"%s\" && echo exists || echo not_found'", $escapedPath);
-        $result = trim(shell_exec($checkCmd));
-        if ($result === 'exists') {
+        $result = shell_exec($checkCmd);
+        if ($result !== null && trim($result) === 'exists') {
             $certPath = $path;
             $certType = ($path === "/etc/nginx/certs/{$baseDomain}/fullchain.pem" && $domain !== $baseDomain) 
                 ? 'wildcard' 
@@ -165,8 +165,8 @@ function getCertificateInfo($domain) {
         foreach ($acmeCheckPaths as $acmePath) {
             $escapedPath = str_replace("'", "'\\''", $acmePath);
             $checkAcmeCmd = sprintf("docker exec waf-acme sh -c 'test -f \"%s\" && echo exists || echo missing' 2>&1", $escapedPath);
-            $result = trim(shell_exec($checkAcmeCmd));
-            if ($result === 'exists') {
+            $result = shell_exec($checkAcmeCmd);
+            if ($result !== null && trim($result) === 'exists') {
                 http_response_code(200);
                 echo json_encode([
                     'exists' => false,
@@ -976,7 +976,8 @@ function rescanAllCertificates() {
             foreach ($checkPaths as $path) {
                 $escapedPath = str_replace("'", "'\\''", $path);
                 $checkCmd = sprintf("docker exec waf-acme sh -c 'test -f \"%s\" && echo exists || echo missing' 2>&1", $escapedPath);
-                if (trim(shell_exec($checkCmd)) === 'exists') {
+                $result = shell_exec($checkCmd);
+                if ($result !== null && trim($result) === 'exists') {
                     $acmeExists = true;
                     $siteResult['found_cert_at'] = $path;
                     break;
@@ -1015,17 +1016,16 @@ function rescanAllCertificates() {
             }
         }
         
-        // Regenerate nginx config
-        require_once __DIR__ . '/sites.php';
-        generateSiteConfig($site['id'], $site);
+        // Don't regenerate configs during rescan - they're already valid
+        // Just create symlinks and let existing configs use them
         
         $results[] = $siteResult;
         //add some time to execution time
         set_time_limit(300);
     }
     
-    // Reload nginx
-    exec("docker exec waf-nginx nginx -s reload 2>&1");
+    // Touch reload marker to trigger config watcher (safer than direct reload during bulk operations)
+    exec("docker exec waf-nginx touch /etc/nginx/sites-enabled/.reload_needed 2>&1");
     
     echo json_encode([
         'success' => true,
