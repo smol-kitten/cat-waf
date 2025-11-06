@@ -432,7 +432,7 @@ function renewCertificate($domain) {
                     } else {
                         $envOptions = '';
                     }
-                    
+
                     if (!empty($cfZoneId)) {
                         $envOptions .= ' -e CF_Zone_ID=' . escapeshellarg($cfZoneId);
                     }
@@ -811,18 +811,62 @@ function rescanCertificate($domain) {
     
     // If site should have a real cert but has snakeoil or missing
     if ($shouldHaveRealCert && ($certType === 'snakeoil' || $certType === 'missing')) {
-        // Check if cert exists in acme.sh container
-        $acmeCertPath = "/acme.sh/{$domain}/{$domain}_ecc/fullchain.cer";
-        $checkAcmeCmd = "docker exec waf-acme test -f {$acmeCertPath} && echo 'exists' || echo 'missing' 2>&1";
-        $acmeExists = trim(shell_exec($checkAcmeCmd));
+        // Extract base domain (for wildcard cert lookup)
+        $baseDomain = extractRootDomain($domain);
         
-        if ($acmeExists === 'exists') {
-            // Copy from acme.sh to nginx
-            $result['action'] = 'copied_from_acme';
-            copyCertFromAcme($domain);
+        // Check if cert exists for base domain in acme.sh container
+        // Try both RSA and ECC variants
+        $checkPaths = [
+            "/acme.sh/{$baseDomain}/fullchain.pem",          // Main cert location
+            "/acme.sh/{$baseDomain}/{$baseDomain}.cer",      // RSA variant
+            "/acme.sh/{$baseDomain}/{$baseDomain}_ecc/fullchain.cer",  // ECC variant
+            "/acme.sh/{$domain}/fullchain.pem",              // Subdomain-specific (legacy)
+            "/acme.sh/{$domain}/{$domain}.cer",
+            "/acme.sh/{$domain}/{$domain}_ecc/fullchain.cer"
+        ];
+        
+        $acmeExists = false;
+        foreach ($checkPaths as $path) {
+            $checkCmd = sprintf("docker exec waf-acme test -f %s && echo 'exists' || echo 'missing' 2>&1", escapeshellarg($path));
+            if (trim(shell_exec($checkCmd)) === 'exists') {
+                $acmeExists = true;
+                $result['found_cert_at'] = $path;
+                break;
+            }
+        }
+        
+        if ($acmeExists) {
+            // Certificate exists! Just create the symlink from domain to base domain cert
+            $result['action'] = 'linked_to_base_domain';
+            $result['base_domain'] = $baseDomain;
+            
+            if ($domain !== $baseDomain) {
+                // Create symlink from subdomain to base domain certificate
+                $linkCmd = sprintf(
+                    "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/certs/%s && ln -sf /acme.sh/%s/fullchain.pem /etc/nginx/certs/%s/fullchain.pem && ln -sf /acme.sh/%s/key.pem /etc/nginx/certs/%s/key.pem' 2>&1",
+                    escapeshellarg($domain),
+                    escapeshellarg($baseDomain),
+                    escapeshellarg($domain),
+                    escapeshellarg($baseDomain),
+                    escapeshellarg($domain)
+                );
+            } else {
+                // This IS the base domain, create normal symlink
+                $linkCmd = sprintf(
+                    "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/certs/%s && ln -sf /acme.sh/%s/fullchain.pem /etc/nginx/certs/%s/fullchain.pem && ln -sf /acme.sh/%s/key.pem /etc/nginx/certs/%s/key.pem' 2>&1",
+                    escapeshellarg($domain),
+                    escapeshellarg($baseDomain),
+                    escapeshellarg($domain),
+                    escapeshellarg($baseDomain),
+                    escapeshellarg($domain)
+                );
+            }
+            exec($linkCmd, $linkOutput);
+            $result['link_output'] = implode("\n", $linkOutput);
         } else {
-            // Issue new certificate
+            // No existing certificate found - issue new one
             $result['action'] = 'reissued';
+            $result['base_domain'] = $baseDomain;
             issueCertificate($domain);
             return; // issueCertificate handles the response
         }
