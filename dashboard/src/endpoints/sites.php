@@ -1232,14 +1232,21 @@ function generateWebSocketLocation($upstream_name, $ws_path, $ws_protocol, $ws_p
     $block .= "        proxy_http_version 1.1;\n";
     $block .= "        proxy_set_header Upgrade \$http_upgrade;\n";
     $block .= "        proxy_set_header Connection \"upgrade\";\n";
-    $block .= "        proxy_set_header Host \$host;\n";
+    $block .= "        proxy_set_header Host \$http_host;\n";
     $block .= "        proxy_set_header X-Real-IP \$remote_addr;\n";
     $block .= "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;\n";
     $block .= "        proxy_set_header X-Forwarded-Proto \$scheme;\n";
+    $block .= "        proxy_set_header X-Forwarded-Host \$host;\n";
+    $block .= "        proxy_set_header X-Forwarded-Port \$server_port;\n";
+    
+    // Proxy settings
+    $block .= "        proxy_redirect off;\n";
+    $block .= "        proxy_buffering off;\n";
     
     // WebSocket timeouts
-    $block .= "        proxy_read_timeout 3600s;\n";
+    $block .= "        proxy_connect_timeout 90s;\n";
     $block .= "        proxy_send_timeout 3600s;\n";
+    $block .= "        proxy_read_timeout 3600s;\n";
     
     $block .= "    }\n";
     
