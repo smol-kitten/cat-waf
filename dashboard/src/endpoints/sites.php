@@ -1265,7 +1265,8 @@ function generateWebSocketLocation($upstream_name, $ws_path, $ws_protocol, $ws_p
         // If specific WebSocket port is defined, create direct proxy target
         // Strip port from backend if present
         $backend_host = preg_replace('/:[0-9]+$/', '', $backend_address);
-        $ws_target_url = ($ws_protocol === 'wss' ? 'https' : 'http') . "://{$backend_host}:{$ws_port}";
+        $ws_target_url = ($ws_protocol === 'wss' ? 'https' : 'http') . "://{$backend_host}:{$ws_port}/";
+        // Trailing slash on proxy_pass strips the location path, forwarding to backend root
         $block .= "        proxy_pass {$ws_target_url};\n";
     } else {
         // Use same upstream with WebSocket protocol
