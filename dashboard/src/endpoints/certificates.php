@@ -124,34 +124,62 @@ switch ($method) {
 }
 
 function getCertificateInfo($domain) {
-    $certPath = "/etc/nginx/certs/{$domain}/fullchain.pem";
+    // Extract base domain for wildcard cert lookup
+    $baseDomain = extractRootDomain($domain);
     
-    // Check if certificate exists in nginx container
-    $checkCmd = "docker exec waf-nginx test -f {$certPath} && echo 'exists' || echo 'not_found'";
-    $exists = trim(shell_exec($checkCmd));
+    // Check multiple possible certificate paths
+    $certPaths = [
+        "/etc/nginx/certs/{$domain}/fullchain.pem",           // Domain-specific cert
+        "/etc/nginx/certs/{$baseDomain}/fullchain.pem"        // Base domain wildcard cert
+    ];
     
-    if ($exists !== 'exists') {
-        // Check if cert exists in acme.sh container before giving up
-        $acmeCertPath = "/acme.sh/{$domain}/{$domain}_ecc/fullchain.cer";
-        $checkAcmeCmd = "docker exec waf-acme test -f {$acmeCertPath} && echo 'exists' || echo 'missing' 2>&1";
-        $acmeExists = trim(shell_exec($checkAcmeCmd));
+    $certPath = null;
+    $certType = null;
+    
+    // Find which cert path exists
+    foreach ($certPaths as $path) {
+        $checkCmd = sprintf("docker exec waf-nginx test -f %s && echo 'exists' || echo 'not_found'", escapeshellarg($path));
+        if (trim(shell_exec($checkCmd)) === 'exists') {
+            $certPath = $path;
+            $certType = ($path === "/etc/nginx/certs/{$baseDomain}/fullchain.pem" && $domain !== $baseDomain) 
+                ? 'wildcard' 
+                : 'direct';
+            break;
+        }
+    }
+    
+    if (!$certPath) {
+        // No cert in nginx - check if one exists in acme.sh that needs syncing
+        $acmeCheckPaths = [
+            "/acme.sh/{$baseDomain}/fullchain.pem",
+            "/acme.sh/{$baseDomain}/{$baseDomain}.cer",
+            "/acme.sh/{$baseDomain}/{$baseDomain}_ecc/fullchain.cer",
+            "/acme.sh/{$domain}/fullchain.pem",
+            "/acme.sh/{$domain}/{$domain}.cer",
+            "/acme.sh/{$domain}/{$domain}_ecc/fullchain.cer"
+        ];
         
-        if ($acmeExists === 'exists') {
-            // Certificate exists in acme.sh but not in nginx - return that it needs syncing
-            http_response_code(200);
-            echo json_encode([
-                'exists' => false,
-                'domain' => $domain,
-                'in_acme' => true,
-                'message' => 'Certificate found in acme.sh but not in nginx - run rescan to sync'
-            ]);
-            return;
+        foreach ($acmeCheckPaths as $acmePath) {
+            $checkAcmeCmd = sprintf("docker exec waf-acme test -f %s && echo 'exists' || echo 'missing' 2>&1", escapeshellarg($acmePath));
+            if (trim(shell_exec($checkAcmeCmd)) === 'exists') {
+                http_response_code(200);
+                echo json_encode([
+                    'exists' => false,
+                    'domain' => $domain,
+                    'base_domain' => $baseDomain,
+                    'in_acme' => true,
+                    'acme_path' => $acmePath,
+                    'message' => 'Certificate found in acme.sh but not in nginx - run rescan to sync'
+                ]);
+                return;
+            }
         }
         
         http_response_code(404);
         echo json_encode([
             'exists' => false,
             'domain' => $domain,
+            'base_domain' => $baseDomain,
             'message' => 'Certificate not found'
         ]);
         return;
@@ -173,14 +201,26 @@ function getCertificateInfo($domain) {
     
     $issuer = $cert['issuer']['O'] ?? $cert['issuer']['CN'] ?? 'Unknown';
     
+    // Extract SANs (Subject Alternative Names) to show wildcard coverage
+    $sans = [];
+    if (isset($cert['extensions']['subjectAltName'])) {
+        $sanString = $cert['extensions']['subjectAltName'];
+        preg_match_all('/DNS:([^,]+)/', $sanString, $matches);
+        $sans = $matches[1] ?? [];
+    }
+    
     echo json_encode([
         'exists' => true,
         'domain' => $domain,
+        'base_domain' => $baseDomain,
+        'cert_type' => $certType,
+        'cert_path' => $certPath,
         'issuer' => $issuer,
         'expiryDate' => date('Y-m-d H:i:s', $validTo),
         'daysUntilExpiry' => $daysUntilExpiry,
         'validFrom' => date('Y-m-d H:i:s', $cert['validFrom_time_t']),
-        'subject' => $cert['subject']['CN'] ?? $domain
+        'subject' => $cert['subject']['CN'] ?? $domain,
+        'sans' => $sans
     ]);
 }
 
