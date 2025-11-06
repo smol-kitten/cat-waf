@@ -219,23 +219,24 @@ function issueCertificate($domain) {
             return;
         }
         
-        // Build environment variables (only if site has custom token)
-        $envVars = '';
+        // Build docker exec env options (avoid nested quoting by using -e)
+        $envOptions = '';
         if (!empty($site['cf_api_token'])) {
-            $envVars = sprintf('export CF_Token=%s; ', escapeshellarg($site['cf_api_token']));
+            $envOptions .= ' -e CF_Token=' . escapeshellarg($site['cf_api_token']);
         }
         if (!empty($cfZoneId)) {
-            $envVars .= sprintf('export CF_Zone_ID=%s; ', escapeshellarg($cfZoneId));
+            $envOptions .= ' -e CF_Zone_ID=' . escapeshellarg($cfZoneId);
         }
-        
+
         // ALWAYS issue with base domain + wildcard to consolidate certificates
         $domains = sprintf("%s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
-        
+
+        // Build the inner acme.sh command and safely quote it for sh -c
+        $innerCmd = sprintf("/root/.acme.sh/acme.sh --issue --dns dns_cf -d %s --server letsencrypt --cert-home /acme.sh/%s", $domains, escapeshellarg($baseDomain));
         $command = sprintf(
-            "docker exec waf-acme sh -c '%s/root/.acme.sh/acme.sh --issue --dns dns_cf -d %s --server letsencrypt --cert-home /acme.sh/%s' 2>&1",
-            $envVars,
-            $domains,
-            escapeshellarg($baseDomain)  // Store cert with base domain name
+            "docker exec %s waf-acme sh -c %s 2>&1",
+            $envOptions,
+            escapeshellarg($innerCmd)
         );
     } elseif ($challengeType === 'snakeoil') {
         // Generate self-signed certificate (no wildcard needed for testing)
@@ -426,20 +427,23 @@ function renewCertificate($domain) {
 
                 $envVars = '';
                 if (!empty($tokenToUse)) {
-                    $envVars = sprintf('export CF_Token=%s; ', escapeshellarg($tokenToUse));
-                }
-                if (!empty($cfZoneId)) {
-                    $envVars .= sprintf('export CF_Zone_ID=%s; ', escapeshellarg($cfZoneId));
-                }
+                    if (!empty($tokenToUse)) {
+                        $envOptions = ' -e CF_Token=' . escapeshellarg($tokenToUse);
+                    } else {
+                        $envOptions = '';
+                    }
+                    if (!empty($cfZoneId)) {
+                        $envOptions .= ' -e CF_Zone_ID=' . escapeshellarg($cfZoneId);
+                    }
 
-                // Issue with base domain + wildcard
-                $domains = sprintf("%s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
-                $issueCommand = sprintf(
-                    "docker exec waf-acme sh -c '%s/root/.acme.sh/acme.sh --issue --dns dns_cf -d %s --server letsencrypt --cert-home /acme.sh/%s --force' 2>&1",
-                    $envVars,
-                    $domains,
-                    escapeshellarg($baseDomain)
-                );
+                    // Issue with base domain + wildcard
+                    $domains = sprintf("%s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
+                    $innerIssue = sprintf("/root/.acme.sh/acme.sh --issue --dns dns_cf -d %s --server letsencrypt --cert-home /acme.sh/%s --force", $domains, escapeshellarg($baseDomain));
+                    $issueCommand = sprintf(
+                        "docker exec %s waf-acme sh -c %s 2>&1",
+                        $envOptions,
+                        escapeshellarg($innerIssue)
+                    );
             } else {
                 // HTTP-01 not supported for wildcard certificates
                 http_response_code(400);
