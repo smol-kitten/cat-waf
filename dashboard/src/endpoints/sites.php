@@ -4,28 +4,30 @@
  * Extract root domain from a subdomain
  * Examples: subdomain.example.com -> example.com, example.co.uk -> example.co.uk
  */
-function extractRootDomain($domain) {
-    // Remove wildcard prefix
-    $domain = preg_replace('/^\*\./', '', $domain);
-    
-    // Split by dots
-    $parts = explode('.', $domain);
-    $count = count($parts);
-    
-    // Handle special TLDs (co.uk, com.au, etc.)
-    if ($count >= 3 && in_array($parts[$count - 2] . '.' . $parts[$count - 1], [
-        'co.uk', 'com.au', 'co.nz', 'co.za', 'com.br', 'com.mx',
-        'co.jp', 'co.in', 'co.kr', 'ac.uk', 'gov.uk', 'org.uk'
-    ])) {
-        return $parts[$count - 3] . '.' . $parts[$count - 2] . '.' . $parts[$count - 1];
+if (!function_exists('extractRootDomain')) {
+    function extractRootDomain($domain) {
+        // Remove wildcard prefix
+        $domain = preg_replace('/^\*\./', '', $domain);
+        
+        // Split by dots
+        $parts = explode('.', $domain);
+        $count = count($parts);
+        
+        // Handle special TLDs (co.uk, com.au, etc.)
+        if ($count >= 3 && in_array($parts[$count - 2] . '.' . $parts[$count - 1], [
+            'co.uk', 'com.au', 'co.nz', 'co.za', 'com.br', 'com.mx',
+            'co.jp', 'co.in', 'co.kr', 'ac.uk', 'gov.uk', 'org.uk'
+        ])) {
+            return $parts[$count - 3] . '.' . $parts[$count - 2] . '.' . $parts[$count - 1];
+        }
+        
+        // Return last two parts (domain.tld)
+        if ($count >= 2) {
+            return $parts[$count - 2] . '.' . $parts[$count - 1];
+        }
+        
+        return $domain;
     }
-    
-    // Return last two parts (domain.tld)
-    if ($count >= 2) {
-        return $parts[$count - 2] . '.' . $parts[$count - 1];
-    }
-    
-    return $domain;
 }
 
 // Generate APR1-MD5 hash for htpasswd (Apache compatible)
