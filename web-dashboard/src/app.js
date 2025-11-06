@@ -1016,8 +1016,61 @@ async function loadSettings() {
         
         // Load cleanup stats
         loadCleanupStats();
+        
+        // Setup Settings tabs
+        setupSettingsTabs();
     } catch (error) {
         console.error('Error loading settings:', error);
+    }
+}
+
+// Setup Settings Page Tabs
+function setupSettingsTabs() {
+    const settingsPage = document.getElementById('settings-page');
+    if (!settingsPage) return;
+    
+    const tabButtons = settingsPage.querySelectorAll('.tabs .tab[data-tab]');
+    const tabContents = settingsPage.querySelectorAll('.tab-content[id]');
+    
+    if (tabButtons.length === 0) {
+        console.log('No settings tabs found');
+        return;
+    }
+    
+    // Remove any existing listeners (prevent duplicates)
+    tabButtons.forEach(btn => {
+        const newBtn = btn.cloneNode(true);
+        btn.parentNode.replaceChild(newBtn, btn);
+    });
+    
+    // Re-select after cloning
+    const freshTabButtons = settingsPage.querySelectorAll('.tabs .tab[data-tab]');
+    
+    freshTabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetTab = btn.getAttribute('data-tab');
+            
+            // Update active button
+            freshTabButtons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            
+            // Update active content
+            tabContents.forEach(content => {
+                if (content.id === targetTab) {
+                    content.classList.add('active');
+                } else {
+                    content.classList.remove('active');
+                }
+            });
+            
+            console.log('Switched to settings tab:', targetTab);
+        });
+    });
+    
+    // Activate first tab by default
+    if (freshTabButtons.length > 0 && tabContents.length > 0) {
+        freshTabButtons[0].classList.add('active');
+        tabContents[0].classList.add('active');
     }
 }
 
@@ -2890,6 +2943,12 @@ function loadEditorTab(tab) {
         case 'access':
             html = renderAccessTab();
             break;
+        case 'error-pages':
+            html = renderErrorPagesTab();
+            break;
+        case 'wellknown':
+            html = renderWellKnownTab();
+            break;
         case 'advanced':
             html = renderAdvancedTab();
             break;
@@ -2910,6 +2969,16 @@ function loadEditorTab(tab) {
     // Load certificate info for SSL tab
     if (tab === 'ssl') {
         loadCertificateInfo();
+    }
+    
+    // Load error pages for error-pages tab
+    if (tab === 'error-pages') {
+        loadErrorPages();
+    }
+    
+    // Load well-known files for wellknown tab
+    if (tab === 'wellknown') {
+        loadWellKnownFiles();
     }
 }
 
@@ -3318,57 +3387,171 @@ function renderAdvancedTab() {
                 <small style="color: var(--text-muted);">⚠️ Advanced feature - invalid config will break the site</small>
             </div>
         </div>
-        
+    `;
+}
+
+// Render Error Pages Tab
+function renderErrorPagesTab() {
+    const data = currentSiteData;
+    return `
         <div class="editor-panel">
-            <h3>📄 Error Pages</h3>
-            <p>Customize error pages for 403, 404, 429, and 500 errors</p>
+            <h3>🎨 Custom Error Pages</h3>
+            <p>Upload custom HTML error pages for your site</p>
             
             <div class="form-group">
-                <label>Error Page Mode</label>
-                <select id="edit_error_page_mode" class="form-input" onchange="toggleErrorPageMode()">
-                    <option value="template" ${(data.error_page_mode || 'template') === 'template' ? 'selected' : ''}>Use Built-in CatWAF Templates</option>
-                    <option value="custom" ${data.error_page_mode === 'custom' ? 'selected' : ''}>Custom URLs</option>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="edit_custom_error_pages_enabled" ${data.custom_error_pages_enabled ? 'checked' : ''} data-field="custom_error_pages_enabled">
+                    <span>Enable Custom Error Pages</span>
+                </label>
+                <small style="color: var(--text-muted);">When enabled, use custom HTML below. When disabled, use default templates.</small>
+            </div>
+        </div>
+        
+        <div class="editor-panel">
+            <h3>📄 Error Page HTML Editor</h3>
+            <p>Edit custom HTML for each error code (max 5MB per page)</p>
+            
+            <div class="form-group">
+                <label>Select Error Code:</label>
+                <select id="errorCodeSelector" class="form-input" onchange="loadSelectedErrorPage()">
+                    <option value="403">403 - Forbidden</option>
+                    <option value="404" selected>404 - Not Found</option>
+                    <option value="429">429 - Too Many Requests</option>
+                    <option value="500">500 - Internal Server Error</option>
+                    <option value="502">502 - Bad Gateway</option>
+                    <option value="503">503 - Service Unavailable</option>
                 </select>
-                <small style="color: var(--text-muted);">Choose between styled CatWAF error pages or your own custom pages</small>
             </div>
             
-            <div id="customErrorPagesGroup" style="display: ${data.error_page_mode === 'custom' ? 'block' : 'none'};">
-                <div class="form-group">
-                    <label>403 Forbidden Page</label>
-                    <input type="text" id="edit_error_page_403" class="form-input" value="${data.error_page_403 || '/errors/403.html'}" placeholder="/custom-403.html or https://example.com/403">
-                    <small style="color: var(--text-muted);">Path or URL for 403 errors</small>
-                </div>
-                
-                <div class="form-group">
-                    <label>404 Not Found Page</label>
-                    <input type="text" id="edit_error_page_404" class="form-input" value="${data.error_page_404 || '/errors/404.html'}" placeholder="/custom-404.html or https://example.com/404">
-                    <small style="color: var(--text-muted);">Path or URL for 404 errors</small>
-                </div>
-                
-                <div class="form-group">
-                    <label>429 Rate Limited Page</label>
-                    <input type="text" id="edit_error_page_429" class="form-input" value="${data.error_page_429 || '/errors/429.html'}" placeholder="/custom-429.html or https://example.com/429">
-                    <small style="color: var(--text-muted);">Path or URL for rate limit errors</small>
-                </div>
-                
-                <div class="form-group">
-                    <label>500 Server Error Page</label>
-                    <input type="text" id="edit_error_page_500" class="form-input" value="${data.error_page_500 || '/errors/500.html'}" placeholder="/custom-500.html or https://example.com/500">
-                    <small style="color: var(--text-muted);">Path or URL for 500/502/503/504 errors</small>
-                </div>
+            <div class="form-group">
+                <label>
+                    <span id="errorPageLabel">Custom 404 HTML</span>
+                    <span id="errorPageStatus" style="margin-left: 1rem; color: var(--text-muted);"></span>
+                </label>
+                <textarea id="errorPageHtml" class="form-input code-editor" rows="20" placeholder="<!DOCTYPE html>
+<html>
+<head>
+    <title>404 Not Found</title>
+    <style>
+        body { font-family: Arial; text-align: center; padding: 50px; }
+        h1 { font-size: 72px; margin: 0; }
+    </style>
+</head>
+<body>
+    <h1>404</h1>
+    <p>Page not found</p>
+</body>
+</html>"></textarea>
+                <small style="color: var(--text-muted);">Full HTML including DOCTYPE, head, and body tags</small>
+            </div>
+            
+            <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                <button class="btn-primary" onclick="saveCurrentErrorPage()">
+                    <span>💾</span>
+                    <span>Save Error Page</span>
+                </button>
+                <button class="btn-secondary" onclick="previewErrorPage()">
+                    <span>👁️</span>
+                    <span>Preview</span>
+                </button>
+                <button class="btn-secondary" onclick="deleteCurrentErrorPage()">
+                    <span>🗑️</span>
+                    <span>Revert to Template</span>
+                </button>
+                <button class="btn-secondary" onclick="loadErrorPageTemplate()">
+                    <span>📋</span>
+                    <span>Load Default Template</span>
+                </button>
             </div>
         </div>
     `;
 }
 
-// Toggle error page custom fields
-window.toggleErrorPageMode = function() {
-    const mode = document.getElementById('edit_error_page_mode')?.value;
-    const customGroup = document.getElementById('customErrorPagesGroup');
-    if (customGroup) {
-        customGroup.style.display = mode === 'custom' ? 'block' : 'none';
-    }
-};
+// Render Well-Known Files Tab
+function renderWellKnownTab() {
+    const data = currentSiteData;
+    const wellKnownEnabled = data.wellknown_enabled === 1 || data.wellknown_enabled === '1';
+    
+    return `
+        <div class="editor-panel">
+            <h3>🌐 Well-Known Files</h3>
+            <p>Manage robots.txt, security.txt, humans.txt, and ads.txt for this site</p>
+            
+            <div class="form-group" style="background: var(--bg-secondary); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                <label style="display: flex; align-items: center; gap: 1rem; cursor: pointer; margin: 0;">
+                    <input type="checkbox" 
+                           id="wellknownEnabled" 
+                           ${wellKnownEnabled ? 'checked' : ''} 
+                           data-field="wellknown_enabled"
+                           style="width: 20px; height: 20px; cursor: pointer;">
+                    <div>
+                        <strong style="color: var(--text-primary);">Enable Site-Specific Well-Known Files</strong>
+                        <div style="font-size: 0.9em; color: var(--text-muted); margin-top: 0.25rem;">
+                            When disabled, global defaults from Settings will be used for all well-known files.
+                        </div>
+                    </div>
+                </label>
+            </div>
+            
+            <div class="alert" style="background: #17a2b8; color: white; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                <strong>ℹ️ Info:</strong> These files control search engine crawling, security disclosure, team credits, and advertising.
+                Site-specific files override global defaults. Leave blank to use global settings.
+            </div>
+        </div>
+        
+        <div class="editor-panel">
+            <h3>📄 File Editor</h3>
+            
+            <div class="form-group">
+                <label>Select File:</label>
+                <select id="wellKnownFileSelector" class="form-input" onchange="loadSelectedWellKnownFile()">
+                    <option value="robots" selected>robots.txt - Search Engine Rules</option>
+                    <option value="security">security.txt - Security Contact</option>
+                    <option value="humans">humans.txt - Team Credits</option>
+                    <option value="ads">ads.txt - Authorized Sellers</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label>
+                    <span id="wellKnownFileLabel">robots.txt Content</span>
+                    <span id="wellKnownFileStatus" style="margin-left: 1rem;"></span>
+                </label>
+                <textarea id="wellKnownFileContent" class="form-input code-editor" rows="15" placeholder="User-agent: *
+Allow: /
+
+Sitemap: https://example.com/sitemap.xml"></textarea>
+                <small id="wellKnownFileHelp" style="color: var(--text-muted);">Controls which pages search engines can crawl</small>
+            </div>
+            
+            <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                <button class="btn-primary" onclick="saveCurrentWellKnownFile()">
+                    <span>💾</span>
+                    <span>Save File</span>
+                </button>
+                <button class="btn-secondary" onclick="deleteCurrentWellKnownFile()">
+                    <span>🗑️</span>
+                    <span>Use Global Default</span>
+                </button>
+                <button class="btn-secondary" onclick="loadWellKnownTemplate()">
+                    <span>📋</span>
+                    <span>Load Template</span>
+                </button>
+                <button class="btn-secondary" onclick="viewGlobalWellKnown()">
+                    <span>🌍</span>
+                    <span>View Global Default</span>
+                </button>
+            </div>
+        </div>
+        
+        <div class="editor-panel">
+            <h3>📚 File Information</h3>
+            <div id="wellKnownFileInfo">
+                <!-- Dynamic file information -->
+            </div>
+        </div>
+    `;
+}
 
 // Backend management for editor
 function initializeBackends() {
@@ -5149,5 +5332,520 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     backupObserver.observe(document.body, { childList: true, subtree: true });
+});
+
+// ==========================================
+// Custom Error Pages Management
+// ==========================================
+
+let currentErrorPages = {};
+let currentErrorCode = '404';
+
+// Load all error pages for current site
+async function loadErrorPages() {
+    if (!currentSiteData?.id) return;
+    
+    try {
+        const data = await apiRequest(`/error-pages/site/${currentSiteData.id}`);
+        
+        if (data && data.success) {
+            currentErrorPages = data.pages || {};
+            currentSiteData.custom_error_pages_enabled = data.custom_enabled;
+            
+            // Update checkbox
+            const checkbox = document.getElementById('edit_custom_error_pages_enabled');
+            if (checkbox) {
+                checkbox.checked = data.custom_enabled;
+            }
+            
+            // Load the currently selected error page
+            loadSelectedErrorPage();
+        }
+    } catch (error) {
+        console.error('Error loading error pages:', error);
+        showToast('Failed to load error pages', 'error');
+    }
+}
+
+// Load selected error page into editor
+async function loadSelectedErrorPage() {
+    const selector = document.getElementById('errorCodeSelector');
+    const textarea = document.getElementById('errorPageHtml');
+    const label = document.getElementById('errorPageLabel');
+    const status = document.getElementById('errorPageStatus');
+    
+    if (!selector || !textarea || !currentSiteData?.id) return;
+    
+    currentErrorCode = selector.value;
+    
+    try {
+        const data = await apiRequest(`/error-pages/site/${currentSiteData.id}/${currentErrorCode}`);
+        
+        if (data && data.success) {
+            textarea.value = data.html || '';
+            label.textContent = `Custom ${currentErrorCode} HTML`;
+            
+            if (data.is_custom) {
+                status.textContent = '✅ Custom page active';
+                status.style.color = 'var(--success)';
+            } else {
+                status.textContent = '📋 Using template';
+                status.style.color = 'var(--text-muted)';
+            }
+        }
+    } catch (error) {
+        console.error('Error loading error page:', error);
+        showToast('Failed to load error page', 'error');
+    }
+}
+
+// Save current error page
+async function saveCurrentErrorPage() {
+    const textarea = document.getElementById('errorPageHtml');
+    if (!textarea || !currentSiteData?.id) return;
+    
+    const html = textarea.value;
+    
+    if (!html.trim()) {
+        showToast('Please enter HTML content', 'error');
+        return;
+    }
+    
+    try {
+        const data = await apiRequest(`/error-pages/site/${currentSiteData.id}/${currentErrorCode}`, {
+            method: 'PUT',
+            body: JSON.stringify({ html })
+        });
+        
+        if (data && data.success) {
+            showToast(`${currentErrorCode} error page saved successfully`, 'success');
+            loadSelectedErrorPage(); // Reload to update status
+        }
+    } catch (error) {
+        console.error('Error saving error page:', error);
+        showToast('Failed to save error page', 'error');
+    }
+}
+
+// Delete current error page (revert to template)
+async function deleteCurrentErrorPage() {
+    if (!currentSiteData?.id) return;
+    
+    if (!confirm(`Revert ${currentErrorCode} error page to default template?`)) return;
+    
+    try {
+        const data = await apiRequest(`/error-pages/site/${currentSiteData.id}/${currentErrorCode}`, {
+            method: 'DELETE'
+        });
+        
+        if (data && data.success) {
+            showToast(`Reverted to default ${currentErrorCode} template`, 'success');
+            loadSelectedErrorPage(); // Reload to show template
+        }
+    } catch (error) {
+        console.error('Error deleting error page:', error);
+        showToast('Failed to delete error page', 'error');
+    }
+}
+
+// Preview error page in new window
+function previewErrorPage() {
+    const textarea = document.getElementById('errorPageHtml');
+    if (!textarea) return;
+    
+    const html = textarea.value || '<!DOCTYPE html><html><body><h1>Empty</h1></body></html>';
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+}
+
+// Load default template
+async function loadErrorPageTemplate() {
+    try {
+        const data = await apiRequest(`/error-pages/templates/default`);
+        
+        if (data && data.success && data.template) {
+            const htmlField = `html_${currentErrorCode}`;
+            const html = data.template[htmlField];
+            
+            if (html) {
+                const textarea = document.getElementById('errorPageHtml');
+                if (textarea) {
+                    textarea.value = html;
+                    showToast('Template loaded', 'success');
+                }
+            } else {
+                showToast('Template not found for this error code', 'error');
+            }
+        }
+    } catch (error) {
+        console.error('Error loading template:', error);
+        showToast('Failed to load template', 'error');
+    }
+}
+
+// ==========================================
+// Well-Known Files Management
+// ==========================================
+
+let currentWellKnownFiles = {};
+let currentWellKnownType = 'robots';
+
+// Load all well-known files for current site
+async function loadWellKnownFiles() {
+    if (!currentSiteData?.id) return;
+    
+    loadSelectedWellKnownFile();
+    updateWellKnownFileInfo();
+}
+
+// Load selected well-known file
+async function loadSelectedWellKnownFile() {
+    const selector = document.getElementById('wellKnownFileSelector');
+    const textarea = document.getElementById('wellKnownFileContent');
+    const label = document.getElementById('wellKnownFileLabel');
+    const status = document.getElementById('wellKnownFileStatus');
+    const help = document.getElementById('wellKnownFileHelp');
+    
+    if (!selector || !textarea || !currentSiteData?.id) return;
+    
+    currentWellKnownType = selector.value;
+    
+    const fileLabels = {
+        robots: 'robots.txt',
+        security: 'security.txt',
+        humans: 'humans.txt',
+        ads: 'ads.txt'
+    };
+    
+    const fileHelp = {
+        robots: 'Controls which pages search engines can crawl',
+        security: 'Security vulnerability disclosure contact information (RFC 9116)',
+        humans: 'Credits, team information, and technology stack',
+        ads: 'Authorized digital sellers declaration (prevents ad fraud)'
+    };
+    
+    label.textContent = `${fileLabels[currentWellKnownType]} Content`;
+    help.textContent = fileHelp[currentWellKnownType];
+    
+    try {
+        const data = await apiRequest(`/wellknown/site/${currentSiteData.id}/${currentWellKnownType}`);
+        
+        if (data && data.success) {
+            textarea.value = data.content || '';
+            
+            if (data.is_custom) {
+                status.textContent = '✅ Site-specific';
+                status.style.color = 'var(--success)';
+            } else {
+                status.textContent = '🌍 Using global default';
+                status.style.color = 'var(--text-muted)';
+            }
+        }
+    } catch (error) {
+        console.error('Error loading well-known file:', error);
+        showToast('Failed to load file', 'error');
+    }
+    
+    updateWellKnownFileInfo();
+}
+
+// Save current well-known file
+async function saveCurrentWellKnownFile() {
+    const textarea = document.getElementById('wellKnownFileContent');
+    if (!textarea || !currentSiteData?.id) return;
+    
+    const content = textarea.value;
+    
+    try {
+        const data = await apiRequest(`/wellknown/site/${currentSiteData.id}/${currentWellKnownType}`, {
+            method: 'PUT',
+            body: JSON.stringify({ content })
+        });
+        
+        if (data && data.success) {
+            showToast(`${currentWellKnownType}.txt saved successfully`, 'success');
+            loadSelectedWellKnownFile(); // Reload to update status
+        }
+    } catch (error) {
+        console.error('Error saving well-known file:', error);
+        showToast('Failed to save file', 'error');
+    }
+}
+
+// Delete current well-known file (use global)
+async function deleteCurrentWellKnownFile() {
+    if (!currentSiteData?.id) return;
+    
+    if (!confirm(`Remove site-specific ${currentWellKnownType}.txt and use global default?`)) return;
+    
+    try {
+        const data = await apiRequest(`/wellknown/site/${currentSiteData.id}/${currentWellKnownType}`, {
+            method: 'DELETE'
+        });
+        
+        if (data && data.success) {
+            showToast(`Now using global ${currentWellKnownType}.txt`, 'success');
+            loadSelectedWellKnownFile(); // Reload to show global
+        }
+    } catch (error) {
+        console.error('Error deleting well-known file:', error);
+        showToast('Failed to delete file', 'error');
+    }
+}
+
+// Load well-known file template
+function loadWellKnownTemplate() {
+    const textarea = document.getElementById('wellKnownFileContent');
+    if (!textarea) return;
+    
+    const templates = {
+        robots: `# Robots.txt for ${currentSiteData?.domain || 'example.com'}
+User-agent: *
+Allow: /
+
+# Disallow admin areas
+Disallow: /admin/
+Disallow: /api/
+Disallow: /.well-known/
+
+# Sitemap
+Sitemap: https://${currentSiteData?.domain || 'example.com'}/sitemap.xml`,
+        
+        security: `Contact: mailto:security@${currentSiteData?.domain || 'example.com'}
+Expires: ${new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString()}
+Preferred-Languages: en
+Canonical: https://${currentSiteData?.domain || 'example.com'}/.well-known/security.txt`,
+        
+        humans: `/* TEAM */
+Webmaster: Your Name
+Contact: admin@${currentSiteData?.domain || 'example.com'}
+Location: Your City, Country
+
+/* SITE */
+Last update: ${new Date().toISOString().split('T')[0]}
+Standards: HTML5, CSS3
+Components: NGINX, CatWAF
+Software: ${currentSiteData?.domain || 'example.com'}`,
+        
+        ads: `# Ads.txt for ${currentSiteData?.domain || 'example.com'}
+# Add your advertising partners here
+# Format: domain.com, publisher-account-id, DIRECT/RESELLER, [TAG-ID]
+# Example:
+# google.com, pub-0000000000000000, DIRECT, f08c47fec0942fa0`
+    };
+    
+    textarea.value = templates[currentWellKnownType] || '';
+    showToast('Template loaded', 'success');
+}
+
+// View global well-known file
+async function viewGlobalWellKnown() {
+    try {
+        const data = await apiRequest(`/wellknown/global/${currentWellKnownType}`);
+        
+        if (data && data.success) {
+            const content = data.content || '(No global default set)';
+            alert(`Global ${currentWellKnownType}.txt:\n\n${content}`);
+        }
+    } catch (error) {
+        console.error('Error loading global well-known file:', error);
+        showToast('Failed to load global file', 'error');
+    }
+}
+
+// Update well-known file information panel
+function updateWellKnownFileInfo() {
+    const infoEl = document.getElementById('wellKnownFileInfo');
+    if (!infoEl) return;
+    
+    const fileInfo = {
+        robots: {
+            title: 'robots.txt',
+            url: `https://${currentSiteData?.domain || 'example.com'}/robots.txt`,
+            description: 'Search engines check this file to know which pages they can crawl and index.',
+            tips: [
+                'Use "User-agent: *" to apply rules to all search engines',
+                'Use "Disallow:" to block specific paths',
+                'Always include your sitemap URL',
+                'Test with Google Search Console'
+            ]
+        },
+        security: {
+            title: 'security.txt',
+            url: `https://${currentSiteData?.domain || 'example.com'}/.well-known/security.txt`,
+            description: 'Provides security researchers with contact information for reporting vulnerabilities (RFC 9116).',
+            tips: [
+                'Include a valid contact email or URL',
+                'Set an expiration date (max 1 year)',
+                'Optionally include PGP key for encrypted reports',
+                'Keep it up to date!'
+            ]
+        },
+        humans: {
+            title: 'humans.txt',
+            url: `https://${currentSiteData?.domain || 'example.com'}/humans.txt`,
+            description: 'Credits the people and technologies behind your website.',
+            tips: [
+                'List team members and their roles',
+                'Include contact information',
+                'Mention technologies and tools used',
+                'Keep it fun and personal!'
+            ]
+        },
+        ads: {
+            title: 'ads.txt',
+            url: `https://${currentSiteData?.domain || 'example.com'}/ads.txt`,
+            description: 'Declares authorized digital sellers to prevent ad fraud and domain spoofing.',
+            tips: [
+                'List all authorized ad networks and resellers',
+                'Format: domain, publisher-id, DIRECT/RESELLER, [TAG-ID]',
+                'Keep updated when you change ad partners',
+                'Helps protect your ad revenue'
+            ]
+        }
+    };
+    
+    const info = fileInfo[currentWellKnownType];
+    
+    infoEl.innerHTML = `
+        <h4>${info.title}</h4>
+        <p><strong>URL:</strong> <a href="${info.url}" target="_blank">${info.url}</a></p>
+        <p>${info.description}</p>
+        <p><strong>Tips:</strong></p>
+        <ul>
+            ${info.tips.map(tip => `<li>${tip}</li>`).join('')}
+        </ul>
+    `;
+}
+
+// ==========================================
+// Global Well-Known Files (Settings Page)
+// ==========================================
+
+let globalWellKnownType = 'robots';
+let globalWellKnownData = {};
+
+// Load global well-known file
+async function loadGlobalWellKnownFile() {
+    const selector = document.getElementById('globalWellKnownSelector');
+    const textarea = document.getElementById('globalWellKnownContent');
+    const label = document.getElementById('globalWellKnownLabel');
+    const help = document.getElementById('globalWellKnownHelp');
+    
+    if (!selector || !textarea) return;
+    
+    globalWellKnownType = selector.value;
+    
+    const fileLabels = {
+        robots: 'robots.txt Content',
+        security: 'security.txt Content',
+        humans: 'humans.txt Content',
+        ads: 'ads.txt Content'
+    };
+    
+    const fileHelp = {
+        robots: 'Global default robots.txt for all sites',
+        security: 'Global security contact information (RFC 9116)',
+        humans: 'Global team credits and site information',
+        ads: 'Global authorized digital sellers declaration'
+    };
+    
+    label.textContent = fileLabels[globalWellKnownType];
+    help.textContent = fileHelp[globalWellKnownType];
+    
+    try {
+        const data = await apiRequest(`/wellknown/global/${globalWellKnownType}`);
+        
+        if (data && data.success) {
+            textarea.value = data.content || '';
+        }
+    } catch (error) {
+        console.error('Error loading global well-known file:', error);
+        showToast('Failed to load global file', 'error');
+    }
+}
+
+// Save global well-known file
+async function saveGlobalWellKnownFile() {
+    const textarea = document.getElementById('globalWellKnownContent');
+    if (!textarea) return;
+    
+    const content = textarea.value;
+    
+    try {
+        const data = await apiRequest(`/wellknown/global/${globalWellKnownType}`, {
+            method: 'PUT',
+            body: JSON.stringify({ content })
+        });
+        
+        if (data && data.success) {
+            showToast(`Global ${globalWellKnownType}.txt saved successfully`, 'success');
+        }
+    } catch (error) {
+        console.error('Error saving global well-known file:', error);
+        showToast('Failed to save global file', 'error');
+    }
+}
+
+// Load global well-known template
+function loadGlobalWellKnownTemplate() {
+    const textarea = document.getElementById('globalWellKnownContent');
+    if (!textarea) return;
+    
+    const templates = {
+        robots: `# Global Robots.txt Default
+User-agent: *
+Allow: /
+
+# Block admin and API areas
+Disallow: /admin/
+Disallow: /api/
+Disallow: /.well-known/
+
+# Sitemap (update per site)
+Sitemap: https://example.com/sitemap.xml`,
+        
+        security: `Contact: mailto:security@example.com
+Expires: ${new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString()}
+Preferred-Languages: en
+Canonical: https://example.com/.well-known/security.txt
+Policy: https://example.com/security-policy`,
+        
+        humans: `/* TEAM */
+Webmaster: Your Name
+Contact: admin@example.com
+Location: Your City, Country
+
+/* SITE */
+Last update: ${new Date().toISOString().split('T')[0]}
+Standards: HTML5, CSS3
+Components: NGINX, CatWAF
+Software: CatWAF`,
+        
+        ads: `# Global Ads.txt Default
+# Add your advertising partners here
+# Format: domain.com, publisher-account-id, DIRECT/RESELLER, [TAG-ID]
+# Example:
+# google.com, pub-0000000000000000, DIRECT, f08c47fec0942fa0
+# doubleclick.net, pub-0000000000000000, DIRECT, f08c47fec0942fa0`
+    };
+    
+    textarea.value = templates[globalWellKnownType] || '';
+    showToast('Template loaded', 'success');
+}
+
+// Auto-load global well-known files when settings page opens
+let globalWellKnownObserver = null;
+document.addEventListener('DOMContentLoaded', () => {
+    if (globalWellKnownObserver) globalWellKnownObserver.disconnect();
+    globalWellKnownObserver = new MutationObserver(() => {
+        const wellKnownEl = document.getElementById('globalWellKnownContent');
+        if (wellKnownEl && !wellKnownEl.dataset.loaded) {
+            wellKnownEl.dataset.loaded = 'true';
+            loadGlobalWellKnownFile();
+        }
+    });
+    globalWellKnownObserver.observe(document.body, { childList: true, subtree: true });
 });
 

@@ -344,7 +344,20 @@
                     <div class="page-header">
                         <h2>Settings</h2>
                     </div>
-                    <div class="settings-grid">                      
+                    
+                    <!-- Settings Tabs -->
+                    <div class="tabs">
+                        <button class="tab active" data-tab="waf-settings">⚙️ WAF Config</button>
+                        <button class="tab" data-tab="email-settings">📧 Email</button>
+                        <button class="tab" data-tab="ssl-settings">🔐 SSL/TLS</button>
+                        <button class="tab" data-tab="block-rules">🚫 Block Rules</button>
+                        <button class="tab" data-tab="wellknown-settings">🌐 Well-Known Files</button>
+                        <button class="tab" data-tab="backup-settings">💾 Backup</button>
+                        <button class="tab" data-tab="dev-settings">🔧 Development</button>
+                    </div>
+                    
+                    <!-- WAF Settings Tab -->
+                    <div class="tab-content active" id="waf-settings">
                         <div class="settings-card">
                             <h3>⚙️ WAF Configuration</h3>
                             <div id="wafSettings">
@@ -368,6 +381,10 @@
                                 <button class="btn-primary" onclick="saveWafSettings()">Save WAF Settings</button>
                             </div>
                         </div>
+                    </div>
+                    
+                    <!-- Email Settings Tab -->
+                    <div class="tab-content" id="email-settings">
                         <div class="settings-card">
                             <h3>📧 Email Notifications</h3>
                             <div class="setting-item">
@@ -402,7 +419,10 @@
                             </div>
                             <button class="btn-primary" onclick="saveEmailSettings()">Save Email Settings</button>
                         </div>
-                        
+                    </div>
+                    
+                    <!-- SSL/TLS Settings Tab -->
+                    <div class="tab-content" id="ssl-settings">
                         <div class="settings-card">
                             <h3>🔐 SSL/TLS Certificates (Let's Encrypt)</h3>
                             <div class="setting-item">
@@ -454,8 +474,10 @@
                                 <p style="color: #666;">Loading certificate information...</p>
                             </div>
                         </div>
-                        
-                        <!-- Custom Block Rules Card -->
+                    </div>
+                    
+                    <!-- Block Rules Tab -->
+                    <div class="tab-content" id="block-rules">
                         <div class="settings-card" style="grid-column: 1 / -1;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                                 <h3>🚫 Custom Block Rules</h3>
@@ -486,8 +508,69 @@
                                 </table>
                             </div>
                         </div>
+                    </div>
 
-                        <!-- Backup & Restore Card -->
+                    <!-- Well-Known Files Tab -->
+                    <div class="tab-content" id="wellknown-settings">
+                        <div class="settings-card" style="grid-column: 1 / -1;">
+                            <h3>🌐 Global Well-Known Files</h3>
+                            <p style="margin-bottom: 1.5rem;">
+                                Set default well-known files that apply to all sites unless overridden per-site. 
+                                These files control search engine crawling, security disclosure, team credits, and advertising standards.
+                            </p>
+                            
+                            <!-- Global Enable/Disable Toggle -->
+                            <div style="background: var(--bg-secondary); padding: 1.5rem; border-radius: 8px; border: 2px solid var(--primary); margin-bottom: 1.5rem;">
+                                <label style="display: flex; align-items: center; gap: 1rem; cursor: pointer; margin: 0;">
+                                    <input type="checkbox" 
+                                           id="wellknownGlobalEnabled" 
+                                           checked
+                                           style="width: 24px; height: 24px; cursor: pointer;">
+                                    <div>
+                                        <strong style="color: var(--text-primary); font-size: 1.1rem;">🌍 Enable Well-Known Files System</strong>
+                                        <div style="font-size: 0.95em; color: var(--text-muted); margin-top: 0.5rem;">
+                                            When disabled, NGINX will not serve any well-known files (robots.txt, security.txt, etc.) for any site. 
+                                            Enable this if you want NGINX to serve these files; individual sites can then use global defaults or their own custom versions.
+                                        </div>
+                                    </div>
+                                </label>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Select File:</label>
+                                <select id="globalWellKnownSelector" class="form-input" onchange="loadGlobalWellKnownFile()">
+                                    <option value="robots" selected>robots.txt - Search Engine Rules</option>
+                                    <option value="security">security.txt - Security Contact (RFC 9116)</option>
+                                    <option value="humans">humans.txt - Team Credits</option>
+                                    <option value="ads">ads.txt - Authorized Sellers</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label id="globalWellKnownLabel">robots.txt Content</label>
+                                <textarea id="globalWellKnownContent" class="form-input code-editor" rows="12" placeholder="User-agent: *
+Allow: /
+
+Disallow: /admin/
+Disallow: /api/
+
+Sitemap: https://example.com/sitemap.xml"></textarea>
+                                <small id="globalWellKnownHelp" style="color: var(--text-muted);">Global default for all sites</small>
+                            </div>
+                            
+                            <div style="display: flex; gap: 1rem;">
+                                <button class="btn-primary" onclick="saveGlobalWellKnownFile()">
+                                    <span>💾</span> Save Global Default
+                                </button>
+                                <button class="btn-secondary" onclick="loadGlobalWellKnownTemplate()">
+                                    <span>📋</span> Load Template
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Backup & Restore Tab -->
+                    <div class="tab-content" id="backup-settings">
                         <div class="settings-card" style="grid-column: 1 / -1;">
                             <h3>💾 Backup & Restore</h3>
                             <p style="color: #666; margin-bottom: 1rem;">
@@ -509,10 +592,10 @@
                                 <!-- Export Section -->
                                 <div>
                                     <h4>📤 Export Backup</h4>
-                                    <div id="backupInfo" style="background: #f5f5f5; padding: 1rem; border-radius: 8px; margin: 1rem 0; font-size: 0.9rem; color: #333;">
-                                        <p style="margin: 0.5rem 0; color: #333;"><strong>Estimating backup size...</strong></p>
+                                    <div id="backupInfo" style="padding: 1rem; border-radius: 8px; margin: 1rem 0; font-size: 0.9rem; color: #f5f5f5;">
+                                        <p style="margin: 0.5rem 0; "><strong>Estimating backup size...</strong></p>
                                     </div>
-                                    <p style="font-size: 0.85rem; color: #666; margin-bottom: 1rem;">
+                                    <p style="font-size: 0.85rem; margin-bottom: 1rem;">
                                         Backup includes: sites, settings, telemetry (30 days), bot detections (30 days), security events (30 days), access logs (7 days), custom rules, and rate limit presets.
                                         <br><br>
                                         <strong>Note:</strong> Certificates are NOT included in backups.
@@ -583,15 +666,27 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
 
-                        <!-- Development Mode Card -->
-                        <div class="settings-card" style="grid-column: 1 / -1; border: 2px solid #8b5cf6; background: #f5f3ff;">
+                    <!-- Backup & Restore Tab -->
+                    <div class="tab-content" id="backup-settings">
+                        <div class="settings-card" style="grid-column: 1 / -1;">
+                            <h3>💾 Backup & Restore</h3>
+                            <p style="color: #666; margin-bottom: 1rem;">
+                                Export your CatWAF configuration, sites, and data for backup or migration. Import from a previous backup to restore your setup.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Development Mode Tab -->
+                    <div class="tab-content" id="dev-settings">
+                        <div class="settings-card" style="grid-column: 1 / -1; border: 2px solid #8b5cf6;">
                             <h3 style="color: #5b21b6; font-weight: 700;">🔧 Development Mode</h3>
                             <p style="margin-bottom: 1.5rem; font-weight: 500;">
                                 Enable detailed debugging headers in responses to help troubleshoot backend issues. Shows backend address, response times, connection times, and more.
                             </p>
                             
-                            <div style="display: flex; align-items: center; gap: 1rem; padding: 1rem; background: #fff; border-radius: 8px; border: 1px solid #e5e7eb;">
+                            <div style="display: flex; align-items: center; gap: 1rem; padding: 1rem; border-radius: 8px; border: 1px solid #e5e7eb;">
                                 <label class="switch">
                                     <input type="checkbox" id="dev_mode_headers" onchange="saveDevModeSetting()">
                                     <span class="slider round"></span>
@@ -616,23 +711,23 @@
                                 Delete old logs and telemetry data to free up database space. Recommended to keep 30-90 days of data for analysis.
                             </p>
                             
-                            <div id="cleanupStats" style="background: #fff; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; border: 1px solid #e5e7eb;">
+                            <div id="cleanupStats" style="color: #ffffff; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; border: 1px solid #e5e7eb;">
                                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
                                     <div>
                                         <div style="font-size: 0.85em; color: #6b7280; font-weight: 600;">Access Logs</div>
-                                        <div style="font-size: 1.2em; font-weight: 700; color: #1f2937;" id="cleanupAccessLogs">-</div>
+                                        <div style="font-size: 1.2em; font-weight: 700; " id="cleanupAccessLogs">-</div>
                                     </div>
                                     <div>
                                         <div style="font-size: 0.85em; color: #6b7280; font-weight: 600;">Telemetry Records</div>
-                                        <div style="font-size: 1.2em; font-weight: 700; color: #1f2937;" id="cleanupTelemetry">-</div>
+                                        <div style="font-size: 1.2em; font-weight: 700; " id="cleanupTelemetry">-</div>
                                     </div>
                                     <div>
                                         <div style="font-size: 0.85em; color: #6b7280; font-weight: 600;">Security Events</div>
-                                        <div style="font-size: 1.2em; font-weight: 700; color: #1f2937;" id="cleanupModSec">-</div>
+                                        <div style="font-size: 1.2em; font-weight: 700; " id="cleanupModSec">-</div>
                                     </div>
                                     <div>
                                         <div style="font-size: 0.85em; color: #6b7280; font-weight: 600;">Bot Detections</div>
-                                        <div style="font-size: 1.2em; font-weight: 700; color: #1f2937;" id="cleanupBots">-</div>
+                                        <div style="font-size: 1.2em; font-weight: 700; " id="cleanupBots">-</div>
                                     </div>
                                 </div>
                             </div>
@@ -1147,6 +1242,8 @@
                             <button class="tab-btn" data-editor-tab="backends">Backends</button>
                             <button class="tab-btn" data-editor-tab="ssl">SSL/TLS</button>
                             <button class="tab-btn" data-editor-tab="access">Access Control</button>
+                            <button class="tab-btn" data-editor-tab="error-pages">Error Pages</button>
+                            <button class="tab-btn" data-editor-tab="wellknown">Well-Known Files</button>
                             <button class="tab-btn" data-editor-tab="advanced">Advanced</button>
                         </div>
                     </div>

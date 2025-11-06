@@ -190,7 +190,10 @@ function handleSites($method, $params, $db) {
                 'error_page_403', 'error_page_429', 'error_page_500', 'security_txt',
                 'enable_basic_auth', 'basic_auth_username', 'basic_auth_password',
                 'disable_http_redirect', 'cf_bypass_ratelimit', 'cf_custom_rate_limit', 'cf_rate_limit_burst',
-                'websocket_enabled', 'websocket_protocol', 'websocket_port', 'websocket_path'
+                'websocket_enabled', 'websocket_protocol', 'websocket_port', 'websocket_path',
+                'custom_error_pages_enabled', 'custom_403_html', 'custom_404_html', 'custom_429_html',
+                'custom_500_html', 'custom_502_html', 'custom_503_html',
+                'robots_txt', 'security_txt', 'humans_txt', 'ads_txt', 'wellknown_enabled'
             ];
             
             foreach ($updatableFields as $field) {
@@ -591,17 +594,11 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
         $config .= "    listen [::]:80;\n";
         $config .= "    server_name {$server_name};\n\n";
     
-    // Error pages
-    $config .= "    # Custom error pages\n";
-    $config .= "    error_page 429 /errors/429.html;\n";
-    $config .= "    error_page 403 /errors/403.html;\n";
-    $config .= "    error_page 404 /errors/404.html;\n";
-    $config .= "    error_page 500 502 504 /errors/500.html;\n";
-    $config .= "    error_page 503 /errors/503.html;\n";
-    $config .= "    location ^~ /errors/ {\n";
-    $config .= "        alias /usr/share/nginx/error-pages/;\n";
-    $config .= "        internal;\n";
-    $config .= "    }\n\n";
+    // Error pages (use helper function)
+    $config .= generateCustomErrorPages($siteData);
+    
+    // Well-known files (robots.txt, security.txt, humans.txt, ads.txt)
+    $config .= generateWellKnownFiles($siteData);
     
     // ACME challenge for Let's Encrypt
     $config .= "    location ^~ /.well-known/acme-challenge/ {\n";
@@ -659,26 +656,11 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
         $config .= "    quic_gso on;\n";  // Enable GSO for better performance
         $config .= "    add_header Alt-Svc 'h3=\":443\"; ma=86400' always;\n\n";
         
+        // Error pages (use helper function - supports both custom HTML and templates)
+        $config .= generateCustomErrorPages($siteData);
         
-        // Error pages
-        $config .= "    # Custom error pages\n";
-        if ($error_page_mode === 'custom') {
-            // Custom URLs - could be external or internal
-            $config .= "    error_page 429 {$error_page_429};\n";
-            $config .= "    error_page 403 {$error_page_403};\n";
-            $config .= "    error_page 404 {$error_page_404};\n";
-            $config .= "    error_page 500 502 503 504 {$error_page_500};\n\n";
-        } else {
-            // Template mode - use built-in error pages
-            $config .= "    error_page 429 /errors/429.html;\n";
-            $config .= "    error_page 403 /errors/403.html;\n";
-            $config .= "    error_page 404 /errors/404.html;\n";
-            $config .= "    error_page 500 502 503 504 /errors/500.html;\n";
-            $config .= "    location ^~ /errors/ {\n";
-            $config .= "        alias /usr/share/nginx/error-pages/;\n";
-            $config .= "        internal;\n";
-            $config .= "    }\n\n";
-        }
+        // Well-known files (robots.txt, security.txt, humans.txt, ads.txt)
+        $config .= generateWellKnownFiles($siteData);
         
         // JavaScript Challenge page
         if ($challenge_enabled) {
@@ -1262,6 +1244,131 @@ function generateWebSocketLocation($upstream_name, $ws_path, $ws_protocol, $ws_p
     $block .= "    }\n";
     
     return $block;
+}
+
+// Generate well-known files location blocks
+function generateWellKnownFiles($siteData) {
+    $db = getDB();
+    $config = "";
+    
+    // Get global defaults
+    $stmt = $db->query("SELECT robots_txt, security_txt, humans_txt, ads_txt FROM wellknown_global WHERE id = 1");
+    $global = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    $wellKnownFiles = [
+        'robots.txt' => [
+            'site' => $siteData['robots_txt'] ?? null,
+            'global' => $global['robots_txt'] ?? null
+        ],
+        'security.txt' => [
+            'site' => $siteData['security_txt'] ?? null,
+            'global' => $global['security_txt'] ?? null
+        ],
+        'humans.txt' => [
+            'site' => $siteData['humans_txt'] ?? null,
+            'global' => $global['humans_txt'] ?? null
+        ],
+        'ads.txt' => [
+            'site' => $siteData['ads_txt'] ?? null,
+            'global' => $global['ads_txt'] ?? null
+        ]
+    ];
+    
+    $config .= "    # Well-known files\n";
+    
+    foreach ($wellKnownFiles as $filename => $content) {
+        $siteContent = $content['site'];
+        $globalContent = $content['global'];
+        $finalContent = $siteContent ?: $globalContent;
+        
+        if ($finalContent) {
+            // Escape content for NGINX return directive
+            $escaped = addslashes($finalContent);
+            $escaped = str_replace("\n", "\\n", $escaped);
+            $escaped = str_replace("\r", "", $escaped);
+            
+            $path = ($filename === 'security.txt') ? '/.well-known/security.txt' : "/{$filename}";
+            
+            $config .= "    location = {$path} {\n";
+            $config .= "        default_type text/plain;\n";
+            $config .= "        add_header Cache-Control \"public, max-age=3600\";\n";
+            $config .= "        return 200 \"{$escaped}\";\n";
+            $config .= "    }\n";
+        }
+    }
+    
+    $config .= "\n";
+    return $config;
+}
+
+// Generate custom error pages or use templates
+function generateCustomErrorPages($siteData) {
+    $config = "";
+    $customEnabled = $siteData['custom_error_pages_enabled'] ?? false;
+    
+    if ($customEnabled) {
+        $db = getDB();
+        $config .= "    # Custom error pages (inline HTML)\n";
+        
+        $errorPages = [
+            '403' => $siteData['custom_403_html'] ?? null,
+            '404' => $siteData['custom_404_html'] ?? null,
+            '429' => $siteData['custom_429_html'] ?? null,
+            '500' => $siteData['custom_500_html'] ?? null,
+            '502' => $siteData['custom_502_html'] ?? null,
+            '503' => $siteData['custom_503_html'] ?? null
+        ];
+        
+        // Get default template if custom not set
+        $stmt = $db->query("SELECT html_403, html_404, html_429, html_500, html_502, html_503 FROM error_page_templates WHERE is_default = 1 LIMIT 1");
+        $template = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        foreach ($errorPages as $code => $html) {
+            if (!$html && $template) {
+                $html = $template["html_{$code}"] ?? null;
+            }
+            
+            if ($html) {
+                // Escape HTML for NGINX return directive
+                $escaped = addslashes($html);
+                $escaped = str_replace("\n", "\\n", $escaped);
+                $escaped = str_replace("\r", "", $escaped);
+                
+                $statusMap = [
+                    '500' => '500 502 503 504',
+                    '502' => null, // Handled by 500
+                    '503' => null, // Handled by 500
+                    '403' => '403',
+                    '404' => '404',
+                    '429' => '429'
+                ];
+                
+                $statusCodes = $statusMap[$code];
+                if ($statusCodes) {
+                    $config .= "    error_page {$statusCodes} @error_{$code};\n";
+                    $config .= "    location @error_{$code} {\n";
+                    $config .= "        internal;\n";
+                    $config .= "        default_type text/html;\n";
+                    $config .= "        return {$code} \"{$escaped}\";\n";
+                    $config .= "    }\n";
+                }
+            }
+        }
+        $config .= "\n";
+    } else {
+        // Use template mode - default error pages
+        $config .= "    # Template error pages\n";
+        $config .= "    error_page 429 /errors/429.html;\n";
+        $config .= "    error_page 403 /errors/403.html;\n";
+        $config .= "    error_page 404 /errors/404.html;\n";
+        $config .= "    error_page 500 502 503 504 /errors/500.html;\n";
+        $config .= "    location ^~ /errors/ {\n";
+        $config .= "        alias /usr/share/nginx/error-pages/;\n";
+        $config .= "        internal;\n";
+        $config .= "    }\n\n";
+    }
+    
+    return $config;
 }
 
 // Trigger background certificate issuance

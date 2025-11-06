@@ -164,6 +164,14 @@ try {
             handleCustomBlockRules($method, array_slice($uri, 1), $db);
             break;
             
+        case 'error-pages':
+            require_once 'endpoints/error-pages.php';
+            exit; // error-pages.php handles its own routing
+            
+        case 'wellknown':
+            require_once 'endpoints/wellknown.php';
+            exit; // wellknown.php handles its own routing
+            
         case 'cleanup':
             require_once 'endpoints/cleanup.php';
             break;
