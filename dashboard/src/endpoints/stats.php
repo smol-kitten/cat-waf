@@ -171,6 +171,36 @@ function handleStats($method, $params, $db) {
             ");
             $stats['requests_over_time'] = $stmt->fetchAll();
             
+            // Requests over time by status code (for stacked chart)
+            $stmt = $db->query("
+                SELECT 
+                    DATE_FORMAT(timestamp, '%Y-%m-%d %H:00:00') as hour,
+                    SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as status_2xx,
+                    SUM(CASE WHEN status_code >= 300 AND status_code < 400 THEN 1 ELSE 0 END) as status_3xx,
+                    SUM(CASE WHEN status_code >= 400 AND status_code < 500 THEN 1 ELSE 0 END) as status_4xx,
+                    SUM(CASE WHEN status_code >= 500 AND status_code < 600 THEN 1 ELSE 0 END) as status_5xx
+                FROM access_logs 
+                WHERE timestamp > DATE_SUB(NOW(), $interval)
+                GROUP BY hour
+                ORDER BY hour
+            ");
+            $timeData = $stmt->fetchAll();
+            
+            // Format for Chart.js
+            $stats['labels'] = [];
+            $stats['status_2xx'] = [];
+            $stats['status_3xx'] = [];
+            $stats['status_4xx'] = [];
+            $stats['status_5xx'] = [];
+            
+            foreach ($timeData as $row) {
+                $stats['labels'][] = date('H:i', strtotime($row['hour']));
+                $stats['status_2xx'][] = (int)$row['status_2xx'];
+                $stats['status_3xx'][] = (int)$row['status_3xx'];
+                $stats['status_4xx'][] = (int)$row['status_4xx'];
+                $stats['status_5xx'][] = (int)$row['status_5xx'];
+            }
+            
             // Active bans
             $stmt = $db->query("
                 SELECT COUNT(*) as count 

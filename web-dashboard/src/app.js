@@ -330,7 +330,7 @@ async function apiRequest(endpoint, methodOrOptions = {}, bodyData = null) {
 // Dashboard Data Loading
 async function loadDashboardData(range = '24h') {
     try {
-        const response = await apiRequest(`/stats?range=${range}`);
+        const response = await apiRequest(`/stats?period=${range}`);
         const statsData = response?.stats || {};
         
         if (statsData && Object.keys(statsData).length > 0) {
@@ -443,34 +443,82 @@ function updateTrafficChart(data) {
     // Use actual data or show empty chart
     const hasData = data && data.labels && data.labels.length > 0;
     const labels = hasData ? data.labels : ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00'];
-    const values = hasData ? data.requests : [0, 0, 0, 0, 0, 0];
+    
+    // Group requests by status code ranges for stacked chart
+    const status2xx = hasData ? (data.status_2xx || data.requests.map(() => 0)) : [0, 0, 0, 0, 0, 0];
+    const status3xx = hasData ? (data.status_3xx || data.requests.map(() => 0)) : [0, 0, 0, 0, 0, 0];
+    const status4xx = hasData ? (data.status_4xx || data.requests.map(() => 0)) : [0, 0, 0, 0, 0, 0];
+    const status5xx = hasData ? (data.status_5xx || data.requests.map(() => 0)) : [0, 0, 0, 0, 0, 0];
     
     charts.traffic = new Chart(ctx.getContext('2d'), {
-        type: 'line',
+        type: 'bar',
         data: {
             labels: labels,
-            datasets: [{
-                label: 'Requests',
-                data: values,
-                borderColor: '#FF6B9D',
-                backgroundColor: 'rgba(255, 107, 157, 0.1)',
-                tension: 0.4,
-                fill: true
-            }]
+            datasets: [
+                {
+                    label: '2xx Success',
+                    data: status2xx,
+                    backgroundColor: 'rgba(34, 197, 94, 0.7)',
+                    borderColor: 'rgba(34, 197, 94, 1)',
+                    borderWidth: 1
+                },
+                {
+                    label: '3xx Redirect',
+                    data: status3xx,
+                    backgroundColor: 'rgba(107, 114, 128, 0.7)',
+                    borderColor: 'rgba(107, 114, 128, 1)',
+                    borderWidth: 1
+                },
+                {
+                    label: '4xx Client Error',
+                    data: status4xx,
+                    backgroundColor: 'rgba(251, 191, 36, 0.7)',
+                    borderColor: 'rgba(251, 191, 36, 1)',
+                    borderWidth: 1
+                },
+                {
+                    label: '5xx Server Error',
+                    data: status5xx,
+                    backgroundColor: 'rgba(239, 68, 68, 0.7)',
+                    borderColor: 'rgba(239, 68, 68, 1)',
+                    borderWidth: 1
+                }
+            ]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false
+            },
             plugins: {
-                legend: { display: false }
+                legend: { 
+                    display: true,
+                    position: 'top',
+                    labels: { color: '#B4B4C8' }
+                },
+                tooltip: {
+                    callbacks: {
+                        footer: function(tooltipItems) {
+                            let sum = 0;
+                            tooltipItems.forEach(function(tooltipItem) {
+                                sum += tooltipItem.parsed.y;
+                            });
+                            return 'Total: ' + sum;
+                        }
+                    }
+                }
             },
             scales: {
-                y: { 
-                    beginAtZero: true,
+                x: {
+                    stacked: true,
                     grid: { color: '#363650' },
                     ticks: { color: '#B4B4C8' }
                 },
-                x: {
+                y: { 
+                    stacked: true,
+                    beginAtZero: true,
                     grid: { color: '#363650' },
                     ticks: { color: '#B4B4C8' }
                 }
@@ -2031,8 +2079,8 @@ async function loadTopModSecRules() {
 async function loadModSecEvents() {
     try {
         const severity = document.getElementById('modsecSeverityFilter')?.value || '';
-        // Disable GeoIP for performance (each lookup takes 1+ second)
-        const response = await apiRequest(`/modsec/events?severity=${severity}&limit=50&geoip=false`);
+        // Enable GeoIP lookup to show country/city
+        const response = await apiRequest(`/modsec/events?severity=${severity}&limit=50&geoip=true`);
         const tbody = document.getElementById('modsecEventsBody');
         
         if (!response || response.length === 0) {
@@ -2044,7 +2092,7 @@ async function loadModSecEvents() {
             <tr>
                 <td>${new Date(event.timestamp).toLocaleString()}</td>
                 <td>
-                    ${event.flag || '�'} 
+                    ${event.flag || '🌐'} 
                     <span style="font-size: 0.875rem;">${event.country || 'N/A'}</span>
                     ${event.city ? `<br><small style="color: #94a3b8;">${event.city}</small>` : ''}
                 </td>
@@ -2105,8 +2153,46 @@ async function loadBotActivityChart() {
         const response = await apiRequest('/bots?limit=1000');
         const bots = response?.bots || [];
         
+        console.log('🤖 Bot Activity Chart - Loading data:', bots.length, 'bots');
+        
         if (bots.length === 0) {
-            console.log('No bot detections found');
+            console.log('⚠️ No bot detections found for chart');
+            // Still create empty chart so user knows it exists
+            const ctx = document.getElementById('botActivityChart');
+            if (!ctx) {
+                console.error('❌ Bot Activity Chart canvas not found!');
+                return;
+            }
+            
+            if (botActivityChartInstance) {
+                botActivityChartInstance.destroy();
+            }
+            
+            botActivityChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['No Data'],
+                    datasets: [{
+                        label: 'Bot Activity',
+                        data: [0],
+                        borderColor: '#4dabf7',
+                        backgroundColor: 'rgba(77, 171, 247, 0.1)'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: true, labels: { color: '#B4B4C8' } }
+                    },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#363650' }, ticks: { color: '#B4B4C8' } },
+                        x: { grid: { color: '#363650' }, ticks: { color: '#B4B4C8' } }
+                    }
+                }
+            });
+            
+            console.log('✅ Empty bot chart created');
             return;
         }
         
@@ -2139,6 +2225,8 @@ async function loadBotActivityChart() {
         const blockedData = Object.keys(hourlyData).sort().map(key => hourlyData[key].blocked);
         const allowedData = Object.keys(hourlyData).sort().map(key => hourlyData[key].allowed);
         
+        console.log('📊 Bot chart data prepared:', labels.length, 'data points');
+        
         // Destroy existing chart if it exists
         if (botActivityChartInstance) {
             botActivityChartInstance.destroy();
@@ -2146,7 +2234,12 @@ async function loadBotActivityChart() {
         
         // Create new chart
         const ctx = document.getElementById('botActivityChart');
-        if (!ctx) return;
+        if (!ctx) {
+            console.error('❌ Bot Activity Chart canvas element not found in DOM!');
+            return;
+        }
+        
+        console.log('🎨 Creating bot activity chart...');
         
         botActivityChartInstance = new Chart(ctx, {
             type: 'line',
@@ -2186,23 +2279,26 @@ async function loadBotActivityChart() {
                 plugins: {
                     legend: {
                         position: 'top',
-                    },
-                    title: {
-                        display: false
+                        labels: { color: '#B4B4C8' }
                     }
                 },
                 scales: {
                     y: {
                         beginAtZero: true,
-                        ticks: {
-                            stepSize: 1
-                        }
+                        grid: { color: '#363650' },
+                        ticks: { stepSize: 1, color: '#B4B4C8' }
+                    },
+                    x: {
+                        grid: { color: '#363650' },
+                        ticks: { color: '#B4B4C8' }
                     }
                 }
             }
         });
+        
+        console.log('✅ Bot Activity Chart created successfully!');
     } catch (error) {
-        console.error('Error loading bot activity chart:', error);
+        console.error('❌ Error loading bot activity chart:', error);
     }
 }
 
@@ -2586,7 +2682,7 @@ async function loadSiteFilterCheckboxes() {
         container.innerHTML = sites.map(site => {
             const isExcluded = excludedSites.includes(site.domain);
             return `
-                <label style="display: flex; align-items: center; gap: 8px; padding: 8px; background: white; border-radius: 6px; cursor: pointer;">
+                <label style="display: flex; align-items: center; gap: 8px; padding: 8px; color: white; border-radius: 6px; cursor: pointer;">
                     <input type="checkbox" 
                            class="site-filter-checkbox" 
                            data-domain="${site.domain}" 
