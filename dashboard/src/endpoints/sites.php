@@ -636,6 +636,12 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
     $config .= "        default_type \"text/plain\";\n";
     $config .= "    }\n\n";
     
+    // Add WebSocket location to HTTP block BEFORE redirect (if protocol is ws, not wss)
+    // This must come before the catch-all redirect so nginx evaluates it first
+    if ($websocket_enabled && strtolower($websocket_protocol) === 'ws') {
+        $config .= generateWebSocketLocation($upstream_name, $websocket_path, $websocket_protocol, $websocket_port, $backend);
+    }
+    
     if ($ssl_enabled) {
         // Check if HTTP->HTTPS redirect is disabled (to prevent infinite loops when backend also redirects)
         // Only disable nginx redirect if backend is actively redirecting to HTTPS (not just using port 80)
@@ -665,11 +671,6 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
                                            false, false, false, false, // No challenge on plain HTTP
                                            $cf_bypass_ratelimit, $cf_custom_rate_limit, $cf_rate_limit_burst,
                                            $enable_rate_limit, $rate_limit_burst, $custom_rate_limit);
-    }
-    
-    // Add WebSocket location to HTTP block if protocol is ws (not wss)
-    if ($websocket_enabled && strtolower($websocket_protocol) === 'ws') {
-        $config .= generateWebSocketLocation($upstream_name, $websocket_path, $websocket_protocol, $websocket_port, $backend);
     }
     
     $config .= "}\n\n";
