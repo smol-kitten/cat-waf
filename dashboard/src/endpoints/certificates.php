@@ -138,8 +138,9 @@ function getCertificateInfo($domain) {
     
     // Find which cert path exists
     foreach ($certPaths as $path) {
-        $checkCmd = sprintf("docker exec waf-nginx test -f %s && echo 'exists' || echo 'not_found'", escapeshellarg($path));
-        if (trim(shell_exec($checkCmd)) === 'exists') {
+        $checkCmd = sprintf("docker exec waf-nginx sh -c 'test -f %s && echo exists || echo not_found'", escapeshellarg($path));
+        $result = trim(shell_exec($checkCmd));
+        if ($result === 'exists') {
             $certPath = $path;
             $certType = ($path === "/etc/nginx/certs/{$baseDomain}/fullchain.pem" && $domain !== $baseDomain) 
                 ? 'wildcard' 
@@ -160,8 +161,9 @@ function getCertificateInfo($domain) {
         ];
         
         foreach ($acmeCheckPaths as $acmePath) {
-            $checkAcmeCmd = sprintf("docker exec waf-acme test -f %s && echo 'exists' || echo 'missing' 2>&1", escapeshellarg($acmePath));
-            if (trim(shell_exec($checkAcmeCmd)) === 'exists') {
+            $checkAcmeCmd = sprintf("docker exec waf-acme sh -c 'test -f %s && echo exists || echo missing' 2>&1", escapeshellarg($acmePath));
+            $result = trim(shell_exec($checkAcmeCmd));
+            if ($result === 'exists') {
                 http_response_code(200);
                 echo json_encode([
                     'exists' => false,
