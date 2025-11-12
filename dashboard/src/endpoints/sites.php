@@ -133,8 +133,8 @@ function handleSites($method, $params, $db) {
                     enable_image_optimization, image_quality, image_max_width,
                     enable_waf_headers, enable_telemetry, custom_headers, ip_whitelist, local_only,
                     wildcard_subdomains, disable_http_redirect, cf_bypass_ratelimit,
-                    cf_custom_rate_limit, cf_rate_limit_burst)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    cf_custom_rate_limit, cf_rate_limit_burst, cf_ip_headers)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             
             $stmt->execute([
@@ -171,7 +171,8 @@ function handleSites($method, $params, $db) {
                 $data['disable_http_redirect'] ?? 0,
                 $data['cf_bypass_ratelimit'] ?? 0,
                 $data['cf_custom_rate_limit'] ?? 100,
-                $data['cf_rate_limit_burst'] ?? 200
+                $data['cf_rate_limit_burst'] ?? 200,
+                $data['cf_ip_headers'] ?? 0
             ]);
             
             $siteId = $db->lastInsertId();
@@ -220,6 +221,7 @@ function handleSites($method, $params, $db) {
                 'error_page_403', 'error_page_429', 'error_page_500', 'security_txt',
                 'enable_basic_auth', 'basic_auth_username', 'basic_auth_password',
                 'disable_http_redirect', 'cf_bypass_ratelimit', 'cf_custom_rate_limit', 'cf_rate_limit_burst',
+                'cf_ip_headers',
                 'websocket_enabled', 'websocket_protocol', 'websocket_port', 'websocket_path',
                 'custom_error_pages_enabled', 'custom_403_html', 'custom_404_html', 'custom_429_html',
                 'custom_500_html', 'custom_502_html', 'custom_503_html',
@@ -642,7 +644,7 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
     // 1. WebSocket is enabled, AND
     // 2. Either not using SSL, OR using SSL but also want HTTP WebSocket access
     if ($websocket_enabled) {
-        $config .= generateWebSocketLocation($upstream_name, $websocket_path, $websocket_protocol, $websocket_port, $backend);
+        $config .= generateWebSocketLocation($upstream_name, $websocket_path, $websocket_protocol, $websocket_port, $backend, $site);
     }
     
     if ($ssl_enabled) {
@@ -833,7 +835,7 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
         // Add WebSocket location block to HTTPS (for wss:// connections from browsers)
         // WebSocket should be available on HTTPS when SSL is enabled, regardless of backend protocol
         if ($websocket_enabled) {
-            $config .= generateWebSocketLocation($upstream_name, $websocket_path, $websocket_protocol, $websocket_port, $backend);
+            $config .= generateWebSocketLocation($upstream_name, $websocket_path, $websocket_protocol, $websocket_port, $backend, $site);
         }
         
         $config .= generateLocationBlock($upstream_name, $domain, $modsec_enabled, $geoip_enabled,
@@ -1143,6 +1145,15 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
     $block .= "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;\n";
     $block .= "        proxy_set_header X-Forwarded-Proto \$scheme;\n";
     $block .= "        proxy_set_header X-Forwarded-Host \$host;\n";  // Bitwarden compatibility
+    
+    // Add Cloudflare-compatible IP headers if enabled
+    $cf_ip_headers = $site['cf_ip_headers'] ?? 0;
+    if ($cf_ip_headers) {
+        $block .= "        # Cloudflare-compatible IP headers for backend processing\n";
+        $block .= "        proxy_set_header CF-Connecting-IP \$remote_addr;\n";
+        $block .= "        proxy_set_header True-Client-IP \$remote_addr;\n";
+    }
+    
     $block .= "        proxy_set_header Upgrade \$http_upgrade;\n";
     $block .= "        proxy_set_header Connection \$connection_upgrade;\n";  // Use map for dynamic Connection header
     $block .= "\n";
@@ -1255,7 +1266,7 @@ function cleanupOrphanedConfigs($db) {
 /**
  * Generate WebSocket location block
  */
-function generateWebSocketLocation($upstream_name, $ws_path, $ws_protocol, $ws_port, $backend_address) {
+function generateWebSocketLocation($upstream_name, $ws_path, $ws_protocol, $ws_port, $backend_address, $site) {
     $block = "\n    # WebSocket support\n";
     $block .= "    location {$ws_path} {\n";
     
@@ -1284,6 +1295,14 @@ function generateWebSocketLocation($upstream_name, $ws_path, $ws_protocol, $ws_p
     $block .= "        proxy_set_header X-Forwarded-Proto \$scheme;\n";
     $block .= "        proxy_set_header X-Forwarded-Host \$host;\n";
     $block .= "        proxy_set_header X-Forwarded-Port \$server_port;\n";
+    
+    // Add Cloudflare-compatible IP headers if enabled
+    $cf_ip_headers = $site['cf_ip_headers'] ?? 0;
+    if ($cf_ip_headers) {
+        $block .= "        # Cloudflare-compatible IP headers\n";
+        $block .= "        proxy_set_header CF-Connecting-IP \$remote_addr;\n";
+        $block .= "        proxy_set_header True-Client-IP \$remote_addr;\n";
+    }
     
     // Proxy settings
     $block .= "        proxy_redirect off;\n";

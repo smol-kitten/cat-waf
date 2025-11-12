@@ -112,6 +112,11 @@ try {
             handleBots($method, array_slice($uri, 1), $db);
             break;
             
+        case 'bot-whitelist':
+            require_once 'endpoints/bot-whitelist.php';
+            handleBotWhitelist($method, array_slice($uri, 1), $db);
+            break;
+            
         case 'telemetry':
             require_once 'endpoints/telemetry.php';
             handleTelemetry($method, array_slice($uri, 1), $db);

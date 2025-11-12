@@ -418,6 +418,134 @@ function handleTelemetry($method, $params, $db) {
             sendResponse($formatted);
             break;
         
+        case 'error-logs':
+            // Get detailed error logs with filtering
+            $range = $_GET['range'] ?? '24h';
+            $statusCode = isset($_GET['status']) ? (int)$_GET['status'] : null;
+            $domain = $_GET['domain'] ?? null;
+            $limit = min((int)($_GET['limit'] ?? 100), 500);
+            
+            // Convert range to hours
+            $hours = 24;
+            if ($range === '1h') $hours = 1;
+            elseif ($range === '7d') $hours = 168;
+            elseif ($range === '30d') $hours = 720;
+            
+            $conditions = ["timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)"];
+            $params = [$hours];
+            
+            // Filter by status code (or range)
+            if ($statusCode) {
+                $conditions[] = "status_code = ?";
+                $params[] = $statusCode;
+            } else {
+                // Only errors (4xx and 5xx)
+                $conditions[] = "status_code >= 400";
+            }
+            
+            // Filter by domain
+            if ($domain) {
+                $conditions[] = "domain = ?";
+                $params[] = $domain;
+            }
+            
+            $whereClause = implode(' AND ', $conditions);
+            
+            $stmt = $db->prepare("
+                SELECT 
+                    timestamp,
+                    domain,
+                    uri,
+                    method,
+                    status_code,
+                    response_time,
+                    backend_server,
+                    ip_address,
+                    user_agent,
+                    referer
+                FROM request_telemetry 
+                WHERE $whereClause
+                ORDER BY timestamp DESC
+                LIMIT ?
+            ");
+            $params[] = $limit;
+            $stmt->execute($params);
+            
+            $results = $stmt->fetchAll();
+            
+            // Format the results
+            $formatted = array_map(function($row) {
+                return [
+                    'timestamp' => $row['timestamp'],
+                    'domain' => $row['domain'] ?? 'unknown',
+                    'uri' => $row['uri'] ?? '/',
+                    'method' => $row['method'] ?? 'GET',
+                    'status_code' => (int)($row['status_code'] ?? 0),
+                    'response_time' => round(($row['response_time'] ?? 0) * 1000, 1),
+                    'backend_server' => $row['backend_server'] ?? 'unknown',
+                    'ip_address' => $row['ip_address'] ?? 'unknown',
+                    'user_agent' => substr($row['user_agent'] ?? '', 0, 100),
+                    'referer' => $row['referer'] ?? ''
+                ];
+            }, $results);
+            
+            sendResponse($formatted);
+            break;
+            
+        case 'error-summary':
+            // Get summary of errors by status code
+            $range = $_GET['range'] ?? '24h';
+            
+            // Convert range to hours
+            $hours = 24;
+            if ($range === '1h') $hours = 1;
+            elseif ($range === '7d') $hours = 168;
+            elseif ($range === '30d') $hours = 720;
+            
+            $stmt = $db->prepare("
+                SELECT 
+                    status_code,
+                    COUNT(*) as count,
+                    COUNT(DISTINCT domain) as affected_domains,
+                    COUNT(DISTINCT ip_address) as unique_ips
+                FROM request_telemetry 
+                WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
+                    AND status_code >= 400
+                    AND status_code IS NOT NULL
+                GROUP BY status_code
+                ORDER BY count DESC
+            ");
+            $stmt->execute([$hours]);
+            
+            $results = $stmt->fetchAll();
+            
+            // Add status code descriptions
+            $statusDescriptions = [
+                400 => 'Bad Request',
+                401 => 'Unauthorized',
+                403 => 'Forbidden',
+                404 => 'Not Found',
+                429 => 'Too Many Requests',
+                500 => 'Internal Server Error',
+                502 => 'Bad Gateway',
+                503 => 'Service Unavailable',
+                504 => 'Gateway Timeout'
+            ];
+            
+            $formatted = array_map(function($row) use ($statusDescriptions) {
+                $statusCode = (int)$row['status_code'];
+                return [
+                    'status_code' => $statusCode,
+                    'description' => $statusDescriptions[$statusCode] ?? 'Unknown Error',
+                    'count' => (int)$row['count'],
+                    'affected_domains' => (int)$row['affected_domains'],
+                    'unique_ips' => (int)$row['unique_ips']
+                ];
+            }, $results);
+            
+            sendResponse($formatted);
+            break;
+        
         case 'recent-requests':
             // Get recent requests for a specific site
             $domain = $_GET['domain'] ?? null;
