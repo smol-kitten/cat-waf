@@ -195,6 +195,11 @@ try {
             handleSystem($method, array_slice($uri, 1), $db);
             break;
             
+        case 'recovery':
+            require_once 'endpoints/recovery.php';
+            handleRecovery($method, array_slice($uri, 1), $db);
+            break;
+            
         default:
             http_response_code(404);
             echo json_encode(['error' => 'Endpoint not found']);

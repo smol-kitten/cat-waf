@@ -30,6 +30,37 @@ if (!function_exists('extractRootDomain')) {
     }
 }
 
+/**
+ * Sanitize certificate domain path to prevent path traversal and invalid characters
+ * Removes dangerous patterns like "..", "../", ".copy", etc.
+ */
+if (!function_exists('sanitizeCertDomain')) {
+    function sanitizeCertDomain($domain) {
+        // Remove wildcard prefix
+        $domain = preg_replace('/^\*\./', '', $domain);
+        
+        // Remove any path traversal attempts
+        $domain = str_replace(['../', '..\\', '..'], '', $domain);
+        
+        // Remove .copy, .bak, .old, etc suffixes that might cause issues
+        $domain = preg_replace('/\.(copy|bak|old|tmp|backup|orig)$/i', '', $domain);
+        
+        // Only allow alphanumeric, dots, hyphens (valid domain characters)
+        $domain = preg_replace('/[^a-z0-9.-]/i', '', $domain);
+        
+        // Remove leading/trailing dots or hyphens
+        $domain = trim($domain, '.-');
+        
+        // If empty after sanitization, return a safe default
+        if (empty($domain)) {
+            error_log("WARNING: Certificate domain sanitization resulted in empty string, using 'default'");
+            return 'default';
+        }
+        
+        return $domain;
+    }
+}
+
 // Generate APR1-MD5 hash for htpasswd (Apache compatible)
 function generateApr1Hash($plainpasswd) {
     $salt = substr(str_shuffle("abcdefghijklmnopqrstuvwxyz0123456789"), 0, 8);
@@ -793,10 +824,14 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
         $baseDomain = extractRootDomain($domain);
         $certDomain = $baseDomain; // Always use base domain cert (covers wildcards)
         
+        // Sanitize certificate domain to prevent path traversal and invalid characters
+        $certDomain = sanitizeCertDomain($certDomain);
+        $domain_safe = sanitizeCertDomain($domain);
+        
         if ($ssl_challenge_type === 'snakeoil') {
             // Use self-signed snakeoil certificate (domain-specific)
-            $config .= "    ssl_certificate /etc/nginx/certs/{$domain}/fullchain.pem;\n";
-            $config .= "    ssl_certificate_key /etc/nginx/certs/{$domain}/key.pem;\n";
+            $config .= "    ssl_certificate /etc/nginx/certs/{$domain_safe}/fullchain.pem;\n";
+            $config .= "    ssl_certificate_key /etc/nginx/certs/{$domain_safe}/key.pem;\n";
         } else {
             // Use Let's Encrypt certificate from base domain (wildcard support)
             $config .= "    ssl_certificate /etc/nginx/certs/{$certDomain}/fullchain.pem;\n";

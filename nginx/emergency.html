@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CatWAF Emergency Mode</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 800px;
+            width: 100%;
+            padding: 40px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .cat-icon {
+            font-size: 64px;
+            margin-bottom: 10px;
+        }
+        
+        h1 {
+            color: #2d3748;
+            margin-bottom: 10px;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            background: #f56565;
+            color: white;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+        
+        .alert {
+            background: #fff5f5;
+            border-left: 4px solid #f56565;
+            padding: 16px;
+            margin-bottom: 24px;
+            border-radius: 4px;
+        }
+        
+        .alert h3 {
+            color: #c53030;
+            margin-bottom: 8px;
+        }
+        
+        .alert p {
+            color: #742a2a;
+            line-height: 1.6;
+        }
+        
+        .info-section {
+            background: #f7fafc;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .info-section h3 {
+            color: #2d3748;
+            margin-bottom: 12px;
+            font-size: 18px;
+        }
+        
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .info-item:last-child {
+            border-bottom: none;
+        }
+        
+        .info-label {
+            font-weight: 600;
+            color: #4a5568;
+        }
+        
+        .info-value {
+            color: #718096;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        
+        .recovery-steps {
+            background: #ebf8ff;
+            border-left: 4px solid #4299e1;
+            padding: 20px;
+            border-radius: 4px;
+            margin-bottom: 24px;
+        }
+        
+        .recovery-steps h3 {
+            color: #2c5282;
+            margin-bottom: 12px;
+        }
+        
+        .recovery-steps ol {
+            margin-left: 20px;
+            color: #2c5282;
+        }
+        
+        .recovery-steps li {
+            margin-bottom: 8px;
+            line-height: 1.6;
+        }
+        
+        .recovery-steps code {
+            background: #2d3748;
+            color: #68d391;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 13px;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background: #4299e1;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #3182ce;
+            transform: translateY(-1px);
+        }
+        
+        .btn-secondary {
+            background: #718096;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #4a5568;
+        }
+        
+        .api-endpoint {
+            background: #2d3748;
+            color: #68d391;
+            padding: 12px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            margin: 10px 0;
+            overflow-x: auto;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e2e8f0;
+            color: #718096;
+            font-size: 14px;
+        }
+        
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        
+        .status-card {
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 16px;
+            text-align: center;
+        }
+        
+        .status-card .value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #f56565;
+            margin-bottom: 8px;
+        }
+        
+        .status-card .label {
+            color: #718096;
+            font-size: 14px;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #e2e8f0;
+            border-top-color: #4299e1;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="cat-icon">🐱</div>
+            <h1>CatWAF Emergency Mode</h1>
+            <span class="status-badge">⚠️ EMERGENCY RECOVERY MODE</span>
+        </div>
+        
+        <div class="alert">
+            <h3>⚠️ Configuration Error Detected</h3>
+            <p>
+                One or more site configurations contained errors that prevented NGINX from starting.
+                All broken configurations have been automatically quarantined to allow the system to recover.
+            </p>
+        </div>
+        
+        <div class="status-grid" id="statusGrid">
+            <div class="status-card">
+                <div class="value" id="quarantinedCount"><div class="loading"></div></div>
+                <div class="label">Quarantined Configs</div>
+            </div>
+            <div class="status-card">
+                <div class="value">✅</div>
+                <div class="label">API Status</div>
+            </div>
+            <div class="status-card">
+                <div class="value" id="timestamp"><div class="loading"></div></div>
+                <div class="label">Recovery Mode Since</div>
+            </div>
+        </div>
+        
+        <div class="info-section">
+            <h3>📁 Quarantine Information</h3>
+            <div class="info-item">
+                <span class="info-label">Quarantine Directory:</span>
+                <span class="info-value">/etc/nginx/sites-quarantine/</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Log File:</span>
+                <span class="info-value">/var/log/nginx/quarantine.log</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">API Access:</span>
+                <span class="info-value">http://your-server/api/</span>
+            </div>
+        </div>
+        
+        <div class="recovery-steps">
+            <h3>🔧 Recovery Steps</h3>
+            <ol>
+                <li>Check which configs were quarantined:
+                    <div class="api-endpoint">GET /api/recovery/quarantined</div>
+                </li>
+                <li>View quarantine logs for error details:
+                    <div class="api-endpoint">GET /api/recovery/logs</div>
+                </li>
+                <li>Fix the issue (usually missing certificates or invalid paths)</li>
+                <li>Regenerate the config via API:
+                    <div class="api-endpoint">POST /api/sites/:id/regenerate</div>
+                </li>
+                <li>Or restore manually after fixing:
+                    <div class="api-endpoint">POST /api/recovery/restore/:domain</div>
+                </li>
+            </ol>
+        </div>
+        
+        <div class="info-section">
+            <h3>🐛 Common Issues</h3>
+            <ul style="margin-left: 20px; color: #4a5568; line-height: 1.8;">
+                <li><strong>Missing SSL certificates:</strong> Certificate path exists in config but file not found</li>
+                <li><strong>Invalid certificate paths:</strong> Typos or incorrect paths (e.g., "systems.copy")</li>
+                <li><strong>Backend not reachable:</strong> Backend URL or port incorrect</li>
+                <li><strong>Syntax errors:</strong> Invalid nginx directives in custom config</li>
+            </ul>
+        </div>
+        
+        <div class="button-group">
+            <a href="/api/recovery/quarantined" class="btn btn-primary" target="_blank">
+                📋 View Quarantined Configs
+            </a>
+            <a href="/api/recovery/logs" class="btn btn-secondary" target="_blank">
+                📄 View Logs
+            </a>
+            <button class="btn btn-secondary" onclick="checkStatus()">
+                🔄 Refresh Status
+            </button>
+        </div>
+        
+        <div class="footer">
+            <p>CatWAF v1.0 - Purr-otecting your sites since 2025</p>
+            <p>Need help? Check the logs or regenerate configs via the API</p>
+        </div>
+    </div>
+    
+    <script>
+        async function checkStatus() {
+            try {
+                const response = await fetch('/api/recovery/quarantined');
+                const data = await response.json();
+                
+                document.getElementById('quarantinedCount').textContent = data.quarantined_count || 0;
+                
+                // Get timestamp from first quarantined file
+                if (data.configs && data.configs.length > 0) {
+                    const firstQuarantined = data.configs[0];
+                    const date = new Date(firstQuarantined.quarantined_at * 1000);
+                    document.getElementById('timestamp').textContent = date.toLocaleTimeString();
+                } else {
+                    document.getElementById('timestamp').textContent = 'N/A';
+                }
+            } catch (error) {
+                console.error('Failed to fetch status:', error);
+                document.getElementById('quarantinedCount').textContent = '?';
+                document.getElementById('timestamp').textContent = 'Error';
+            }
+        }
+        
+        // Load status on page load
+        checkStatus();
+        
+        // Refresh every 30 seconds
+        setInterval(checkStatus, 30000);
+    </script>
+</body>
+</html>

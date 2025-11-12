@@ -102,6 +102,9 @@ RUN chmod +x /usr/local/bin/config-watcher.sh
 # Copy error pages
 COPY error-pages /usr/share/nginx/error-pages
 
+# Copy emergency recovery page
+COPY emergency.html /emergency.html
+
 # Create log directories
 RUN mkdir -p /var/log/nginx /var/log/modsec && \
     chown -R nginx:nginx /var/log/nginx /var/log/modsec

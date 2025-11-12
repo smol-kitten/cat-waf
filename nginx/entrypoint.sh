@@ -151,7 +151,126 @@ echo "🧪 Testing NGINX configuration..."
 nginx -t
 if [ $? -ne 0 ]; then
     echo "❌ NGINX configuration test failed!"
-    echo "⚠️  Starting anyway to allow debugging..."
+    echo "🔧 Attempting to recover by quarantining broken configs..."
+    
+    # Create quarantine directory
+    mkdir -p /etc/nginx/sites-quarantine
+    
+    # Test each site config individually to find the broken one(s)
+    BROKEN_CONFIGS=""
+    for conf_file in /etc/nginx/sites-enabled/*.conf; do
+        if [ -f "$conf_file" ]; then
+            domain=$(basename "$conf_file")
+            
+            # Skip default config
+            if [ "$domain" = "default.conf" ]; then
+                continue
+            fi
+            
+            echo "  🔍 Testing $domain..."
+            
+            # Create temp nginx config with only this site
+            cat > /tmp/test-nginx.conf << 'TESTCONF'
+user nginx;
+worker_processes 1;
+error_log /dev/null;
+pid /tmp/nginx-test.pid;
+events { worker_connections 1024; }
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    access_log /dev/null;
+    include /etc/nginx/conf.d/*.conf;
+TESTCONF
+            echo "    include $conf_file;" >> /tmp/test-nginx.conf
+            echo "}" >> /tmp/test-nginx.conf
+            
+            # Test this specific config
+            nginx -t -c /tmp/test-nginx.conf 2>&1 | grep -q "test is successful"
+            if [ $? -ne 0 ]; then
+                echo "  ❌ Broken config detected: $domain"
+                BROKEN_CONFIGS="${BROKEN_CONFIGS}$domain "
+                
+                # Move to quarantine
+                mv "$conf_file" "/etc/nginx/sites-quarantine/$domain"
+                echo "  📦 Quarantined: $domain"
+                
+                # Log the error for debugging
+                echo "[$(date)] Quarantined broken config: $domain" >> /var/log/nginx/quarantine.log
+                nginx -t -c /tmp/test-nginx.conf 2>&1 >> /var/log/nginx/quarantine.log
+            else
+                echo "  ✅ Config OK: $domain"
+            fi
+            
+            rm -f /tmp/test-nginx.conf /tmp/nginx-test.pid
+        fi
+    done
+    
+    # Test again after quarantine
+    echo "🧪 Re-testing NGINX configuration..."
+    nginx -t
+    if [ $? -ne 0 ]; then
+        echo "❌ NGINX still won't start! Loading emergency fallback..."
+        
+        # Quarantine ALL site configs
+        mv /etc/nginx/sites-enabled/*.conf /etc/nginx/sites-quarantine/ 2>/dev/null || true
+        
+        # Copy emergency HTML page
+        mkdir -p /var/www/emergency
+        cp /emergency.html /var/www/emergency/index.html 2>/dev/null || true
+        
+        # Create minimal emergency config to keep API accessible
+        cat > /etc/nginx/sites-enabled/emergency-fallback.conf << 'EMERGENCY'
+# Emergency Fallback Configuration
+# This config is loaded when all site configs fail
+# Provides minimal API access for recovery
+
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    
+    # Root directory for emergency page
+    root /var/www/emergency;
+    index index.html;
+    
+    # Serve emergency recovery page
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header X-Emergency-Mode "true" always;
+    }
+    
+    # Keep API accessible via HTTP (dashboard access)
+    location /api/ {
+        proxy_pass http://waf-dashboard:80/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_redirect off;
+        proxy_buffering off;
+    }
+    
+    # Health check endpoint
+    location /health {
+        access_log off;
+        return 200 '{"status": "emergency_mode", "message": "API accessible", "quarantined": true}';
+        add_header Content-Type application/json;
+    }
+}
+EMERGENCY
+        
+        echo "✅ Emergency fallback loaded"
+        echo "📝 Broken configs: ${BROKEN_CONFIGS}"
+        echo "📁 Quarantined to: /etc/nginx/sites-quarantine/"
+        echo "📋 Recovery logs: /var/log/nginx/quarantine.log"
+    else
+        echo "✅ NGINX configuration recovered!"
+        echo "📝 Quarantined broken configs: ${BROKEN_CONFIGS}"
+    fi
+else
+    echo "✅ NGINX configuration test passed"
 fi
 
 # Create log files that fail2ban expects
