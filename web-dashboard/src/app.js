@@ -190,6 +190,9 @@ async function loadPageData(page) {
         case 'bots':
             await loadBotProtectionData();
             break;
+        case 'bot-whitelist':
+            await loadBotWhitelist();
+            break;
         case 'telemetry':
             await loadTelemetryData();
             break;
@@ -684,17 +687,60 @@ async function loadSites() {
 function createSiteCard(site) {
     const div = document.createElement('div');
     div.className = 'site-card';
+    
+    // Generate status badges
+    const badges = [];
+    
+    // Config status badge
+    if (site.enabled) {
+        badges.push('<span class="status-badge badge-success" title="Site is active">✓ Active</span>');
+    } else {
+        badges.push('<span class="status-badge badge-inactive" title="Site is disabled">⏸ Inactive</span>');
+    }
+    
+    // SSL status badge
+    if (site.ssl_enabled) {
+        // Check if using real certificate or snakeoil
+        const certType = site.cert_type || 'snakeoil'; // This would need to be added to API response
+        if (certType === 'snakeoil') {
+            badges.push('<span class="status-badge badge-warning" title="Using self-signed certificate">🔓 Self-Signed</span>');
+        } else {
+            badges.push('<span class="status-badge badge-success" title="Using Let\'s Encrypt certificate">🔒 SSL</span>');
+        }
+    } else {
+        badges.push('<span class="status-badge badge-info" title="HTTP only">🌐 HTTP</span>');
+    }
+    
+    // Rate limiting badge
+    if (site.rate_limit_zone && site.rate_limit_zone !== 'none') {
+        badges.push('<span class="status-badge badge-info" title="Rate limiting enabled">🛡️ Rate Limited</span>');
+    }
+    
+    // HTTP/2 badge
+    if (site.http2_enabled) {
+        badges.push('<span class="status-badge badge-info" title="HTTP/2 enabled">⚡ HTTP/2</span>');
+    }
+    
+    // WebSocket badge
+    if (site.websocket_enabled) {
+        badges.push('<span class="status-badge badge-info" title="WebSocket support enabled">🔌 WebSocket</span>');
+    }
+    
+    // Cloudflare IP headers badge
+    if (site.cf_ip_headers) {
+        badges.push('<span class="status-badge badge-info" title="Cloudflare IP headers enabled">☁️ CF Headers</span>');
+    }
+    
     div.innerHTML = `
         <div class="site-header">
             <div class="site-domain">${site.domain}</div>
-            <span class="site-status ${site.enabled ? 'active' : 'inactive'}">
-                ${site.enabled ? 'Active' : 'Inactive'}
-            </span>
+        </div>
+        <div class="site-badges">
+            ${badges.join('')}
         </div>
         <div class="site-info">
-            <div>Backend: ${site.backend_url || site.backend || 'N/A'}</div>
-            <div>SSL: ${site.ssl_enabled ? 'Enabled' : 'Disabled'}</div>
-            <div>Rate Limit: ${site.rate_limit_zone || 'None'}</div>
+            <div><strong>Backend:</strong> ${site.backend_url || site.backend || 'N/A'}</div>
+            ${site.rate_limit_zone ? `<div><strong>Rate Limit:</strong> ${site.rate_limit_zone}</div>` : ''}
         </div>
         <div class="site-actions">
             <button class="btn-secondary" onclick="editSite(${site.id})">✏️ Edit</button>
@@ -5988,3 +6034,250 @@ document.addEventListener('DOMContentLoaded', () => {
     globalWellKnownObserver.observe(document.body, { childList: true, subtree: true });
 });
 
+// ============================================================
+// BOT WHITELIST MANAGEMENT
+// ============================================================
+
+// Load bot whitelist
+async function loadBotWhitelist() {
+    try {
+        const filter = document.getElementById('botActionFilter')?.value || '';
+        const response = await apiRequest('/bot-whitelist');
+        let bots = response?.bots || [];
+        
+        // Filter by action if selected
+        if (filter) {
+            bots = bots.filter(bot => bot.action === filter);
+        }
+        
+        const tbody = document.getElementById('botWhitelistBody');
+        if (!tbody) return;
+        
+        if (bots.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem; color: var(--text-muted);">No bot rules found</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = '';
+        
+        bots.forEach(bot => {
+            const row = document.createElement('tr');
+            
+            // Action badge color
+            let actionClass = 'badge-info';
+            if (bot.action === 'allow') actionClass = 'badge-success';
+            if (bot.action === 'block') actionClass = 'badge-danger';
+            if (bot.action === 'flag') actionClass = 'badge-warning';
+            
+            row.innerHTML = `
+                <td style="text-align: center;">
+                    <label class="toggle" style="margin: 0;">
+                        <input type="checkbox" ${bot.enabled ? 'checked' : ''} onchange="toggleBotRule(${bot.id}, this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </td>
+                <td><code style="font-size: 0.85rem; color: var(--primary);">${escapeHtml(bot.pattern)}</code></td>
+                <td>
+                    <span class="status-badge ${actionClass}" style="text-transform: capitalize;">
+                        ${bot.action}
+                    </span>
+                </td>
+                <td style="text-align: center; font-weight: 600;">${bot.priority}</td>
+                <td>${escapeHtml(bot.description || '-')}</td>
+                <td>
+                    <div style="display: flex; gap: 6px; justify-content: flex-end;">
+                        <button class="btn-icon btn-success" onclick="changeBotAction(${bot.id}, 'allow')" title="Allow">
+                            ✓
+                        </button>
+                        <button class="btn-icon btn-warning" onclick="changeBotAction(${bot.id}, 'flag')" title="Flag">
+                            ⚠
+                        </button>
+                        <button class="btn-icon btn-danger" onclick="changeBotAction(${bot.id}, 'block')" title="Block">
+                            ✕
+                        </button>
+                        <button class="btn-icon" onclick="editBotRule(${bot.id})" title="Edit">
+                            ✏️
+                        </button>
+                        <button class="btn-icon btn-danger" onclick="deleteBotRule(${bot.id})" title="Delete">
+                            🗑️
+                        </button>
+                    </div>
+                </td>
+            `;
+            
+            tbody.appendChild(row);
+        });
+    } catch (error) {
+        console.error('Error loading bot whitelist:', error);
+        showToast('Failed to load bot whitelist', 'error');
+    }
+}
+
+// Show add bot rule modal
+function showAddBotRuleModal() {
+    document.getElementById('botRuleModalTitle').textContent = 'Add Bot Rule';
+    document.getElementById('botRuleId').value = '';
+    document.getElementById('botRulePattern').value = '';
+    document.getElementById('botRuleAction').value = 'allow';
+    document.getElementById('botRulePriority').value = '100';
+    document.getElementById('botRuleDescription').value = '';
+    document.getElementById('botRuleEnabled').checked = true;
+    
+    showModal('botRuleModal');
+}
+
+// Edit bot rule
+async function editBotRule(id) {
+    try {
+        const response = await apiRequest(`/bot-whitelist/${id}`);
+        const bot = response?.bot;
+        
+        if (!bot) {
+            showToast('Bot rule not found', 'error');
+            return;
+        }
+        
+        document.getElementById('botRuleModalTitle').textContent = 'Edit Bot Rule';
+        document.getElementById('botRuleId').value = bot.id;
+        document.getElementById('botRulePattern').value = bot.pattern;
+        document.getElementById('botRuleAction').value = bot.action;
+        document.getElementById('botRulePriority').value = bot.priority;
+        document.getElementById('botRuleDescription').value = bot.description || '';
+        document.getElementById('botRuleEnabled').checked = bot.enabled == 1;
+        
+        showModal('botRuleModal');
+    } catch (error) {
+        console.error('Error loading bot rule:', error);
+        showToast('Failed to load bot rule', 'error');
+    }
+}
+
+// Save bot rule
+async function saveBotRule() {
+    const id = document.getElementById('botRuleId').value;
+    const pattern = document.getElementById('botRulePattern').value.trim();
+    const action = document.getElementById('botRuleAction').value;
+    const priority = parseInt(document.getElementById('botRulePriority').value);
+    const description = document.getElementById('botRuleDescription').value.trim();
+    const enabled = document.getElementById('botRuleEnabled').checked;
+    
+    if (!pattern) {
+        showToast('Pattern is required', 'error');
+        return;
+    }
+    
+    if (!action) {
+        showToast('Action is required', 'error');
+        return;
+    }
+    
+    if (!priority || priority < 1) {
+        showToast('Priority must be at least 1', 'error');
+        return;
+    }
+    
+    try {
+        const data = {
+            pattern,
+            action,
+            priority,
+            description,
+            enabled: enabled ? 1 : 0
+        };
+        
+        const response = id 
+            ? await apiRequest(`/bot-whitelist/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+            : await apiRequest('/bot-whitelist', { method: 'POST', body: JSON.stringify(data) });
+        
+        if (response && response.success) {
+            showToast(id ? 'Bot rule updated successfully' : 'Bot rule created successfully', 'success');
+            closeModal('botRuleModal');
+            loadBotWhitelist();
+        }
+    } catch (error) {
+        console.error('Error saving bot rule:', error);
+        showToast('Failed to save bot rule', 'error');
+    }
+}
+
+// Toggle bot rule enabled/disabled
+async function toggleBotRule(id, enabled) {
+    try {
+        const data = { enabled: enabled ? 1 : 0 };
+        const response = await apiRequest(`/bot-whitelist/${id}`, { 
+            method: 'PATCH', 
+            body: JSON.stringify(data) 
+        });
+        
+        if (response && response.success) {
+            showToast(`Bot rule ${enabled ? 'enabled' : 'disabled'}`, 'success');
+        }
+    } catch (error) {
+        console.error('Error toggling bot rule:', error);
+        showToast('Failed to update bot rule', 'error');
+        loadBotWhitelist(); // Reload to reset checkbox
+    }
+}
+
+// Change bot action (quick action buttons)
+async function changeBotAction(id, action) {
+    try {
+        const data = { action };
+        const response = await apiRequest(`/bot-whitelist/${id}`, { 
+            method: 'PATCH', 
+            body: JSON.stringify(data) 
+        });
+        
+        if (response && response.success) {
+            showToast(`Bot action changed to ${action}`, 'success');
+            loadBotWhitelist();
+        }
+    } catch (error) {
+        console.error('Error changing bot action:', error);
+        showToast('Failed to change bot action', 'error');
+    }
+}
+
+// Delete bot rule
+async function deleteBotRule(id) {
+    if (!confirm('Are you sure you want to delete this bot rule?')) {
+        return;
+    }
+    
+    try {
+        const response = await apiRequest(`/bot-whitelist/${id}`, { method: 'DELETE' });
+        
+        if (response && response.success) {
+            showToast('Bot rule deleted successfully', 'success');
+            loadBotWhitelist();
+        }
+    } catch (error) {
+        console.error('Error deleting bot rule:', error);
+        showToast('Failed to delete bot rule', 'error');
+    }
+}
+
+// Regenerate bot protection config
+async function regenerateBotConfig() {
+    if (!confirm('Regenerate bot protection configuration? This will reload NGINX.')) {
+        return;
+    }
+    
+    try {
+        const response = await apiRequest('/bot-whitelist/regenerate', { method: 'POST' });
+        
+        if (response && response.success) {
+            showToast('Bot config regenerated and NGINX reloaded', 'success');
+        }
+    } catch (error) {
+        console.error('Error regenerating bot config:', error);
+        showToast('Failed to regenerate bot config', 'error');
+    }
+}
+
+// Helper function to escape HTML
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}

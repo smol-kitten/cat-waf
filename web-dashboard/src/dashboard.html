@@ -48,6 +48,10 @@
                     <span class="nav-icon">🤖</span>
                     <span class="nav-text">Bot Protection</span>
                 </a>
+                <a href="#" class="nav-item" data-page="bot-whitelist">
+                    <span class="nav-icon">🎯</span>
+                    <span class="nav-text">Bot Whitelist</span>
+                </a>
                 <a href="#" class="nav-item" data-page="telemetry">
                     <span class="nav-icon">📊</span>
                     <span class="nav-text">Telemetry</span>
@@ -985,6 +989,58 @@ Sitemap: https://example.com/sitemap.xml"></textarea>
                     </div>
                 </div>
 
+                <!-- Bot Whitelist Management Page -->
+                <div class="page" id="bot-whitelist-page">
+                    <div class="page-header">
+                        <div>
+                            <h2>🎯 Bot Whitelist Management</h2>
+                            <p style="color: var(--text-muted); margin-top: 0.5rem;">
+                                Manage bot detection patterns and actions. Changes are applied immediately after save.
+                            </p>
+                        </div>
+                        <button class="btn-primary" onclick="showAddBotRuleModal()">
+                            <span>➕</span>
+                            <span>Add Bot Rule</span>
+                        </button>
+                    </div>
+
+                    <!-- Bot Rules Table -->
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3>Bot Rules</h3>
+                            <div style="display: flex; gap: 10px;">
+                                <select class="filter-select" id="botActionFilter" onchange="loadBotWhitelist()">
+                                    <option value="">All Actions</option>
+                                    <option value="allow">Allow</option>
+                                    <option value="flag">Flag</option>
+                                    <option value="block">Block</option>
+                                </select>
+                                <button class="btn-secondary" onclick="regenerateBotConfig()">
+                                    <span>🔄</span>
+                                    <span>Regenerate Config</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 50px;">Enabled</th>
+                                        <th>Pattern</th>
+                                        <th style="width: 120px;">Action</th>
+                                        <th style="width: 80px;">Priority</th>
+                                        <th>Description</th>
+                                        <th style="width: 200px;">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="botWhitelistBody">
+                                    <tr><td colspan="6" style="text-align: center; padding: 2rem;">Loading bot rules...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Telemetry Page -->
                 <div class="page" id="telemetry-page">
                     <div class="page-header">
@@ -1675,6 +1731,57 @@ Sitemap: https://example.com/sitemap.xml"></textarea>
             <div class="modal-footer">
                 <button class="btn-secondary" onclick="closeModal('blockRuleModal')">Cancel</button>
                 <button class="btn-primary" onclick="saveBlockRule()">Save Rule</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Bot Rule Modal -->
+    <div class="modal" id="botRuleModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="botRuleModalTitle">Add Bot Rule</h3>
+                <button class="modal-close" onclick="closeModal('botRuleModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="botRuleId">
+                <div class="form-group">
+                    <label>Bot Pattern (User-Agent) *</label>
+                    <input type="text" id="botRulePattern" placeholder="~*googlebot" class="form-input" required>
+                    <small style="color: var(--text-muted);">
+                        Use nginx regex format. Examples: <code>~*googlebot</code>, <code>~*bingbot</code>, <code>~*facebookexternalhit</code><br>
+                        <code>~*</code> = case-insensitive, <code>~</code> = case-sensitive
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label>Action *</label>
+                    <select id="botRuleAction" class="form-input" required>
+                        <option value="allow">Allow - Let bot pass through</option>
+                        <option value="flag">Flag - Allow but log as suspicious</option>
+                        <option value="block">Block - Reject with 403</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Priority *</label>
+                    <input type="number" id="botRulePriority" class="form-input" value="100" min="1" max="999" required>
+                    <small style="color: var(--text-muted);">
+                        Lower numbers = higher priority. Good bots: 10-50, Neutral: 100-150, Bad bots: 200-250
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <input type="text" id="botRuleDescription" placeholder="Google Search Bot" class="form-input">
+                    <small style="color: var(--text-muted);">Friendly name for this bot rule</small>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="botRuleEnabled" checked>
+                        <span>Enable this rule</span>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal('botRuleModal')">Cancel</button>
+                <button class="btn-primary" onclick="saveBotRule()">Save Rule</button>
             </div>
         </div>
     </div>

@@ -481,6 +481,58 @@ body {
     background: var(--bg-card);
 }
 
+/* Icon Buttons (for action buttons) */
+.btn-icon {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: var(--transition);
+    font-size: 0.875rem;
+}
+
+.btn-icon:hover {
+    transform: scale(1.1);
+    box-shadow: var(--shadow);
+}
+
+.btn-icon.btn-success {
+    background: rgba(76, 175, 80, 0.15);
+    border-color: var(--success);
+    color: var(--success);
+}
+
+.btn-icon.btn-success:hover {
+    background: rgba(76, 175, 80, 0.25);
+}
+
+.btn-icon.btn-warning {
+    background: rgba(255, 167, 38, 0.15);
+    border-color: var(--warning);
+    color: var(--warning);
+}
+
+.btn-icon.btn-warning:hover {
+    background: rgba(255, 167, 38, 0.25);
+}
+
+.btn-icon.btn-danger {
+    background: rgba(239, 83, 80, 0.15);
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.btn-icon.btn-danger:hover {
+    background: rgba(239, 83, 80, 0.25);
+}
+
 /* Page Header */
 .page-header {
     display: flex;
@@ -523,6 +575,59 @@ body {
 .site-domain {
     font-size: 1.25rem;
     font-weight: 600;
+}
+
+.site-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-md);
+}
+
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: var(--radius-full);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    transition: var(--transition);
+}
+
+.status-badge:hover {
+    transform: scale(1.05);
+}
+
+.badge-success {
+    background: rgba(76, 175, 80, 0.15);
+    color: var(--success);
+    border: 1px solid rgba(76, 175, 80, 0.3);
+}
+
+.badge-warning {
+    background: rgba(255, 167, 38, 0.15);
+    color: var(--warning);
+    border: 1px solid rgba(255, 167, 38, 0.3);
+}
+
+.badge-danger {
+    background: rgba(239, 83, 80, 0.15);
+    color: var(--danger);
+    border: 1px solid rgba(239, 83, 80, 0.3);
+}
+
+.badge-info {
+    background: rgba(41, 182, 246, 0.15);
+    color: var(--info);
+    border: 1px solid rgba(41, 182, 246, 0.3);
+}
+
+.badge-inactive {
+    background: rgba(133, 133, 160, 0.15);
+    color: var(--text-muted);
+    border: 1px solid rgba(133, 133, 160, 0.3);
 }
 
 .site-status {
