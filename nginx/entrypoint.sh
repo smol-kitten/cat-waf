@@ -146,6 +146,27 @@ for conf_file in /etc/nginx/sites-enabled/*.conf; do
     fi
 done
 
+# Clean up any .copy, .bak, .old, .tmp configs before testing
+echo "🧹 Cleaning up potentially invalid config files..."
+CLEANUP_COUNT=0
+for pattern in '*.copy.conf' '*.bak.conf' '*.old.conf' '*.tmp.conf' '*.backup.conf' '*.orig.conf'; do
+    for conf_file in /etc/nginx/sites-enabled/$pattern; do
+        if [ -f "$conf_file" ]; then
+            filename=$(basename "$conf_file")
+            echo "  ⚠️  Removing invalid config: $filename"
+            rm -f "$conf_file"
+            CLEANUP_COUNT=$((CLEANUP_COUNT + 1))
+            
+            # Log to quarantine log for record-keeping
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] STARTUP_CLEANUP: Removed $filename (invalid suffix)" >> /var/log/nginx/quarantine.log
+        fi
+    done
+done
+
+if [ $CLEANUP_COUNT -gt 0 ]; then
+    echo "  ✅ Cleaned up $CLEANUP_COUNT invalid config file(s)"
+fi
+
 # Test NGINX configuration
 echo "🧪 Testing NGINX configuration..."
 nginx -t
