@@ -133,7 +133,9 @@ while (true) {
 
             try {
                 // Detect bot type
-                $botType = detectBot($userAgent, $botPatterns);
+                $botDetection = detectBot($userAgent, $botPatterns);
+                $botType = $botDetection['type'];
+                $botName = $botDetection['name'] ?? 'unknown';
                 
                 // Insert into access_logs
                 $stmt = $pdo->prepare("
@@ -159,13 +161,13 @@ while (true) {
                 // Record bot detection if bot identified
                 if ($botType !== 'human') {
                     try {
-                        echo "[DEBUG] Bot detected: type=$botType, UA=$userAgent, IP=$clientIp\n";
+                        echo "[DEBUG] Bot detected: name=$botName, type=$botType, UA=$userAgent, IP=$clientIp\n";
                         
                         $botStmt = $pdo->prepare("
                             INSERT INTO bot_detections (
-                                ip_address, user_agent, bot_type, action, 
+                                ip_address, user_agent, bot_name, bot_type, action, 
                                 domain, timestamp
-                            ) VALUES (?, ?, ?, ?, ?, ?)
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?)
                         ");
                         
                         $action = ($status == 403) ? 'blocked' : 'allowed';
@@ -173,13 +175,14 @@ while (true) {
                         $botStmt->execute([
                             $clientIp,
                             $userAgent,
+                            $botName,
                             $botType,
                             $action,
                             $host,
                             $logTime
                         ]);
                         
-                        echo "[BOT] $botType detected: $userAgent ($action)\n";
+                        echo "[BOT] $botName ($botType) detected: $userAgent ($action)\n";
                     } catch (PDOException $e) {
                         // Table might not exist yet, log the error
                         echo "[ERROR] Failed to insert bot detection: " . $e->getMessage() . "\n";
@@ -480,17 +483,17 @@ function detectBot($userAgent, $patterns) {
     // Check good bots first (whitelist)
     foreach ($patterns['good'] as $botPattern) {
         if (strpos($userAgentLower, strtolower($botPattern)) !== false) {
-            return 'good';
+            return ['type' => 'good', 'name' => $botPattern];
         }
     }
     
     // Check bad bots
     foreach ($patterns['bad'] as $botPattern) {
         if (strpos($userAgentLower, strtolower($botPattern)) !== false) {
-            return 'bad';
+            return ['type' => 'bad', 'name' => $botPattern];
         }
     }
     
     // Not a bot
-    return 'human';
+    return ['type' => 'human', 'name' => null];
 }

@@ -206,13 +206,15 @@ CREATE TABLE IF NOT EXISTS `bot_detections` (
   `timestamp` timestamp NULL DEFAULT current_timestamp(),
   `ip_address` varchar(45) DEFAULT NULL,
   `user_agent` text DEFAULT NULL,
+  `bot_name` varchar(100) DEFAULT 'unknown',
   `bot_type` varchar(50) DEFAULT NULL,
   `confidence` decimal(5,2) DEFAULT NULL,
   `action` varchar(20) DEFAULT NULL,
   `domain` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_timestamp` (`timestamp`),
-  KEY `idx_ip` (`ip_address`)
+  KEY `idx_ip` (`ip_address`),
+  KEY `idx_bot_name` (`bot_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
 --

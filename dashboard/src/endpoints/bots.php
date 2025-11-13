@@ -59,8 +59,7 @@ function handleBots($method, $params, $db) {
             $stmt = $db->prepare("
                 SELECT COUNT(*) as count 
                 FROM bot_detections 
-                WHERE bot_type = 'bad'
-                OR action = 'blocked'
+                WHERE (bot_type = 'bad' OR action = 'blocked')
                 AND timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
             ");
             $stmt->execute([$hours]);
@@ -68,9 +67,10 @@ function handleBots($method, $params, $db) {
             $stats['bad_bots'] = $result ? (int)$result['count'] : 0;
             $stats['total_blocked'] = $stats['bad_bots'];
             
-            // Detection rate
-            if ($stats['total_detected'] > 0) {
-                $stats['detection_rate'] = round(($stats['bad_bots'] / $stats['total_detected']) * 100, 1);
+            // Detection rate (bad bots / good bots, not total)
+            $total_good_and_bad = $stats['good_bots'] + $stats['bad_bots'];
+            if ($total_good_and_bad > 0) {
+                $stats['detection_rate'] = round(($stats['bad_bots'] / $total_good_and_bad) * 100, 1);
             }
             
             sendResponse($stats);

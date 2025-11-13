@@ -800,13 +800,32 @@ async function loadBans() {
     }
 }
 
-async function banIP(ip, reason, duration) {
+function showBanModal() {
+    document.getElementById('banIp').value = '';
+    document.getElementById('banReason').value = '';
+    document.getElementById('banDuration').value = '3600';
+    document.getElementById('banPermanent').checked = false;
+    openModal('banModal');
+}
+
+async function banIp() {
+    const ip = document.getElementById('banIp').value.trim();
+    const reason = document.getElementById('banReason').value.trim();
+    const isPermanent = document.getElementById('banPermanent').checked;
+    const duration = isPermanent ? 0 : parseInt(document.getElementById('banDuration').value);
+    
+    if (!ip) {
+        showToast('IP address is required', 'error');
+        return;
+    }
+    
     try {
         await apiRequest('/bans', {
             method: 'POST',
-            body: JSON.stringify({ ip, reason, duration })
+            body: JSON.stringify({ ip_address: ip, reason, duration })
         });
         
+        showToast('IP banned successfully', 'success');
         closeModal('banModal');
         await loadBans();
     } catch (error) {
@@ -2406,34 +2425,50 @@ async function loadBotDetections() {
         const tbody = document.getElementById('botDetectionsBody');
         
         if (!response || response.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No bot detections yet</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">No bot detections yet</td></tr>';
             return;
         }
         
-        tbody.innerHTML = response.map(bot => `
+        tbody.innerHTML = response.map(bot => {
+            const botName = bot.bot_name || 'unknown';
+            const botNameClean = botName.replace(/[^a-zA-Z0-9-]/g, '');
+            
+            return `
             <tr>
                 <td>${new Date(bot.timestamp).toLocaleString()}</td>
+                <td><strong>${escapeHtml(botName)}</strong></td>
                 <td><code>${bot.ip_address}</code></td>
-                <td style="max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                    ${bot.user_agent || 'Unknown'}
+                <td style="max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(bot.user_agent || '')}">
+                    ${escapeHtml(bot.user_agent || 'Unknown')}
                 </td>
                 <td>
-                    <span class="badge badge-${bot.bot_type === 'good' ? 'success' : 'danger'}">
+                    <span class="status-badge badge-${bot.bot_type === 'good' ? 'success' : 'danger'}">
                         ${bot.bot_type || 'unknown'}
                     </span>
                 </td>
-                <td>${bot.confidence !== null && bot.confidence !== undefined ? bot.confidence + '%' : 'N/A'}</td>
                 <td>
-                    <span class="badge badge-${bot.action === 'allowed' ? 'success' : 'warning'}">
+                    <span class="status-badge badge-${bot.action === 'allowed' ? 'success' : 'danger'}">
                         ${bot.action || 'unknown'}
                     </span>
                 </td>
+                <td>
+                    <button class="btn-icon btn-success" onclick="quickAllowBot('${botNameClean}')" title="Allow this bot">
+                        ✓
+                    </button>
+                    <button class="btn-icon btn-warning" onclick="quickFlagBot('${botNameClean}')" title="Flag as suspicious">
+                        ⚠
+                    </button>
+                    <button class="btn-icon btn-danger" onclick="quickBlockBot('${botNameClean}')" title="Block this bot">
+                        ✕
+                    </button>
+                </td>
             </tr>
-        `).join('');
+        `;
+        }).join('');
     } catch (error) {
         console.error('Error loading bot detections:', error);
         document.getElementById('botDetectionsBody').innerHTML = 
-            '<tr><td colspan="6" style="text-align: center; color: #ef4444;">Error loading data</td></tr>';
+            '<tr><td colspan="7" style="text-align: center; color: #ef4444;">Error loading data</td></tr>';
     }
 }
 
@@ -6219,7 +6254,7 @@ function showAddBotRuleModal() {
     document.getElementById('botRuleDescription').value = '';
     document.getElementById('botRuleEnabled').checked = true;
     
-    showModal('botRuleModal');
+    openModal('botRuleModal');
 }
 
 // Edit bot rule
@@ -6241,7 +6276,7 @@ async function editBotRule(id) {
         document.getElementById('botRuleDescription').value = bot.description || '';
         document.getElementById('botRuleEnabled').checked = bot.enabled == 1;
         
-        showModal('botRuleModal');
+        openModal('botRuleModal');
     } catch (error) {
         console.error('Error loading bot rule:', error);
         showToast('Failed to load bot rule', 'error');
@@ -6350,6 +6385,55 @@ async function deleteBotRule(id) {
     } catch (error) {
         console.error('Error deleting bot rule:', error);
         showToast('Failed to delete bot rule', 'error');
+    }
+}
+
+// Quick action: Allow bot
+async function quickAllowBot(botName) {
+    const pattern = `~*${botName}`;
+    await quickAddBotRule(pattern, 'allow', 100, `${botName} (allowed)`);
+}
+
+// Quick action: Flag bot
+async function quickFlagBot(botName) {
+    const pattern = `~*${botName}`;
+    await quickAddBotRule(pattern, 'flag', 150, `${botName} (flagged)`);
+}
+
+// Quick action: Block bot
+async function quickBlockBot(botName) {
+    const pattern = `~*${botName}`;
+    await quickAddBotRule(pattern, 'block', 200, `${botName} (blocked)`);
+}
+
+// Helper: Add bot rule with confirmation
+async function quickAddBotRule(pattern, action, priority, description) {
+    if (!confirm(`Add bot rule: ${description}?`)) {
+        return;
+    }
+    
+    try {
+        const data = {
+            pattern: pattern,
+            action: action,
+            priority: priority,
+            description: description,
+            enabled: 1
+        };
+        
+        const response = await apiRequest('/bot-whitelist', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+        
+        if (response && response.success) {
+            showToast(`Bot rule added: ${action}`, 'success');
+            loadBotWhitelist();
+            loadBotDetections();
+        }
+    } catch (error) {
+        console.error('Error adding bot rule:', error);
+        showToast('Failed to add bot rule', 'error');
     }
 }
 
