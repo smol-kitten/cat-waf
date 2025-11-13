@@ -76,6 +76,28 @@ function handleBots($method, $params, $db) {
             sendResponse($stats);
             break;
             
+        case 'bot-stats':
+            // Get per-bot statistics over different time periods
+            $stmt = $db->query("
+                SELECT 
+                    bot_name,
+                    bot_type,
+                    action,
+                    SUM(CASE WHEN timestamp > DATE_SUB(NOW(), INTERVAL 1 HOUR) THEN 1 ELSE 0 END) as count_1h,
+                    SUM(CASE WHEN timestamp > DATE_SUB(NOW(), INTERVAL 24 HOUR) THEN 1 ELSE 0 END) as count_24h,
+                    SUM(CASE WHEN timestamp > DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) as count_7d,
+                    MAX(timestamp) as last_seen
+                FROM bot_detections
+                WHERE timestamp > DATE_SUB(NOW(), INTERVAL 7 DAY)
+                GROUP BY bot_name, bot_type, action
+                HAVING count_24h > 0
+                ORDER BY count_24h DESC
+                LIMIT 50
+            ");
+            
+            sendResponse($stmt->fetchAll());
+            break;
+            
         default:
             sendResponse(['error' => 'Unknown action'], 404);
     }

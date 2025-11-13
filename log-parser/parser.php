@@ -186,36 +186,34 @@ while (true) {
                     }
                 }
                 
-                // Record telemetry for successful requests
-                if ($status >= 200 && $status < 400) {
-                    try {
-                        // Insert enhanced telemetry with response times and cache status
-                        $telemetryStmt = $pdo->prepare("
-                            INSERT INTO request_telemetry (
-                                domain, uri, method, status_code, ip_address,
-                                bytes_sent, response_time,
-                                cache_status, backend_server, timestamp
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ");
-                        
-                        // Use upstream_response_time if available, otherwise request_time
-                        $responseTime = $upstreamResponseTime ?? $requestTime;
-                        
-                        $telemetryStmt->execute([
-                            $host,
-                            $uri,
-                            $method,
-                            $status,
-                            $clientIp,
-                            $bodyBytes,
-                            $responseTime,
-                            $cacheStatus,
-                            $upstreamAddr,
-                            $logTime
-                        ]);
-                    } catch (PDOException $e) {
-                        // Table might not exist yet, silently continue
-                    }
+                // Record telemetry for ALL requests (including errors)
+                try {
+                    // Insert enhanced telemetry with response times and cache status
+                    $telemetryStmt = $pdo->prepare("
+                        INSERT INTO request_telemetry (
+                            domain, uri, method, status_code, ip_address,
+                            bytes_sent, response_time,
+                            cache_status, backend_server, timestamp
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ");
+                    
+                    // Use upstream_response_time if available, otherwise request_time
+                    $responseTime = $upstreamResponseTime ?? $requestTime;
+                    
+                    $telemetryStmt->execute([
+                        $host,
+                        $uri,
+                        $method,
+                        $status,
+                        $clientIp,
+                        $bodyBytes,
+                        $responseTime,
+                        $cacheStatus,
+                        $upstreamAddr,
+                        $logTime
+                    ]);
+                } catch (PDOException $e) {
+                    // Table might not exist yet, silently continue
                 }
 
                 echo "[" . date('Y-m-d H:i:s') . "] Logged: $host $method $uri ($status)\n";

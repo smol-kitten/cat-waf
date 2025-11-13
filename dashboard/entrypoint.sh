@@ -17,6 +17,10 @@ if [ -S /var/run/docker.sock ]; then
     chmod 666 /var/run/docker.sock 2>/dev/null || true
 fi
 
+# Download GeoIP database if credentials provided
+echo "🌍 Checking GeoIP database..."
+/usr/local/bin/download-geoip.sh || echo "⚠️  GeoIP download failed, continuing without local database"
+
 # Wait for database to be ready
 echo "⏳ Waiting for database..."
 until php -r "try { \$db = new PDO('mysql:host=mariadb;dbname=waf_db', 'waf_user', getenv('DB_PASSWORD') ?: 'your_waf_password_here'); echo 'connected'; } catch(Exception \$e) { exit(1); }"; do

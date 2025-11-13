@@ -2,7 +2,8 @@
 // GeoIP Lookup API
 // GET /api/geoip/:ip - Get location info for an IP
 
-require_once __DIR__ . '/../lib/GeoIP.php';
+require_once __DIR__ . '/../lib/GeoIPLocal.php';
+require_once __DIR__ . '/../lib/GeoIP.php'; // Keep as fallback
 
 // Don't set header again if already set by index.php
 if (!headers_sent()) {
@@ -11,6 +12,12 @@ if (!headers_sent()) {
 
 $method = $_SERVER['REQUEST_METHOD'];
 $requestUri = $_SERVER['REQUEST_URI'];
+
+// Database info endpoint
+if (preg_match('#/geoip/info$#', $requestUri) && $method === 'GET') {
+    echo json_encode(GeoIPLocal::getDatabaseInfo());
+    exit;
+}
 
 // Parse IP from URI
 if (preg_match('#/geoip/([^/]+)$#', $requestUri, $matches)) {
@@ -21,10 +28,10 @@ if (preg_match('#/geoip/([^/]+)$#', $requestUri, $matches)) {
     }
     
     $ip = urldecode($matches[1]);
-    $location = GeoIP::lookup($ip);
+    $location = GeoIPLocal::lookup($ip);
     
     if ($location) {
-        $location['flag'] = GeoIP::getFlag($location['countryCode']);
+        $location['flag'] = GeoIPLocal::getFlag($location['countryCode']);
         echo json_encode($location);
     } else {
         http_response_code(404);
@@ -46,9 +53,9 @@ if (preg_match('#/geoip/bulk$#', $requestUri) && $method === 'POST') {
     
     $results = [];
     foreach ($ips as $ip) {
-        $location = GeoIP::lookup($ip);
+        $location = GeoIPLocal::lookup($ip);
         if ($location) {
-            $location['flag'] = GeoIP::getFlag($location['countryCode']);
+            $location['flag'] = GeoIPLocal::getFlag($location['countryCode']);
             $results[$ip] = $location;
         }
     }

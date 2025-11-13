@@ -119,6 +119,9 @@ services:
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
       CLOUDFLARE_API_KEY: ${CF_API_KEY:-}
       CLOUDFLARE_EMAIL: ${CF_EMAIL:-}
+      # MaxMind GeoIP credentials (optional, for local GeoIP database)
+      MAXMIND_ACCOUNT_ID: ${MAXMIND_ACCOUNT_ID:-}
+      MAXMIND_LICENSE_KEY: ${MAXMIND_LICENSE_KEY:-}
 
   acme:
     image: neilpang/acme.sh:latest

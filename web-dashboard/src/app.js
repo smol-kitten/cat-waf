@@ -700,13 +700,7 @@ function createSiteCard(site) {
     
     // SSL status badge
     if (site.ssl_enabled) {
-        // Check if using real certificate or snakeoil
-        const certType = site.cert_type || 'snakeoil'; // This would need to be added to API response
-        if (certType === 'snakeoil') {
-            badges.push('<span class="status-badge badge-warning" title="Using self-signed certificate">🔓 Self-Signed</span>');
-        } else {
-            badges.push('<span class="status-badge badge-success" title="Using Let\'s Encrypt certificate">🔒 SSL</span>');
-        }
+        badges.push('<span class="status-badge badge-success" title="SSL/TLS enabled">🔒 SSL</span>');
     } else {
         badges.push('<span class="status-badge badge-info" title="HTTP only">🌐 HTTP</span>');
     }
@@ -2218,6 +2212,9 @@ async function loadBotProtectionData() {
         
         // Load bot activity chart
         await loadBotActivityChart();
+        
+        // Load bot statistics table
+        await loadBotStats();
     } catch (error) {
         console.error('Error loading bot protection data:', error);
     }
@@ -2272,36 +2269,87 @@ async function loadBotActivityChart() {
             return;
         }
         
-        // Group by hour for ALL available bot data (not just last 24h)
+        // Group by hour AND by bot name
         const hourlyData = {};
+        const botCounts = {}; // Track total per bot to find top bots
         
         bots.forEach(bot => {
             const timestamp = new Date(bot.timestamp || bot.created_at);
             const hourKey = timestamp.toISOString().substring(0, 13); // YYYY-MM-DDTHH
+            const botName = bot.bot_name || 'unknown';
             
             if (!hourlyData[hourKey]) {
-                hourlyData[hourKey] = { total: 0, blocked: 0, allowed: 0 };
+                hourlyData[hourKey] = { total: 0, bots: {} };
             }
             
             hourlyData[hourKey].total++;
-            if (bot.action === 'blocked' || bot.blocked) {
-                hourlyData[hourKey].blocked++;
-            } else {
-                hourlyData[hourKey].allowed++;
+            
+            // Track per-bot data
+            if (!hourlyData[hourKey].bots[botName]) {
+                hourlyData[hourKey].bots[botName] = 0;
             }
+            hourlyData[hourKey].bots[botName]++;
+            
+            // Count total per bot
+            botCounts[botName] = (botCounts[botName] || 0) + 1;
         });
         
+        // Find top 5 most active bots
+        const topBots = Object.entries(botCounts)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5)
+            .map(([name]) => name);
+        
+        console.log('📊 Top 5 bots:', topBots, 'Total bots:', Object.keys(botCounts).length);
+        
         // Prepare chart data
-        const labels = Object.keys(hourlyData).sort().map(key => {
+        const sortedHours = Object.keys(hourlyData).sort();
+        const labels = sortedHours.map(key => {
             const date = new Date(key + ':00:00');
             return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
         });
         
-        const totalData = Object.keys(hourlyData).sort().map(key => hourlyData[key].total);
-        const blockedData = Object.keys(hourlyData).sort().map(key => hourlyData[key].blocked);
-        const allowedData = Object.keys(hourlyData).sort().map(key => hourlyData[key].allowed);
+        const totalData = sortedHours.map(key => hourlyData[key].total);
         
-        console.log('📊 Bot chart data prepared:', labels.length, 'data points');
+        // Create datasets for top bots
+        const botColors = [
+            { border: '#4dabf7', bg: 'rgba(77, 171, 247, 0.1)' },   // Blue
+            { border: '#51cf66', bg: 'rgba(81, 207, 102, 0.1)' },   // Green
+            { border: '#ff6b6b', bg: 'rgba(255, 107, 107, 0.1)' },  // Red
+            { border: '#ffd43b', bg: 'rgba(255, 212, 59, 0.1)' },   // Yellow
+            { border: '#9775fa', bg: 'rgba(151, 117, 250, 0.1)' }   // Purple
+        ];
+        
+        const datasets = topBots.map((botName, index) => {
+            const color = botColors[index % botColors.length];
+            const data = sortedHours.map(hour => hourlyData[hour].bots[botName] || 0);
+            
+            return {
+                label: botName,
+                data: data,
+                borderColor: color.border,
+                backgroundColor: color.bg,
+                tension: 0.4,
+                fill: true,
+                pointRadius: 2,
+                pointHoverRadius: 4
+            };
+        });
+        
+        // Add total as dashed line
+        datasets.push({
+            label: 'Total',
+            data: totalData,
+            borderColor: '#868e96',
+            backgroundColor: 'transparent',
+            tension: 0.4,
+            fill: false,
+            borderDash: [5, 5],
+            pointRadius: 0,
+            pointHoverRadius: 3
+        });
+        
+        console.log('📊 Bot chart data prepared:', labels.length, 'data points,', datasets.length, 'datasets');
         
         // Destroy existing chart if it exists
         if (botActivityChartInstance) {
@@ -2321,33 +2369,7 @@ async function loadBotActivityChart() {
             type: 'line',
             data: {
                 labels: labels,
-                datasets: [
-                    {
-                        label: 'Blocked',
-                        data: blockedData,
-                        borderColor: '#ff6b6b',
-                        backgroundColor: 'rgba(255, 107, 107, 0.1)',
-                        tension: 0.4,
-                        fill: true
-                    },
-                    {
-                        label: 'Allowed',
-                        data: allowedData,
-                        borderColor: '#51cf66',
-                        backgroundColor: 'rgba(81, 207, 102, 0.1)',
-                        tension: 0.4,
-                        fill: true
-                    },
-                    {
-                        label: 'Total',
-                        data: totalData,
-                        borderColor: '#4dabf7',
-                        backgroundColor: 'rgba(77, 171, 247, 0.1)',
-                        tension: 0.4,
-                        fill: false,
-                        borderDash: [5, 5]
-                    }
-                ]
+                datasets: datasets
             },
             options: {
                 responsive: true,
@@ -2415,6 +2437,44 @@ async function loadBotDetections() {
     }
 }
 
+async function loadBotStats() {
+    try {
+        const response = await apiRequest('/bots/bot-stats');
+        const tbody = document.getElementById('botStatsBody');
+        
+        if (!response || response.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No bot statistics available</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = response.map(bot => {
+            // Format last seen
+            const lastSeen = bot.last_seen ? new Date(bot.last_seen).toLocaleString() : 'Never';
+            
+            // Action badge
+            let actionClass = 'badge-info';
+            if (bot.action === 'allowed') actionClass = 'badge-success';
+            if (bot.action === 'blocked') actionClass = 'badge-danger';
+            if (bot.action === 'flagged') actionClass = 'badge-warning';
+            
+            return `
+            <tr>
+                <td><strong>${bot.bot_name || 'Unknown'}</strong></td>
+                <td style="text-align: center;">${bot.count_1h || 0}</td>
+                <td style="text-align: center;"><strong>${bot.count_24h || 0}</strong></td>
+                <td style="text-align: center;">${bot.count_7d || 0}</td>
+                <td><span class="status-badge ${actionClass}">${bot.action || 'unknown'}</span></td>
+                <td style="font-size: 0.85em; color: #6b7280;">${lastSeen}</td>
+            </tr>
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('Error loading bot stats:', error);
+        document.getElementById('botStatsBody').innerHTML = 
+            '<tr><td colspan="6" style="text-align: center; color: #ef4444;">Error loading data</td></tr>';
+    }
+}
+
 // ============================================
 // Telemetry Page Functions
 // ============================================
@@ -2444,6 +2504,9 @@ async function loadTelemetryData() {
         
         // Load top accessed endpoints
         await loadTopEndpoints();
+        
+        // Load top error codes
+        await loadTopErrors();
         
         // Load top 404s
         await loadTop404s();
@@ -2646,6 +2709,39 @@ async function loadTopEndpoints() {
         console.error('Error loading top endpoints:', error);
         document.getElementById('topEndpointsBody').innerHTML = 
             '<tr><td colspan="4" style="text-align: center; color: #ef4444;">Error loading data</td></tr>';
+    }
+}
+
+async function loadTopErrors() {
+    try {
+        const timeRange = document.getElementById('telemetryTimeRange')?.value || '24h';
+        const response = await apiRequest(`/telemetry/error-summary?range=${timeRange}`);
+        const tbody = document.getElementById('topErrorsBody');
+        
+        if (!response || response.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">No errors found</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = response.map(error => {
+            // Color based on error type
+            let badgeClass = 'badge-warning';
+            if (error.status_code >= 500) badgeClass = 'badge-danger';
+            
+            return `
+            <tr>
+                <td><span class="status-badge ${badgeClass}" style="font-size: 0.85em;">${error.status_code}</span></td>
+                <td>${error.description}</td>
+                <td><span style="font-weight: 600; color: var(--danger);">${error.count.toLocaleString()}</span></td>
+                <td>${error.affected_domains}</td>
+                <td>${error.unique_ips}</td>
+            </tr>
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('Error loading top errors:', error);
+        document.getElementById('topErrorsBody').innerHTML = 
+            '<tr><td colspan="5" style="text-align: center; color: #ef4444;">Error loading data</td></tr>';
     }
 }
 
