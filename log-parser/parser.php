@@ -30,13 +30,44 @@ $dbName = getenv('DB_NAME') ?: 'waf_db';
 $dbUser = getenv('DB_USER') ?: 'waf_user';
 $dbPass = getenv('DB_PASSWORD') ?: 'changeme';
 
-try {
-    $pdo = new PDO("mysql:host=$dbHost;dbname=$dbName", $dbUser, $dbPass);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-} catch (PDOException $e) {
-    error_log("Database connection failed: " . $e->getMessage());
-    exit(1);
+// Function to create/reconnect database
+function connectDatabase($host, $name, $user, $pass) {
+    try {
+        $pdo = new PDO("mysql:host=$host;dbname=$name", $user, $pass);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo->setAttribute(PDO::ATTR_TIMEOUT, 5);
+        $pdo->setAttribute(PDO::MYSQL_ATTR_INIT_COMMAND, "SET SESSION wait_timeout=28800");
+        echo "[DB] Connected to database\n";
+        return $pdo;
+    } catch (PDOException $e) {
+        error_log("[DB ERROR] Connection failed: " . $e->getMessage());
+        return null;
+    }
 }
+
+// Function to check if connection is alive
+function isDatabaseAlive($pdo) {
+    try {
+        $pdo->query("SELECT 1");
+        return true;
+    } catch (PDOException $e) {
+        return false;
+    }
+}
+
+$pdo = connectDatabase($dbHost, $dbName, $dbUser, $dbPass);
+if (!$pdo) {
+    echo "Initial database connection failed. Retrying in 5 seconds...\n";
+    sleep(5);
+    $pdo = connectDatabase($dbHost, $dbName, $dbUser, $dbPass);
+    if (!$pdo) {
+        error_log("Database connection failed after retry. Exiting.");
+        exit(1);
+    }
+}
+
+$lastHealthCheck = time();
+$healthCheckInterval = 60; // Check connection every 60 seconds
 
 echo "Starting log parser...\n";
 
@@ -53,6 +84,20 @@ try {
 }
 
 while (true) {
+    // Periodic health check and reconnect if needed
+    if (time() - $lastHealthCheck > $healthCheckInterval) {
+        if (!isDatabaseAlive($pdo)) {
+            echo "[DB WARN] Connection lost (MySQL server has gone away). Reconnecting...\n";
+            $pdo = connectDatabase($dbHost, $dbName, $dbUser, $dbPass);
+            if (!$pdo) {
+                echo "[DB ERROR] Reconnection failed. Retrying in 10 seconds...\n";
+                sleep(10);
+                continue;
+            }
+        }
+        $lastHealthCheck = time();
+    }
+    
     // Find all access log files
     $logFiles = glob("$logDir/*-access.log");
     if (empty($logFiles)) {
@@ -161,7 +206,24 @@ while (true) {
                 // Record bot detection if bot identified
                 if ($botType !== 'human') {
                     try {
-                        echo "[DEBUG] Bot detected: name=$botName, type=$botType, UA=$userAgent, IP=$clientIp\n";
+                        // Query bot_whitelist to determine actual action based on priority
+                        $actionStmt = $pdo->prepare("
+                            SELECT action FROM bot_whitelist 
+                            WHERE enabled = 1 AND ? REGEXP REPLACE(pattern, '~*', '(?i)')
+                            ORDER BY priority ASC, id ASC
+                            LIMIT 1
+                        ");
+                        $actionStmt->execute([$userAgent]);
+                        $whitelistRule = $actionStmt->fetch();
+                        
+                        // Determine action: check whitelist first, then status code
+                        if ($whitelistRule) {
+                            $action = $whitelistRule['action'];
+                        } else {
+                            $action = ($status == 403) ? 'blocked' : 'allowed';
+                        }
+                        
+                        echo "[DEBUG] Bot detected: name=$botName, type=$botType, action=$action, UA=$userAgent, IP=$clientIp\n";
                         
                         $botStmt = $pdo->prepare("
                             INSERT INTO bot_detections (
@@ -169,8 +231,6 @@ while (true) {
                                 domain, timestamp
                             ) VALUES (?, ?, ?, ?, ?, ?, ?)
                         ");
-                        
-                        $action = ($status == 403) ? 'blocked' : 'allowed';
                         
                         $botStmt->execute([
                             $clientIp,
@@ -222,7 +282,18 @@ while (true) {
                 echo "[" . date('Y-m-d H:i:s') . "] Logged: $host $method $uri ($status)\n";
 
             } catch (PDOException $e) {
-                error_log("Failed to insert log entry: " . $e->getMessage());
+                // Check if connection was lost
+                if (strpos($e->getMessage(), 'MySQL server has gone away') !== false || 
+                    strpos($e->getMessage(), 'Lost connection') !== false) {
+                    echo "[DB ERROR] Connection lost during query: " . $e->getMessage() . "\n";
+                    echo "[DB] Attempting immediate reconnection...\n";
+                    $pdo = connectDatabase($dbHost, $dbName, $dbUser, $dbPass);
+                    if (!$pdo) {
+                        error_log("[DB ERROR] Reconnection failed. Will retry on next iteration.");
+                    }
+                } else {
+                    error_log("Failed to insert log entry: " . $e->getMessage());
+                }
             }
         }  // Close if (preg_match)
         }  // Close while (($line = fgets))

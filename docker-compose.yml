@@ -20,6 +20,11 @@ services:
       - waf-certs:/etc/nginx/certs
       - waf-certs:/acme.sh  # Mount acme storage at /acme.sh for direct access to certificates
       - waf-fail2ban:/etc/fail2ban
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - waf-network
       - backend-network
@@ -60,6 +65,11 @@ services:
       - waf-mysql-data:/var/lib/mysql
       # Initialization scripts (bind mount for first-run setup)
       - ./mariadb/init:/docker-entrypoint-initdb.d:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - waf-network
     restart: unless-stopped
@@ -99,7 +109,11 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Mount updater compose file for reset functionality
       - ./docker-compose.updater.yml:/compose-files/docker-compose.updater.yml
-
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - waf-network
     restart: unless-stopped
@@ -153,6 +167,11 @@ services:
     ports:
       - "8080:80"
     # Application code (now built into image)
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - waf-network
     restart: unless-stopped
@@ -168,6 +187,11 @@ services:
     volumes:
       # Static content from host
       - ./backends/default:/usr/share/nginx/html:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
     networks:
       - backend-network
     restart: unless-stopped
@@ -182,6 +206,11 @@ services:
       # Data volumes (read-only access to logs)
       - waf-logs:/var/log
     # Application code (now built into image)
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - waf-network
     restart: unless-stopped

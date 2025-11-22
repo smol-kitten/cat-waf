@@ -2523,6 +2523,8 @@ async function loadTelemetryData() {
         if (stats) {
             document.getElementById('avgResponseTime').textContent = 
                 stats.avg_response_time ? `${stats.avg_response_time}ms` : 'N/A';
+            document.getElementById('medianResponseTime').textContent = 
+                stats.median_response_time ? `${stats.median_response_time}ms` : 'N/A';
             document.getElementById('requestsPerMinute').textContent = stats.requests_per_minute || '0';
             document.getElementById('errorRate').textContent = 
                 stats.error_rate ? `${stats.error_rate}%` : 'N/A';

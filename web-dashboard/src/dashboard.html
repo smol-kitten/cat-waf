@@ -1070,7 +1070,7 @@ Sitemap: https://example.com/sitemap.xml"></textarea>
                     </div>
 
                     <!-- Telemetry Stats -->
-                    <div class="stats-grid" style="margin-bottom: 30px;">
+                    <div class="stats-grid" style="margin-bottom: 30px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
                         <div class="stat-card">
                             <div class="stat-header">
                                 <span class="stat-icon">⚡</span>
@@ -1081,6 +1081,13 @@ Sitemap: https://example.com/sitemap.xml"></textarea>
                         <div class="stat-card">
                             <div class="stat-header">
                                 <span class="stat-icon">📊</span>
+                                <span class="stat-label">Median Response Time</span>
+                            </div>
+                            <div class="stat-value" id="medianResponseTime">0ms</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">📈</span>
                                 <span class="stat-label">Requests/min</span>
                             </div>
                             <div class="stat-value" id="requestsPerMinute">0</div>

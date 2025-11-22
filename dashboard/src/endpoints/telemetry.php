@@ -22,16 +22,37 @@ function handleTelemetry($method, $params, $db) {
                 'error_rate' => 0
             ];
             
-            // Average response time (convert to milliseconds, exclude NULLs)
+            // Average response time (convert to milliseconds, exclude NULLs and long-running connections)
+            // Exclude: WebSocket (101), long-polling (>60s), SSE connections
             $stmt = $db->query("
-                SELECT AVG(response_time) as avg_time 
+                SELECT 
+                    AVG(response_time) as avg_time,
+                    (SELECT response_time 
+                     FROM request_telemetry 
+                     WHERE timestamp > DATE_SUB(NOW(), INTERVAL $hours HOUR)
+                       AND response_time IS NOT NULL
+                       AND response_time > 0
+                       AND response_time < 60
+                       AND status_code != 101
+                     ORDER BY response_time
+                     LIMIT 1 OFFSET (SELECT COUNT(*) 
+                                     FROM request_telemetry 
+                                     WHERE timestamp > DATE_SUB(NOW(), INTERVAL $hours HOUR)
+                                       AND response_time IS NOT NULL
+                                       AND response_time > 0
+                                       AND response_time < 60
+                                       AND status_code != 101) DIV 2
+                    ) as median_time
                 FROM request_telemetry 
                 WHERE timestamp > DATE_SUB(NOW(), INTERVAL $hours HOUR)
-                AND response_time IS NOT NULL
-                AND response_time > 0
+                  AND response_time IS NOT NULL
+                  AND response_time > 0
+                  AND response_time < 60
+                  AND status_code != 101
             ");
             $result = $stmt->fetch();
             $stats['avg_response_time'] = $result && $result['avg_time'] ? round($result['avg_time'] * 1000, 1) : 0;
+            $stats['median_response_time'] = $result && $result['median_time'] ? round($result['median_time'] * 1000, 1) : 0;
             
             // Requests per minute
             $stmt = $db->query("
@@ -43,14 +64,14 @@ function handleTelemetry($method, $params, $db) {
             $totalRequests = $result ? (int)$result['count'] : 0;
             $stats['requests_per_minute'] = $hours > 0 ? round($totalRequests / ($hours * 60), 0) : 0;
        
-            // Error rate (exclude NULL status codes)
+            // Error rate (only 5xx server errors, not 4xx client errors or 3xx redirects)
             $stmt = $db->query("
                 SELECT 
                     COUNT(*) as total,
-                    SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as errors
+                    SUM(CASE WHEN status_code >= 500 THEN 1 ELSE 0 END) as errors
                 FROM request_telemetry 
                 WHERE timestamp > DATE_SUB(NOW(), INTERVAL $hours HOUR)
-                AND status_code IS NOT NULL
+                  AND status_code IS NOT NULL
             ");
             $result = $stmt->fetch();
             if ($result && $result['total'] > 0) {

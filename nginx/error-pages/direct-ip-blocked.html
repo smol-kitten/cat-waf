@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hostname Required</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 600px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .icon {
+            font-size: 3rem;
+        }
+        p {
+            font-size: 1.1rem;
+            line-height: 1.6;
+            margin-bottom: 15px;
+            opacity: 0.95;
+        }
+        .reason {
+            background: rgba(255, 255, 255, 0.15);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        .reason-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            font-size: 1.2rem;
+        }
+        ul {
+            list-style: none;
+            margin-left: 0;
+        }
+        li {
+            padding: 8px 0;
+            padding-left: 25px;
+            position: relative;
+        }
+        li:before {
+            content: "→";
+            position: absolute;
+            left: 0;
+            font-weight: bold;
+        }
+        code {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+        }
+        .footer {
+            margin-top: 30px;
+            text-align: center;
+            opacity: 0.8;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1><span class="icon">🔒</span> Hostname Required</h1>
+        <p>Direct IP access is not allowed on this server. You must use a valid hostname to access this service.</p>
+        
+        <div class="reason">
+            <div class="reason-title">Why is this blocked?</div>
+            <ul>
+                <li>This server uses virtual hosting and requires a hostname</li>
+                <li>Direct IP requests cannot be routed to the correct site</li>
+                <li>This helps prevent unauthorized port scanning and reconnaissance</li>
+                <li>Security policies require proper DNS resolution</li>
+            </ul>
+        </div>
+        
+        <p><strong>What should you do?</strong></p>
+        <p>If you're trying to access a specific service, use its domain name instead of the IP address.</p>
+        <p>Example: Use <code>https://example.com</code> instead of <code>https://1.2.3.4</code></p>
+        
+        <div class="footer">
+            Protected by CatWAF 🐱🛡️
+        </div>
+    </div>
+</body>
+</html>
