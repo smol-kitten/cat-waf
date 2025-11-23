@@ -25,24 +25,7 @@ function handleTelemetry($method, $params, $db) {
             // Average response time (convert to milliseconds, exclude NULLs and long-running connections)
             // Exclude: WebSocket (101), long-polling (>60s), SSE connections
             $stmt = $db->query("
-                SELECT 
-                    AVG(response_time) as avg_time,
-                    (SELECT response_time 
-                     FROM request_telemetry 
-                     WHERE timestamp > DATE_SUB(NOW(), INTERVAL $hours HOUR)
-                       AND response_time IS NOT NULL
-                       AND response_time > 0
-                       AND response_time < 60
-                       AND status_code != 101
-                     ORDER BY response_time
-                     LIMIT 1 OFFSET (SELECT COUNT(*) 
-                                     FROM request_telemetry 
-                                     WHERE timestamp > DATE_SUB(NOW(), INTERVAL $hours HOUR)
-                                       AND response_time IS NOT NULL
-                                       AND response_time > 0
-                                       AND response_time < 60
-                                       AND status_code != 101) DIV 2
-                    ) as median_time
+                SELECT AVG(response_time) as avg_time
                 FROM request_telemetry 
                 WHERE timestamp > DATE_SUB(NOW(), INTERVAL $hours HOUR)
                   AND response_time IS NOT NULL
@@ -52,6 +35,24 @@ function handleTelemetry($method, $params, $db) {
             ");
             $result = $stmt->fetch();
             $stats['avg_response_time'] = $result && $result['avg_time'] ? round($result['avg_time'] * 1000, 1) : 0;
+            
+            // Median response time (separate query using variables)
+            $db->query("SET @row_index := -1");
+            $stmt = $db->query("
+                SELECT AVG(response_time) as median_time
+                FROM (
+                    SELECT @row_index := @row_index + 1 AS row_index, response_time
+                    FROM request_telemetry
+                    WHERE timestamp > DATE_SUB(NOW(), INTERVAL $hours HOUR)
+                      AND response_time IS NOT NULL
+                      AND response_time > 0
+                      AND response_time < 60
+                      AND status_code != 101
+                    ORDER BY response_time
+                ) AS subquery
+                WHERE row_index IN (FLOOR(@row_index / 2), CEIL(@row_index / 2))
+            ");
+            $result = $stmt->fetch();
             $stats['median_response_time'] = $result && $result['median_time'] ? round($result['median_time'] * 1000, 1) : 0;
             
             // Requests per minute
