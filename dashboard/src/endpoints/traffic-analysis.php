@@ -22,10 +22,18 @@ function handleTrafficAnalysis($method, $params, $db) {
                 return;
             }
             
-            // Parse timestamp
-            $dt = new DateTime($timestamp);
+            // Parse timestamp - handle both "15:00" and full datetime formats
+            if (preg_match('/^\d{2}:\d{2}$/', $timestamp)) {
+                // Format is HH:MM, need to add today's date
+                $today = date('Y-m-d');
+                $dt = new DateTime("$today $timestamp:00");
+            } else {
+                // Full datetime format
+                $dt = new DateTime($timestamp);
+            }
             $hour_start = $dt->format('Y-m-d H:00:00');
-            $hour_end = $dt->modify('+1 hour')->format('Y-m-d H:00:00');
+            $dt->modify('+1 hour');
+            $hour_end = $dt->format('Y-m-d H:00:00');
             
             $analysis = [
                 'period' => [

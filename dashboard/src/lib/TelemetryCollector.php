@@ -95,8 +95,8 @@ class TelemetryCollector {
     public function collectSettingsMetrics() {
         $settings = [];
         
-        // Security features
-        $stmt = $this->db->query("SELECT rule_type, enabled, config FROM security_rules");
+        // Security features - only include global rules (site_id IS NULL)
+        $stmt = $this->db->query("SELECT rule_type, enabled, config FROM security_rules WHERE site_id IS NULL");
         $securityRules = $stmt->fetchAll();
         foreach ($securityRules as $rule) {
             $settings[] = [
@@ -109,16 +109,16 @@ class TelemetryCollector {
         // Site features
         $stmt = $this->db->query("
             SELECT 
-                SUM(CASE WHEN redirect_http_to_https = 1 THEN 1 ELSE 0 END) as https_redirect_count,
-                SUM(CASE WHEN force_ssl = 1 THEN 1 ELSE 0 END) as force_ssl_count,
-                SUM(CASE WHEN cloudflare_ip_validation = 1 THEN 1 ELSE 0 END) as cf_validation_count
+                SUM(CASE WHEN disable_http_redirect = 0 AND ssl_enabled = 1 THEN 1 ELSE 0 END) as https_redirect_count,
+                SUM(CASE WHEN ssl_enabled = 1 THEN 1 ELSE 0 END) as force_ssl_count,
+                SUM(CASE WHEN cf_bypass_ratelimit = 1 THEN 1 ELSE 0 END) as cf_bypass_count
             FROM sites
         ");
         $sites = $stmt->fetch();
         
         $settings[] = ['feature_name' => 'https_redirect', 'enabled' => $sites['https_redirect_count'] > 0, 'value' => $sites['https_redirect_count']];
         $settings[] = ['feature_name' => 'force_ssl', 'enabled' => $sites['force_ssl_count'] > 0, 'value' => $sites['force_ssl_count']];
-        $settings[] = ['feature_name' => 'cloudflare_validation', 'enabled' => $sites['cf_validation_count'] > 0, 'value' => $sites['cf_validation_count']];
+        $settings[] = ['feature_name' => 'cloudflare_bypass', 'enabled' => $sites['cf_bypass_count'] > 0, 'value' => $sites['cf_bypass_count']];
         
         return $settings;
     }
@@ -207,12 +207,13 @@ class TelemetryCollector {
         $periodStart = date('Y-m-d H:i:s', strtotime('-24 hours'));
         $periodEnd = date('Y-m-d H:i:s');
         
-        // Backend stats
+        // Backend stats from sites table (backends is JSON column, not separate table)
         $stmt = $this->db->query("
             SELECT 
-                COUNT(*) as backend_count,
-                SUM(CASE WHEN enabled = 0 THEN 1 ELSE 0 END) as backend_errors
-            FROM backends
+                COUNT(*) as site_count,
+                SUM(CASE WHEN backends IS NOT NULL AND JSON_VALID(backends) THEN JSON_LENGTH(backends) ELSE 1 END) as backend_count
+            FROM sites
+            WHERE enabled = 1
         ");
         $backendStats = $stmt->fetch();
         
@@ -220,7 +221,7 @@ class TelemetryCollector {
         $stmt = $this->db->query("
             SELECT 
                 COUNT(*) as total_bans,
-                SUM(CASE WHEN banned_until > NOW() THEN 1 ELSE 0 END) as active_bans
+                SUM(CASE WHEN expires_at > NOW() OR is_permanent = 1 THEN 1 ELSE 0 END) as active_bans
             FROM banned_ips
         ");
         $banStats = $stmt->fetch();
@@ -247,7 +248,7 @@ class TelemetryCollector {
             'period_start' => $periodStart,
             'period_end' => $periodEnd,
             'backend_count' => $backendStats['backend_count'] ?? 0,
-            'backend_errors' => $backendStats['backend_errors'] ?? 0,
+            'site_count' => $backendStats['site_count'] ?? 0,
             'total_bans' => $banStats['total_bans'] ?? 0,
             'active_bans' => $banStats['active_bans'] ?? 0,
             'scanner_detections' => $scannerStats['scanner_detections'] ?? 0,
@@ -284,15 +285,24 @@ class TelemetryCollector {
     private function submitToTelemetry($config, $category, $data) {
         $endpoint = $config['telemetry_endpoint'];
         
-        // Use category-specific subdomain if available
-        $categoryEndpoints = [
-            'usage' => str_replace('telemetry.', 'usage.telemetry.', $endpoint),
-            'settings' => str_replace('telemetry.', 'settings.telemetry.', $endpoint),
-            'system' => str_replace('telemetry.', 'system.telemetry.', $endpoint),
-            'security' => str_replace('telemetry.', 'security.telemetry.', $endpoint)
+        // Use path-based routing (SSL friendly - no multi-level subdomains needed)
+        // Format: telemetry.domain.tld/module/submit
+        // This works with standard wildcard certificates (*.domain.tld)
+        // 
+        // Legacy subdomain routing still supported but discouraged due to SSL cert issues
+        // (catwaf.telemetry.domain.tld requires *.*.domain.tld certificate)
+        $endpoint = rtrim($endpoint, '/');
+        
+        // Map legacy categories to module names
+        $moduleMap = [
+            'usage' => 'catwaf',      // WAF usage metrics
+            'settings' => 'catwaf',   // WAF settings
+            'system' => 'catwaf',     // System metrics
+            'security' => 'catwaf'    // Security metrics
         ];
         
-        $url = ($categoryEndpoints[$category] ?? $endpoint) . '/submit';
+        $module = $moduleMap[$category] ?? 'general';
+        $url = "$endpoint/$module/submit";
         
         $payload = [
             'system_uuid' => $config['system_uuid'],
