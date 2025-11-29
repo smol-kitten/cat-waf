@@ -14,8 +14,15 @@ if ($cleanupCount > 0) {
     echo "✅ No orphaned configs found\n\n";
 }
 
-// Get all enabled sites
-$stmt = $db->query("SELECT id, domain FROM sites WHERE enabled = 1");
+// Get all enabled sites - ORDER BY specificity (exact domains first, longer domains first)
+$stmt = $db->query("
+    SELECT id, domain FROM sites 
+    WHERE enabled = 1
+    ORDER BY 
+        wildcard_subdomains ASC,
+        CHAR_LENGTH(domain) DESC,
+        domain ASC
+");
 $sites = $stmt->fetchAll();
 
 echo "Regenerating configs for " . count($sites) . " sites...\n";

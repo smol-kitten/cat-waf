@@ -169,6 +169,21 @@ try {
             handleCustomBlockRules($method, array_slice($uri, 1), $db);
             break;
             
+        case 'traffic-analysis':
+            require_once 'endpoints/traffic-analysis.php';
+            handleTrafficAnalysis($method, array_slice($uri, 1), $db);
+            break;
+            
+        case 'security-rules':
+            require_once 'endpoints/security-rules.php';
+            handleSecurityRules($method, array_slice($uri, 1), $db);
+            break;
+            
+        case 'telemetry-config':
+            require_once 'endpoints/telemetry-config.php';
+            handleTelemetryConfig($method, array_slice($uri, 1), $db);
+            break;
+            
         case 'error-pages':
             require_once 'endpoints/error-pages.php';
             exit; // error-pages.php handles its own routing

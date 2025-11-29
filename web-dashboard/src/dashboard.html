@@ -53,8 +53,8 @@
                     <span class="nav-text">Bot Whitelist</span>
                 </a>
                 <a href="#" class="nav-item" data-page="telemetry">
-                    <span class="nav-icon">📊</span>
-                    <span class="nav-text">Telemetry</span>
+                    <span class="nav-icon">⚡</span>
+                    <span class="nav-text">Performance</span>
                 </a>
 
                 <a href="#" class="nav-item" data-page="logs">
@@ -145,6 +145,7 @@
                         <div class="chart-card">
                             <div class="chart-header">
                                 <h3>Traffic Over Time</h3>
+                                <small style="color: var(--text-muted); margin-left: 10px;">💡 Click on any bar to analyze that hour</small>
                                 <select class="time-range" id="timeRange">
                                     <option value="1h">Last Hour</option>
                                     <option value="24h" selected>Last 24 Hours</option>
@@ -153,7 +154,7 @@
                                 </select>
                             </div>
                             <div class="chart-container">
-                                <canvas id="trafficChart"></canvas>
+                                <canvas id="trafficChart" style="cursor: pointer;"></canvas>
                             </div>
                         </div>
 
@@ -348,6 +349,7 @@
                     <!-- Settings Tabs -->
                     <div class="tabs">
                         <button class="tab active" data-tab="waf-settings">⚙️ WAF Config</button>
+                        <button class="tab" data-tab="telemetry-settings">📊 Telemetry</button>
                         <button class="tab" data-tab="email-settings">📧 Email</button>
                         <button class="tab" data-tab="ssl-settings">🔐 SSL/TLS</button>
                         <button class="tab" data-tab="block-rules">🚫 Block Rules</button>
@@ -379,6 +381,168 @@
                                     </select>
                                 </div>
                                 <button class="btn-primary" onclick="saveWafSettings()">Save WAF Settings</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Telemetry Settings Tab -->
+                    <div class="tab-content" id="telemetry-settings">
+                        <div class="settings-card">
+                            <h3>📊 Telemetry Configuration</h3>
+                            <p style="color: var(--text-muted); margin-bottom: 1.5rem;">
+                                Share anonymous usage data to help improve the WAF. All data is opt-in and privacy-preserving.
+                            </p>
+
+                            <!-- System UUID -->
+                            <div class="stat-card" style="margin-bottom: 1.5rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div>
+                                        <div style="font-size: 0.9em; color: rgba(255,255,255,0.8); margin-bottom: 0.5rem;">System UUID</div>
+                                        <div style="font-family: monospace; font-size: 1.1em; font-weight: 600; color: #fff;" id="telemetry_system_uuid">Loading...</div>
+                                    </div>
+                                    <button class="btn-secondary" onclick="copySystemUUID()" style="background: rgba(255,255,255,0.2); color: #fff; border: 1px solid rgba(255,255,255,0.3);">
+                                        📋 Copy
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Opt-In -->
+                            <div class="setting-item" style="border: 2px solid #10b981; border-radius: 8px; padding: 1rem; background: rgba(16, 185, 129, 0.05); margin-bottom: 1.5rem;">
+                                <label class="checkbox-label" style="font-size: 1.1em; font-weight: 600;">
+                                    <input type="checkbox" id="telemetry_opt_in" onchange="toggleTelemetryOptions()">
+                                    <span>✅ Opt-in to Telemetry Collection</span>
+                                </label>
+                                <div style="font-size: 0.9em; color: var(--text-muted); margin-top: 0.5rem; margin-left: 1.75rem;">
+                                    Enable anonymous data collection to help improve the WAF
+                                </div>
+                            </div>
+
+                            <div id="telemetry_options" style="opacity: 0.5; pointer-events: none;">
+                                <!-- Collection Interval -->
+                                <div class="setting-item">
+                                    <label>📅 Collection Interval</label>
+                                    <select id="telemetry_interval" class="setting-input">
+                                        <option value="off">Off (No collection)</option>
+                                        <option value="manual">Manual Only</option>
+                                        <option value="daily" selected>Daily</option>
+                                        <option value="weekly">Weekly</option>
+                                        <option value="monthly">Monthly</option>
+                                    </select>
+                                    <div style="font-size: 0.85em; color: var(--text-muted); margin-top: 0.5rem;">
+                                        Next collection: <strong id="telemetry_next_collection">Manual trigger required</strong>
+                                    </div>
+                                </div>
+
+                                <!-- Data Categories -->
+                                <div class="setting-item" style="margin-top: 1.5rem;">
+                                    <label style="margin-bottom: 1rem; display: block; font-size: 1.05em; font-weight: 600;">🔐 Privacy Controls (DNS-Based Blocking)</label>
+                                    
+                                    <div style="display: grid; gap: 1rem; margin-bottom: 1rem;">
+                                        <div style="padding: 1rem; border: 1px solid #e5e7eb; border-radius: 8px;">
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" id="telemetry_collect_usage">
+                                                <span><strong>Usage Metrics</strong> - Traffic stats, request counts</span>
+                                            </label>
+                                            <div style="font-size: 0.85em; color: var(--text-muted); margin-left: 1.75rem; margin-top: 0.25rem;">
+                                                DNS: <code style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">usage.telemetry.yourdomain.tld</code>
+                                            </div>
+                                        </div>
+
+                                        <div style="padding: 1rem; border: 1px solid #e5e7eb; border-radius: 8px;">
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" id="telemetry_collect_settings">
+                                                <span><strong>Settings Metrics</strong> - Feature usage, configurations</span>
+                                            </label>
+                                            <div style="font-size: 0.85em; color: var(--text-muted); margin-left: 1.75rem; margin-top: 0.25rem;">
+                                                DNS: <code style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">settings.telemetry.yourdomain.tld</code>
+                                            </div>
+                                        </div>
+
+                                        <div style="padding: 1rem; border: 1px solid #e5e7eb; border-radius: 8px;">
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" id="telemetry_collect_system">
+                                                <span><strong>System Metrics</strong> - CPU, memory, disk usage</span>
+                                            </label>
+                                            <div style="font-size: 0.85em; color: var(--text-muted); margin-left: 1.75rem; margin-top: 0.25rem;">
+                                                DNS: <code style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">system.telemetry.yourdomain.tld</code>
+                                            </div>
+                                        </div>
+
+                                        <div style="padding: 1rem; border: 1px solid #e5e7eb; border-radius: 8px;">
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" id="telemetry_collect_security">
+                                                <span><strong>Security Metrics</strong> - Bans, scanner detections, blocked requests</span>
+                                            </label>
+                                            <div style="font-size: 0.85em; color: var(--text-muted); margin-left: 1.75rem; margin-top: 0.25rem;">
+                                                DNS: <code style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">security.telemetry.yourdomain.tld</code>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div style="padding: 1rem; background: #fffbeb; border: 1px solid #fbbf24; border-radius: 8px; margin-top: 1rem;">
+                                        <div style="font-size: 0.9em; color: #92400e;">
+                                            <strong>🔒 Privacy Tip:</strong> You can block specific categories by blocking their DNS subdomain in your firewall or DNS server.
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 404 Collection -->
+                                <div class="setting-item" style="margin-top: 1.5rem;">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="telemetry_collect_404">
+                                        <span><strong>404 Path Collection</strong> - Share scanned paths for honeypot blocklist</span>
+                                    </label>
+                                    <div style="font-size: 0.85em; color: var(--text-muted); margin-left: 1.75rem; margin-top: 0.5rem;">
+                                        Helps build community blocklists by sharing paths that attackers scan for
+                                    </div>
+                                    <div style="margin-left: 1.75rem; margin-top: 0.75rem;">
+                                        <label style="font-size: 0.9em;">Minimum hits before reporting:</label>
+                                        <input type="number" id="telemetry_min_404_hits" class="setting-input" value="5" min="1" max="100" style="max-width: 150px; margin-top: 0.25rem;">
+                                    </div>
+                                </div>
+
+                                <!-- Telemetry Endpoint -->
+                                <div class="setting-item" style="margin-top: 1.5rem;">
+                                    <label>🌐 Telemetry Server Endpoint</label>
+                                    <input type="text" id="telemetry_endpoint" class="setting-input" placeholder="https://telemetry.yourdomain.tld">
+                                    <div style="font-size: 0.85em; color: var(--text-muted); margin-top: 0.5rem;">
+                                        Leave default to use official telemetry server, or set up your own
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Actions -->
+                            <div style="display: flex; gap: 1rem; margin-top: 2rem; flex-wrap: wrap;">
+                                <button class="btn-primary" onclick="saveTelemetrySettings()">💾 Save Settings</button>
+                                <button class="btn-secondary" onclick="previewTelemetryData()">👁️ Preview Data</button>
+                                <button class="btn-secondary" onclick="submitTelemetryNow()">📤 Submit Now</button>
+                                <button class="btn-secondary" onclick="generateSiteUUIDs()">🔑 Generate Site UUIDs</button>
+                            </div>
+
+                            <!-- Last Submission Info -->
+                            <div style="margin-top: 2rem; padding: 1rem; background: #f9fafb; border-radius: 8px;">
+                                <div style="font-size: 0.9em; color: var(--text-muted); margin-bottom: 0.5rem;">Last Submission:</div>
+                                <div id="telemetry_last_submission" style="font-size: 0.95em;">Never</div>
+                            </div>
+                        </div>
+
+                        <!-- Recent Submissions -->
+                        <div class="settings-card" style="margin-top: 1.5rem;">
+                            <h3>📋 Recent Submissions</h3>
+                            <div class="table-container">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Time</th>
+                                            <th>Category</th>
+                                            <th>Status</th>
+                                            <th>Response</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="telemetry_submissions_table">
+                                        <tr><td colspan="4" style="text-align: center;">No submissions yet</td></tr>
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
@@ -1839,8 +2003,145 @@ Sitemap: https://example.com/sitemap.xml"></textarea>
         </div>
     </div>
 
+    <!-- Traffic Analysis Modal -->
+    <div class="modal" id="trafficAnalysisModal" style="display: none;">
+        <div class="modal-content" style="max-width: 1200px; width: 95%;">
+            <div class="modal-header">
+                <h3>📊 Traffic Analysis - <span id="analysisHour"></span></h3>
+                <button class="modal-close" onclick="closeModal('trafficAnalysisModal')">&times;</button>
+            </div>
+            <div class="modal-body" style="max-height: 80vh; overflow-y: auto;">
+                
+                <!-- Summary Cards -->
+                <div class="stats-grid" style="margin-bottom: 20px;">
+                    <div class="stat-card">
+                        <div class="stat-label">Total Requests</div>
+                        <div class="stat-value" id="analysisTotalRequests">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Unique Domains</div>
+                        <div class="stat-value" id="analysisUniqueDomains">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Unique IPs</div>
+                        <div class="stat-value" id="analysisUniqueIps">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Avg Response</div>
+                        <div class="stat-value" id="analysisAvgResponse">0ms</div>
+                    </div>
+                </div>
+
+                <!-- Charts Row -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h4>Traffic by Domain</h4>
+                        </div>
+                        <div style="height: 250px; position: relative;">
+                            <canvas id="analysisDomainChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h4>Status Code Distribution</h4>
+                        </div>
+                        <div style="height: 250px; position: relative;">
+                            <canvas id="analysisStatusChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tabs for detailed data -->
+                <div class="tabs" style="margin-bottom: 20px;">
+                    <button class="tab-button active" onclick="switchAnalysisTab('endpoints')">Top Endpoints</button>
+                    <button class="tab-button" onclick="switchAnalysisTab('errors')">Errors</button>
+                    <button class="tab-button" onclick="switchAnalysisTab('ips')">Top IPs</button>
+                    <button class="tab-button" onclick="switchAnalysisTab('bots')">Bot Activity</button>
+                </div>
+
+                <!-- Tab Content -->
+                <div id="analysisTabEndpoints" class="analysis-tab-content">
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Domain</th>
+                                    <th>Path</th>
+                                    <th>Hits</th>
+                                    <th>Avg Response</th>
+                                </tr>
+                            </thead>
+                            <tbody id="analysisEndpointsBody">
+                                <tr><td colspan="4" style="text-align: center;">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="analysisTabErrors" class="analysis-tab-content" style="display: none;">
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Domain</th>
+                                    <th>Path</th>
+                                    <th>Status</th>
+                                    <th>Count</th>
+                                </tr>
+                            </thead>
+                            <tbody id="analysisErrorsBody">
+                                <tr><td colspan="4" style="text-align: center;">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="analysisTabIps" class="analysis-tab-content" style="display: none;">
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>IP Address</th>
+                                    <th>Requests</th>
+                                    <th>404s</th>
+                                    <th>Blocked</th>
+                                    <th>Unique Paths</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="analysisIpsBody">
+                                <tr><td colspan="6" style="text-align: center;">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="analysisTabBots" class="analysis-tab-content" style="display: none;">
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Bot Name</th>
+                                    <th>Type</th>
+                                    <th>Action</th>
+                                    <th>Detections</th>
+                                    <th>Unique IPs</th>
+                                </tr>
+                            </thead>
+                            <tbody id="analysisBotsBody">
+                                <tr><td colspan="5" style="text-align: center;">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="toast.js?v=2"></script>
-    <script src="app.js?v=4"></script>
+    <script src="app.js?v=5"></script>
 </body>
 </html>

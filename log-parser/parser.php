@@ -24,6 +24,22 @@ $botPatterns = [
     ]
 ];
 
+// WordPress scanning patterns
+$wpPaths = [
+    '/wp-admin', '/wp-includes', '/wp-content', '/wp-login.php', 
+    '/xmlrpc.php', '/wp-json', '/wp-config.php', '/wp-cron.php'
+];
+
+// Common exploit paths
+$exploitPaths = [
+    '/.env', '/.git', '/phpmyadmin', '/admin', '/administrator',
+    '/config.php', '/setup.php', '/.htaccess', '/shell.php',
+    '/c99.php', '/r57.php', '/eval.php', '/phpinfo.php'
+];
+
+// Tracking for scanner detection (in-memory, per execution)
+$scannerTracking = [];
+
 // Database connection
 $dbHost = getenv('DB_HOST') ?: 'mariadb';
 $dbName = getenv('DB_NAME') ?: 'waf_db';
@@ -248,6 +264,9 @@ while (true) {
                         echo "[ERROR] Failed to insert bot detection: " . $e->getMessage() . "\n";
                     }
                 }
+                
+                // Scanner detection
+                detectScanner($clientIp, $uri, $status, $host, $pdo, $wpPaths, $exploitPaths, $scannerTracking);
                 
                 // Record telemetry for ALL requests (including errors)
                 try {
@@ -567,4 +586,183 @@ function detectBot($userAgent, $patterns) {
     
     // Not a bot
     return ['type' => 'human', 'name' => null];
+}
+
+// Scanner detection function
+function detectScanner($ip, $uri, $status, $host, $pdo, $wpPaths, $exploitPaths, &$scannerTracking) {
+    global $dbHost, $dbName, $dbUser, $dbPass;
+    
+    $scanType = null;
+    $suspicious = false;
+    
+    // Check for WordPress scanning
+    foreach ($wpPaths as $wpPath) {
+        if (stripos($uri, $wpPath) !== false) {
+            $scanType = 'wordpress';
+            $suspicious = true;
+            break;
+        }
+    }
+    
+    // Check for exploit path scanning
+    if (!$scanType) {
+        foreach ($exploitPaths as $exploitPath) {
+            if (stripos($uri, $exploitPath) !== false) {
+                $scanType = 'exploit';
+                $suspicious = true;
+                break;
+            }
+        }
+    }
+    
+    // Check for directory scanning (multiple 404s)
+    if ($status == 404) {
+        $scanType = $scanType ?: 'directory';
+        $suspicious = true;
+    }
+    
+    if (!$suspicious) {
+        return;
+    }
+    
+    // Track in memory for this execution
+    $trackKey = $ip . '_' . $host;
+    if (!isset($scannerTracking[$trackKey])) {
+        $scannerTracking[$trackKey] = [
+            'count' => 0,
+            '404_count' => 0,
+            'paths' => [],
+            'first_seen' => time()
+        ];
+    }
+    
+    $scannerTracking[$trackKey]['count']++;
+    if ($status == 404) {
+        $scannerTracking[$trackKey]['404_count']++;
+    }
+    $scannerTracking[$trackKey]['paths'][] = $uri;
+    
+    // Update database
+    try {
+        $stmt = $pdo->prepare("
+            INSERT INTO scanner_detections (
+                ip_address, domain, scan_type, request_count, 
+                error_404_count, suspicious_paths, first_seen, last_seen
+            ) VALUES (?, ?, ?, 1, ?, ?, NOW(), NOW())
+            ON DUPLICATE KEY UPDATE
+                request_count = request_count + 1,
+                error_404_count = error_404_count + ?,
+                suspicious_paths = CONCAT_WS(',', suspicious_paths, ?),
+                last_seen = NOW(),
+                scan_type = IF(scan_type != VALUES(scan_type), 'mixed', scan_type)
+        ");
+        
+        $is404 = ($status == 404) ? 1 : 0;
+        $pathTruncated = substr($uri, 0, 200);
+        
+        $stmt->execute([
+            $ip,
+            $host,
+            $scanType,
+            $is404,
+            $pathTruncated,
+            $is404,
+            $pathTruncated
+        ]);
+        
+        // Check if we should auto-block
+        $threshold = getScannerThreshold($pdo, $host);
+        $timeWindow = $threshold['time_window_seconds'] ?? 60;
+        
+        if (time() - $scannerTracking[$trackKey]['first_seen'] <= $timeWindow) {
+            $count404 = $scannerTracking[$trackKey]['404_count'];
+            $thresholdValue = $threshold['threshold_404'] ?? 10;
+            $wpInstantBlock = $threshold['wordpress_instant_block'] ?? false;
+            
+            $shouldBlock = false;
+            $blockReason = '';
+            
+            // Instant block for WordPress if enabled
+            if ($wpInstantBlock && $scanType === 'wordpress') {
+                $shouldBlock = true;
+                $blockReason = 'WordPress path scanning detected (instant block enabled)';
+            }
+            // Threshold-based blocking
+            elseif ($count404 >= $thresholdValue) {
+                $shouldBlock = true;
+                $blockReason = "Scanner detected: $count404 404 errors in {$timeWindow}s";
+            }
+            
+            if ($shouldBlock) {
+                autoBlockScanner($ip, $blockReason, $threshold['auto_block_duration'] ?? 3600, $pdo);
+                echo "[SCANNER BLOCKED] $ip - $blockReason\n";
+            }
+        }
+        
+    } catch (PDOException $e) {
+        echo "[ERROR] Scanner detection failed: " . $e->getMessage() . "\n";
+    }
+}
+
+// Get scanner detection threshold for domain
+function getScannerThreshold($pdo, $domain) {
+    try {
+        // Try to get site-specific rule first
+        $stmt = $pdo->prepare("
+            SELECT sr.config
+            FROM security_rules sr
+            LEFT JOIN sites s ON sr.site_id = s.id
+            WHERE sr.rule_type = 'scanner_detection' 
+              AND sr.enabled = 1
+              AND (s.domain = ? OR sr.site_id IS NULL)
+            ORDER BY sr.site_id DESC
+            LIMIT 1
+        ");
+        $stmt->execute([$domain]);
+        $result = $stmt->fetch();
+        
+        if ($result) {
+            return json_decode($result['config'], true);
+        }
+    } catch (PDOException $e) {
+        // Silent fail, use defaults
+    }
+    
+    // Default values
+    return [
+        'threshold_404' => 10,
+        'time_window_seconds' => 60,
+        'auto_block_duration' => 3600,
+        'wordpress_instant_block' => false
+    ];
+}
+
+// Auto-block scanner IP
+function autoBlockScanner($ip, $reason, $duration, $pdo) {
+    try {
+        // Add to banned_ips table
+        $stmt = $pdo->prepare("
+            INSERT INTO banned_ips (ip_address, reason, duration, banned_at)
+            VALUES (?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE
+                reason = VALUES(reason),
+                duration = VALUES(duration),
+                banned_at = NOW()
+        ");
+        $stmt->execute([$ip, $reason, $duration]);
+        
+        // Update scanner_detections
+        $stmt = $pdo->prepare("
+            UPDATE scanner_detections 
+            SET auto_blocked = 1, block_reason = ?
+            WHERE ip_address = ? AND auto_blocked = 0
+        ");
+        $stmt->execute([$reason, $ip]);
+        
+        // Trigger nginx banlist regeneration (async)
+        exec("docker exec waf-dashboard php /var/www/html/regen.php > /dev/null 2>&1 &");
+        
+    } catch (PDOException $e) {
+        echo "[ERROR] Auto-block failed: " . $e->getMessage() . "\n";
+    }
 }

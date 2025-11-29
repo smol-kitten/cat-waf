@@ -1586,3 +1586,35 @@ tbody tr:hover {
 .tab-content.active {
     display: block;
 }
+
+/* Traffic Analysis Modal Tabs */
+.analysis-tab-content {
+    display: none;
+}
+
+.analysis-tab-content.active {
+    display: block;
+}
+
+.tab-button {
+    padding: 10px 20px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: var(--transition);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.tab-button:hover {
+    color: var(--primary);
+    background: var(--bg-tertiary);
+}
+
+.tab-button.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+    background: var(--bg-tertiary);
+}

@@ -124,8 +124,15 @@ function handleSites($method, $params, $db) {
     switch ($method) {
         case 'GET':
             if (empty($params[0])) {
-                // List all sites
-                $stmt = $db->query("SELECT * FROM sites ORDER BY domain");
+                // List all sites - ORDER BY with specificity priority
+                // Exact domains first (no wildcard), then by length desc (longer = more specific), then alphabetically
+                $stmt = $db->query("
+                    SELECT * FROM sites 
+                    ORDER BY 
+                        wildcard_subdomains ASC,
+                        CHAR_LENGTH(domain) DESC,
+                        domain ASC
+                ");
                 sendResponse(['sites' => $stmt->fetchAll()]);
             } else {
                 // Get specific site
@@ -540,8 +547,11 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
     $wildcard_subdomains = $siteData['wildcard_subdomains'] ?? 0;
     
     // Build server_name directive
+    // CRITICAL: Put exact domain FIRST, then wildcard
+    // NGINX matches left-to-right, and we want exact matches to take priority
+    // This prevents *.parent.com from catching subdomain.parent.com
     if ($wildcard_subdomains && $domain !== '_') {
-        $server_name = "*.{$domain} {$domain}";
+        $server_name = "{$domain} *.{$domain}";
     } else {
         $server_name = $domain;
     }

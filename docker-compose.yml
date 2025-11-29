@@ -136,6 +136,7 @@ services:
       # MaxMind GeoIP credentials (optional, for local GeoIP database)
       MAXMIND_ACCOUNT_ID: ${MAXMIND_ACCOUNT_ID:-}
       MAXMIND_LICENSE_KEY: ${MAXMIND_LICENSE_KEY:-}
+      
 
   acme:
     image: neilpang/acme.sh:latest

@@ -554,9 +554,299 @@ function updateTrafficChart(data) {
                     grid: { color: '#363650' },
                     ticks: { color: '#B4B4C8' }
                 }
+            },
+            onClick: (event, activeElements) => {
+                if (activeElements.length > 0) {
+                    const index = activeElements[0].index;
+                    const timestamp = data.labels[index];
+                    openTrafficAnalysis(timestamp);
+                }
             }
         }
     });
+}
+
+// ============================================
+// Traffic Analysis Functions
+// ============================================
+let analysisDomainChart = null;
+let analysisStatusChart = null;
+
+async function openTrafficAnalysis(timestamp) {
+    try {
+        // Show modal immediately
+        document.getElementById('trafficAnalysisModal').style.display = 'flex';
+        document.getElementById('analysisHour').textContent = timestamp;
+        
+        // Fetch detailed analysis
+        const response = await apiRequest(`/traffic-analysis/hour-detail?timestamp=${encodeURIComponent(timestamp)}`);
+        
+        if (!response) {
+            showToast('Failed to load traffic analysis', 'error');
+            return;
+        }
+        
+        // Update summary cards
+        document.getElementById('analysisTotalRequests').textContent = response.summary.total_requests.toLocaleString();
+        document.getElementById('analysisUniqueDomains').textContent = response.summary.unique_domains;
+        document.getElementById('analysisUniqueIps').textContent = response.summary.unique_ips;
+        document.getElementById('analysisAvgResponse').textContent = response.summary.avg_response_time + 'ms';
+        
+        // Update domain pie chart
+        updateAnalysisDomainChart(response.by_domain);
+        
+        // Update status code pie chart
+        updateAnalysisStatusChart(response.by_status);
+        
+        // Update tables
+        updateAnalysisEndpoints(response.top_endpoints);
+        updateAnalysisErrors(response.errors);
+        updateAnalysisIPs(response.by_ip);
+        updateAnalysisBots(response.bots);
+        
+    } catch (error) {
+        console.error('Error loading traffic analysis:', error);
+        showToast('Error loading analysis data', 'error');
+    }
+}
+
+function updateAnalysisDomainChart(domains) {
+    const ctx = document.getElementById('analysisDomainChart');
+    if (!ctx) return;
+    
+    if (analysisDomainChart) {
+        analysisDomainChart.destroy();
+    }
+    
+    const labels = domains.map(d => d.domain);
+    const data = domains.map(d => parseInt(d.request_count));
+    const colors = generateColors(domains.length);
+    
+    analysisDomainChart = new Chart(ctx, {
+        type: 'pie',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: data,
+                backgroundColor: colors,
+                borderWidth: 2,
+                borderColor: '#1A1A2E'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'right',
+                    labels: { color: '#B4B4C8', font: { size: 11 } }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                            const percentage = ((context.parsed / total) * 100).toFixed(1);
+                            return `${context.label}: ${context.parsed.toLocaleString()} (${percentage}%)`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function updateAnalysisStatusChart(statuses) {
+    const ctx = document.getElementById('analysisStatusChart');
+    if (!ctx) return;
+    
+    if (analysisStatusChart) {
+        analysisStatusChart.destroy();
+    }
+    
+    const labels = statuses.map(s => `${s.status_code}`);
+    const data = statuses.map(s => parseInt(s.count));
+    
+    // Color by status code range
+    const colors = statuses.map(s => {
+        const code = parseInt(s.status_code);
+        if (code >= 200 && code < 300) return 'rgba(34, 197, 94, 0.8)';
+        if (code >= 300 && code < 400) return 'rgba(107, 114, 128, 0.8)';
+        if (code >= 400 && code < 500) return 'rgba(251, 191, 36, 0.8)';
+        if (code >= 500) return 'rgba(239, 68, 68, 0.8)';
+        return 'rgba(107, 114, 128, 0.8)';
+    });
+    
+    analysisStatusChart = new Chart(ctx, {
+        type: 'pie',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: data,
+                backgroundColor: colors,
+                borderWidth: 2,
+                borderColor: '#1A1A2E'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'right',
+                    labels: { color: '#B4B4C8', font: { size: 11 } }
+                }
+            }
+        }
+    });
+}
+
+function updateAnalysisEndpoints(endpoints) {
+    const tbody = document.getElementById('analysisEndpointsBody');
+    
+    if (!endpoints || endpoints.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">No endpoint data</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = endpoints.map(ep => `
+        <tr>
+            <td><code>${escapeHtml(ep.domain)}</code></td>
+            <td title="${escapeHtml(ep.path)}"><code>${truncate(ep.path, 60)}</code></td>
+            <td>${ep.hit_count.toLocaleString()}</td>
+            <td>${ep.avg_response}ms</td>
+        </tr>
+    `).join('');
+}
+
+function updateAnalysisErrors(errors) {
+    const tbody = document.getElementById('analysisErrorsBody');
+    
+    if (!errors || errors.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">No errors in this period</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = errors.map(err => `
+        <tr>
+            <td><code>${escapeHtml(err.domain)}</code></td>
+            <td title="${escapeHtml(err.path)}"><code>${truncate(err.path, 50)}</code></td>
+            <td><span class="badge badge-${getStatusBadge(err.status_code)}">${err.status_code}</span></td>
+            <td>${err.error_count}</td>
+        </tr>
+    `).join('');
+}
+
+function updateAnalysisIPs(ips) {
+    const tbody = document.getElementById('analysisIpsBody');
+    
+    if (!ips || ips.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No IP data</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = ips.map(ip => `
+        <tr>
+            <td><code>${escapeHtml(ip.ip_address)}</code></td>
+            <td>${ip.request_count.toLocaleString()}</td>
+            <td><span class="badge ${ip.not_found_count > 10 ? 'badge-warning' : 'badge-secondary'}">${ip.not_found_count}</span></td>
+            <td><span class="badge ${ip.blocked_count > 0 ? 'badge-danger' : 'badge-secondary'}">${ip.blocked_count}</span></td>
+            <td>${ip.unique_paths}</td>
+            <td>
+                ${ip.not_found_count > 10 || ip.blocked_count > 0 ? 
+                    `<button class="btn-sm btn-danger" onclick="banIPFromAnalysis('${escapeHtml(ip.ip_address)}')">🚫 Ban</button>` : 
+                    '<span style="color: var(--text-muted);">—</span>'}
+            </td>
+        </tr>
+    `).join('');
+}
+
+function updateAnalysisBots(bots) {
+    const tbody = document.getElementById('analysisBotsBody');
+    
+    if (!bots || bots.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">No bot activity</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = bots.map(bot => `
+        <tr>
+            <td><strong>${escapeHtml(bot.bot_name)}</strong></td>
+            <td><span class="badge badge-${bot.bot_type === 'good' ? 'success' : 'danger'}">${bot.bot_type}</span></td>
+            <td><span class="badge badge-${bot.action === 'blocked' ? 'danger' : bot.action === 'allowed' ? 'success' : 'warning'}">${bot.action}</span></td>
+            <td>${bot.detection_count}</td>
+            <td>${bot.unique_ips}</td>
+        </tr>
+    `).join('');
+}
+
+function switchAnalysisTab(tabName) {
+    // Hide all tabs
+    document.querySelectorAll('.analysis-tab-content').forEach(tab => {
+        tab.style.display = 'none';
+    });
+    
+    // Remove active class from all buttons
+    document.querySelectorAll('.tab-button').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    // Show selected tab
+    document.getElementById(`analysisTab${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`).style.display = 'block';
+    
+    // Add active class to clicked button
+    event.target.classList.add('active');
+}
+
+async function banIPFromAnalysis(ip) {
+    if (!confirm(`Ban IP ${ip} for 1 hour?`)) return;
+    
+    try {
+        await apiRequest('/bans', {
+            method: 'POST',
+            body: JSON.stringify({
+                ip_address: ip,
+                reason: 'Suspicious activity detected in traffic analysis',
+                duration: 3600
+            })
+        });
+        
+        showToast(`IP ${ip} banned successfully`, 'success');
+    } catch (error) {
+        showToast('Failed to ban IP', 'error');
+    }
+}
+
+function generateColors(count) {
+    const colors = [
+        'rgba(255, 107, 157, 0.8)',
+        'rgba(100, 181, 246, 0.8)',
+        'rgba(179, 136, 255, 0.8)',
+        'rgba(76, 175, 80, 0.8)',
+        'rgba(255, 167, 38, 0.8)',
+        'rgba(239, 83, 80, 0.8)',
+        'rgba(171, 71, 188, 0.8)',
+        'rgba(0, 188, 212, 0.8)',
+        'rgba(255, 235, 59, 0.8)',
+        'rgba(121, 134, 203, 0.8)'
+    ];
+    
+    const result = [];
+    for (let i = 0; i < count; i++) {
+        result.push(colors[i % colors.length]);
+    }
+    return result;
+}
+
+function getStatusBadge(code) {
+    if (code >= 200 && code < 300) return 'success';
+    if (code >= 300 && code < 400) return 'secondary';
+    if (code >= 400 && code < 500) return 'warning';
+    return 'danger';
+}
+
+function truncate(str, length) {
+    if (!str) return '';
+    return str.length > length ? str.substring(0, length) + '...' : str;
 }
 
 function updateSecurityChart(data) {
@@ -1137,6 +1427,9 @@ async function loadSettings() {
                 }
             }
         });
+        
+        // Load telemetry settings
+        await loadTelemetrySettings();
         
         // Load development mode setting
         const devModeCheckbox = document.getElementById('dev_mode_headers');
@@ -3886,7 +4179,7 @@ function initializeBackends() {
         }
         
         editorBackends = [{
-            id: 0,
+            id: Date.now(), // Use timestamp for guaranteed unique ID
             address: address,
             protocol: port === 443 ? 'https' : 'http',
             port: port,
@@ -3902,7 +4195,14 @@ function initializeBackends() {
         }];
     }
     
-    editorBackendIdCounter = editorBackends.length > 0 ? Math.max(...editorBackends.map(b => b.id || 0)) + 1 : 0;
+    // Ensure all backends have unique IDs and set counter to highest ID + 1
+    editorBackends = editorBackends.map((backend, idx) => {
+        if (!backend.id || backend.id === 0) {
+            backend.id = Date.now() + idx; // Assign unique timestamp-based ID
+        }
+        return backend;
+    });
+    editorBackendIdCounter = editorBackends.length > 0 ? Math.max(...editorBackends.map(b => b.id)) + 1 : 0;
     
     // Set form values
     document.getElementById('edit_lb_method').value = data.lb_method || 'round_robin';
@@ -6462,4 +6762,206 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// ============================================
+// Telemetry Settings Functions
+// ============================================
+
+// Load telemetry configuration
+async function loadTelemetrySettings() {
+    try {
+        const response = await apiRequest('/telemetry-config');
+        
+        if (response && response.config) {
+            const config = response.config;
+            
+            // System UUID
+            document.getElementById('telemetry_system_uuid').textContent = config.system_uuid || 'Not generated';
+            
+            // Opt-in status
+            document.getElementById('telemetry_opt_in').checked = config.opt_in_enabled === 1;
+            
+            // Collection interval
+            document.getElementById('telemetry_interval').value = config.collection_interval || 'off';
+            
+            // Category toggles
+            document.getElementById('telemetry_collect_usage').checked = config.collect_usage === 1;
+            document.getElementById('telemetry_collect_settings').checked = config.collect_settings === 1;
+            document.getElementById('telemetry_collect_system').checked = config.collect_system === 1;
+            document.getElementById('telemetry_collect_security').checked = config.collect_security === 1;
+            
+            // 404 collection
+            document.getElementById('telemetry_collect_404').checked = config.collect_404_paths === 1;
+            document.getElementById('telemetry_min_404_hits').value = config.min_404_hits || 5;
+            
+            // Endpoint
+            document.getElementById('telemetry_endpoint').value = config.telemetry_endpoint || '';
+            
+            // Next collection time
+            if (response.next_collection && response.next_collection !== 'manual') {
+                const nextDate = new Date(response.next_collection);
+                document.getElementById('telemetry_next_collection').textContent = nextDate.toLocaleString();
+            } else {
+                document.getElementById('telemetry_next_collection').textContent = 'Manual trigger required';
+            }
+            
+            // Last submission
+            if (config.last_collection) {
+                const lastDate = new Date(config.last_collection);
+                document.getElementById('telemetry_last_submission').textContent = lastDate.toLocaleString();
+            }
+            
+            // Recent submissions
+            if (response.submission_history && response.submission_history.length > 0) {
+                const tbody = document.getElementById('telemetry_submissions_table');
+                tbody.innerHTML = response.submission_history.map(sub => `
+                    <tr>
+                        <td>${new Date(sub.last_submission).toLocaleString()}</td>
+                        <td><span class="status-badge ${sub.category}">${sub.category}</span></td>
+                        <td><span class="status-badge active">${sub.count} submissions</span></td>
+                        <td>200</td>
+                    </tr>
+                `).join('');
+            }
+            
+            // Toggle options visibility
+            toggleTelemetryOptions();
+        }
+    } catch (error) {
+        console.error('Error loading telemetry settings:', error);
+        showToast('Failed to load telemetry settings', 'error');
+    }
+}
+
+// Toggle telemetry options based on opt-in status
+function toggleTelemetryOptions() {
+    const optIn = document.getElementById('telemetry_opt_in').checked;
+    const options = document.getElementById('telemetry_options');
+    
+    if (optIn) {
+        options.style.opacity = '1';
+        options.style.pointerEvents = 'auto';
+    } else {
+        options.style.opacity = '0.5';
+        options.style.pointerEvents = 'none';
+    }
+}
+
+// Save telemetry settings
+async function saveTelemetrySettings() {
+    try {
+        const data = {
+            opt_in_enabled: document.getElementById('telemetry_opt_in').checked,
+            collection_interval: document.getElementById('telemetry_interval').value,
+            collect_usage: document.getElementById('telemetry_collect_usage').checked,
+            collect_settings: document.getElementById('telemetry_collect_settings').checked,
+            collect_system: document.getElementById('telemetry_collect_system').checked,
+            collect_security: document.getElementById('telemetry_collect_security').checked,
+            collect_404_paths: document.getElementById('telemetry_collect_404').checked,
+            min_404_hits: parseInt(document.getElementById('telemetry_min_404_hits').value),
+            telemetry_endpoint: document.getElementById('telemetry_endpoint').value
+        };
+        
+        const response = await apiRequest('/telemetry-config/update', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+        
+        if (response && response.success) {
+            showToast('Telemetry settings saved', 'success');
+            await loadTelemetrySettings();
+        }
+    } catch (error) {
+        console.error('Error saving telemetry settings:', error);
+        showToast('Failed to save telemetry settings', 'error');
+    }
+}
+
+// Preview telemetry data
+async function previewTelemetryData() {
+    try {
+        const preview = await apiRequest('/telemetry-config/preview');
+        
+        if (preview) {
+            // Create modal to show preview
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 10000; display: flex; align-items: center; justify-content: center;';
+            
+            const content = document.createElement('div');
+            content.style.cssText = 'background: #1f2937; color: #f9fafb; padding: 2rem; border-radius: 12px; max-width: 800px; max-height: 80vh; overflow: auto;';
+            content.innerHTML = `
+                <h2 style="margin-top: 0; color: #fff;">📊 Telemetry Data Preview</h2>
+                <p style="color: #9ca3af; margin-bottom: 1.5rem;">This is what will be sent to the telemetry server:</p>
+                <pre style="background: #111827; padding: 1rem; border-radius: 8px; overflow: auto; max-height: 400px; font-size: 0.85em;">${JSON.stringify(preview, null, 2)}</pre>
+                <div style="margin-top: 1.5rem; text-align: right;">
+                    <button onclick="this.closest('div[style*=fixed]').remove()" class="btn-primary">Close</button>
+                </div>
+            `;
+            
+            modal.appendChild(content);
+            document.body.appendChild(modal);
+            
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) modal.remove();
+            });
+        }
+    } catch (error) {
+        console.error('Error previewing telemetry data:', error);
+        showToast('Failed to preview telemetry data', 'error');
+    }
+}
+
+// Submit telemetry now
+async function submitTelemetryNow() {
+    if (!confirm('Submit telemetry data now?')) {
+        return;
+    }
+    
+    try {
+        const response = await apiRequest('/telemetry-config/submit-now', {
+            method: 'POST'
+        });
+        
+        if (response && response.success) {
+            showToast('Telemetry data submitted successfully', 'success');
+            await loadTelemetrySettings();
+        }
+    } catch (error) {
+        console.error('Error submitting telemetry:', error);
+        showToast('Failed to submit telemetry data', 'error');
+    }
+}
+
+// Generate site UUIDs
+async function generateSiteUUIDs() {
+    if (!confirm('Generate UUIDs for all sites? This will create unique identifiers for each site.')) {
+        return;
+    }
+    
+    try {
+        const response = await apiRequest('/telemetry-config/generate-uuids', {
+            method: 'POST'
+        });
+        
+        if (response && response.success) {
+            showToast(`Generated ${response.count} site UUIDs`, 'success');
+        }
+    } catch (error) {
+        console.error('Error generating site UUIDs:', error);
+        showToast('Failed to generate site UUIDs', 'error');
+    }
+}
+
+// Copy system UUID to clipboard
+function copySystemUUID() {
+    const uuid = document.getElementById('telemetry_system_uuid').textContent;
+    
+    if (uuid && uuid !== 'Loading...' && uuid !== 'Not generated') {
+        navigator.clipboard.writeText(uuid).then(() => {
+            showToast('System UUID copied to clipboard', 'success');
+        }).catch(() => {
+            showToast('Failed to copy UUID', 'error');
+        });
+    }
 }
