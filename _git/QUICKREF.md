@@ -520,6 +520,6 @@ docker-compose logs -f
 
 ---
 
-**CatWAF v1.0.0** | Made with 💖 by catboys 🐱
+**CatWAF v1.5.0** | Made with 💖 by catboys 🐱
 
 *Keep purr-tecting!* 🛡️✨

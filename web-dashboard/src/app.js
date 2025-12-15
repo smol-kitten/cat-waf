@@ -206,6 +206,9 @@ async function loadPageData(page) {
         case 'settings':
             await loadSettings();
             break;
+        case 'rsl':
+            await loadRSLData();
+            break;
     }
 }
 
@@ -574,39 +577,54 @@ let analysisStatusChart = null;
 
 async function openTrafficAnalysis(timestamp) {
     try {
-        // Show modal immediately
-        document.getElementById('trafficAnalysisModal').style.display = 'flex';
+        // Show modal immediately using active class
+        const modal = document.getElementById('trafficAnalysisModal');
+        if (!modal) {
+            console.error('Traffic analysis modal not found');
+            return;
+        }
+        modal.classList.add('active');
         document.getElementById('analysisHour').textContent = timestamp;
+        
+        // Reset summary cards to loading state
+        document.getElementById('analysisTotalRequests').textContent = '...';
+        document.getElementById('analysisUniqueDomains').textContent = '...';
+        document.getElementById('analysisUniqueIps').textContent = '...';
+        document.getElementById('analysisAvgResponse').textContent = '...';
         
         // Fetch detailed analysis
         const response = await apiRequest(`/traffic-analysis/hour-detail?timestamp=${encodeURIComponent(timestamp)}`);
         
         if (!response) {
             showToast('Failed to load traffic analysis', 'error');
+            document.getElementById('analysisTotalRequests').textContent = 'Error';
             return;
         }
         
-        // Update summary cards
-        document.getElementById('analysisTotalRequests').textContent = response.summary.total_requests.toLocaleString();
-        document.getElementById('analysisUniqueDomains').textContent = response.summary.unique_domains;
-        document.getElementById('analysisUniqueIps').textContent = response.summary.unique_ips;
-        document.getElementById('analysisAvgResponse').textContent = response.summary.avg_response_time + 'ms';
+        // Update summary cards with null checks
+        const summary = response.summary || {};
+        document.getElementById('analysisTotalRequests').textContent = (summary.total_requests || 0).toLocaleString();
+        document.getElementById('analysisUniqueDomains').textContent = summary.unique_domains || 0;
+        document.getElementById('analysisUniqueIps').textContent = summary.unique_ips || 0;
+        document.getElementById('analysisAvgResponse').textContent = (summary.avg_response_time || 0) + 'ms';
         
         // Update domain pie chart
-        updateAnalysisDomainChart(response.by_domain);
+        updateAnalysisDomainChart(response.by_domain || []);
         
         // Update status code pie chart
-        updateAnalysisStatusChart(response.by_status);
+        updateAnalysisStatusChart(response.by_status || []);
         
         // Update tables
-        updateAnalysisEndpoints(response.top_endpoints);
-        updateAnalysisErrors(response.errors);
-        updateAnalysisIPs(response.by_ip);
-        updateAnalysisBots(response.bots);
+        updateAnalysisEndpoints(response.top_endpoints || []);
+        updateAnalysisErrors(response.errors || []);
+        updateAnalysisIPs(response.by_ip || []);
+        updateAnalysisBots(response.bots || []);
         
     } catch (error) {
         console.error('Error loading traffic analysis:', error);
         showToast('Error loading analysis data', 'error');
+        // Update UI to show error state
+        document.getElementById('analysisTotalRequests').textContent = 'Error';
     }
 }
 
@@ -616,6 +634,29 @@ function updateAnalysisDomainChart(domains) {
     
     if (analysisDomainChart) {
         analysisDomainChart.destroy();
+    }
+    
+    // Handle empty data
+    if (!domains || domains.length === 0) {
+        analysisDomainChart = new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: ['No data'],
+                datasets: [{
+                    data: [1],
+                    backgroundColor: ['rgba(107, 114, 128, 0.5)'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+        return;
     }
     
     const labels = domains.map(d => d.domain);
@@ -661,6 +702,29 @@ function updateAnalysisStatusChart(statuses) {
     
     if (analysisStatusChart) {
         analysisStatusChart.destroy();
+    }
+    
+    // Handle empty data
+    if (!statuses || statuses.length === 0) {
+        analysisStatusChart = new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: ['No data'],
+                datasets: [{
+                    data: [1],
+                    backgroundColor: ['rgba(107, 114, 128, 0.5)'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+        return;
     }
     
     const labels = statuses.map(s => `${s.status_code}`);
@@ -6969,3 +7033,832 @@ function copySystemUUID() {
         });
     }
 }
+
+// ========================================
+// RSL (Really Simple Licensing) Functions
+// ========================================
+
+let currentRSLTab = 'overview';
+let rslLicenses = [];
+let rslClients = [];
+let rslTokens = [];
+
+// Load all RSL data
+async function loadRSLData() {
+    setupRSLTabs();
+    await Promise.all([
+        loadRSLStats(),
+        loadRSLLicenses(),
+        loadRSLClients(),
+        loadRSLTokens(),
+        loadRSLSettings()
+    ]);
+}
+
+// Setup RSL tab handlers
+function setupRSLTabs() {
+    const rslPage = document.getElementById('rsl-page');
+    if (!rslPage) return;
+    
+    const tabButtons = rslPage.querySelectorAll('.tabs .tab[data-tab]');
+    const tabContents = rslPage.querySelectorAll('.tab-content[id]');
+    
+    if (tabButtons.length === 0) {
+        console.log('No RSL tabs found');
+        return;
+    }
+    
+    // Remove any existing listeners (prevent duplicates)
+    tabButtons.forEach(btn => {
+        const newBtn = btn.cloneNode(true);
+        btn.parentNode.replaceChild(newBtn, btn);
+    });
+    
+    // Re-select after cloning
+    const freshTabButtons = rslPage.querySelectorAll('.tabs .tab[data-tab]');
+    
+    freshTabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetTab = btn.getAttribute('data-tab');
+            
+            // Update active button
+            freshTabButtons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            
+            // Update active content
+            tabContents.forEach(content => {
+                if (content.id === targetTab + '-tab') {
+                    content.classList.add('active');
+                } else {
+                    content.classList.remove('active');
+                }
+            });
+            
+            currentRSLTab = targetTab.replace('rsl-', '');
+            console.log('Switched to RSL tab:', currentRSLTab);
+        });
+    });
+}
+
+// Load RSL statistics for overview
+async function loadRSLStats() {
+    try {
+        const response = await apiRequest('/rsl/stats');
+        if (response && response.success) {
+            const stats = response.stats;
+            
+            // Update stat cards
+            document.getElementById('rslLicenseCount').textContent = stats.total_licenses || 0;
+            document.getElementById('rslClientCount').textContent = stats.total_clients || 0;
+            document.getElementById('rslTokenCount').textContent = stats.active_tokens || 0;
+            document.getElementById('rslRequestCount').textContent = formatNumber(stats.total_requests || 0);
+        }
+    } catch (error) {
+        console.error('Error loading RSL stats:', error);
+    }
+}
+
+// Load RSL licenses
+async function loadRSLLicenses() {
+    try {
+        const response = await apiRequest('/rsl/licenses');
+        if (response && response.success) {
+            rslLicenses = response.licenses || [];
+            renderRSLLicenses();
+        }
+    } catch (error) {
+        console.error('Error loading RSL licenses:', error);
+        showToast('Failed to load RSL licenses', 'error');
+    }
+}
+
+// Render RSL licenses list
+function renderRSLLicenses() {
+    const container = document.getElementById('rslLicensesList');
+    if (!container) return;
+    
+    if (rslLicenses.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <p>No licenses configured yet.</p>
+                <button onclick="showAddLicenseModal()" class="btn-primary">Create First License</button>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = rslLicenses.map(license => `
+        <div class="card" style="margin-bottom: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div>
+                    <h3 style="margin: 0 0 0.5rem 0;">${escapeHtml(license.name)}</h3>
+                    <p style="color: var(--text-secondary); margin: 0 0 0.5rem 0;">${escapeHtml(license.description || 'No description')}</p>
+                    <div style="display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.9em;">
+                        <span style="color: var(--text-secondary);">
+                            <strong>Scope:</strong> ${license.site_id ? `Site #${license.site_id}` : 'Global'}
+                        </span>
+                        <span style="color: var(--text-secondary);">
+                            <strong>URL Pattern:</strong> ${escapeHtml(license.content_url_pattern || '*')}
+                        </span>
+                        <span style="color: var(--text-secondary);">
+                            <strong>Status:</strong> 
+                            <span class="status-badge status-${license.enabled ? 'active' : 'inactive'}">
+                                ${license.enabled ? 'Active' : 'Inactive'}
+                            </span>
+                        </span>
+                    </div>
+                    ${license.permits ? `<div style="margin-top: 0.5rem;"><strong style="color: #10b981;">Permits:</strong> ${formatPermissions(license.permits)}</div>` : ''}
+                    ${license.prohibits ? `<div style="margin-top: 0.25rem;"><strong style="color: #ef4444;">Prohibits:</strong> ${formatPermissions(license.prohibits)}</div>` : ''}
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button onclick="viewRSLLicense(${license.id})" class="btn-secondary" title="View XML">📄</button>
+                    <button onclick="editRSLLicense(${license.id})" class="btn-secondary" title="Edit">✏️</button>
+                    <button onclick="toggleRSLLicense(${license.id}, ${license.enabled ? 0 : 1})" class="btn-secondary" title="${license.enabled ? 'Disable' : 'Enable'}">
+                        ${license.enabled ? '⏸️' : '▶️'}
+                    </button>
+                    <button onclick="deleteRSLLicense(${license.id})" class="btn-danger" title="Delete">🗑️</button>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+// Format permissions for display
+function formatPermissions(perms) {
+    if (!perms) return 'None';
+    try {
+        const parsed = typeof perms === 'string' ? JSON.parse(perms) : perms;
+        const items = [];
+        if (parsed.usage) items.push(...parsed.usage.map(u => `usage:${u}`));
+        if (parsed.user) items.push(...parsed.user.map(u => `user:${u}`));
+        return items.length > 0 ? items.join(', ') : 'None';
+    } catch (e) {
+        return String(perms);
+    }
+}
+
+// Load RSL clients
+async function loadRSLClients() {
+    try {
+        const response = await apiRequest('/rsl/clients');
+        if (response && response.success) {
+            rslClients = response.clients || [];
+            renderRSLClients();
+        }
+    } catch (error) {
+        console.error('Error loading RSL clients:', error);
+        showToast('Failed to load RSL clients', 'error');
+    }
+}
+
+// Render RSL clients list
+function renderRSLClients() {
+    const container = document.getElementById('rslClientsList');
+    if (!container) return;
+    
+    if (rslClients.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <p>No clients registered yet.</p>
+                <p style="color: var(--text-secondary); font-size: 0.9em;">Clients will appear here when they register via the OLP endpoint.</p>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = rslClients.map(client => `
+        <div class="card" style="margin-bottom: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div>
+                    <h3 style="margin: 0 0 0.5rem 0;">${escapeHtml(client.name)}</h3>
+                    <div style="display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.9em;">
+                        <span style="color: var(--text-secondary);">
+                            <strong>Client ID:</strong> <code>${escapeHtml(client.client_id)}</code>
+                        </span>
+                        <span style="color: var(--text-secondary);">
+                            <strong>Type:</strong> ${escapeHtml(client.client_type || 'unknown')}
+                        </span>
+                        <span style="color: var(--text-secondary);">
+                            <strong>Status:</strong> 
+                            <span class="status-badge status-${client.approved ? 'active' : 'pending'}">
+                                ${client.approved ? 'Approved' : 'Pending'}
+                            </span>
+                        </span>
+                    </div>
+                    <div style="margin-top: 0.5rem; font-size: 0.85em; color: var(--text-secondary);">
+                        <strong>Contact:</strong> ${escapeHtml(client.contact_email || 'N/A')} |
+                        <strong>Website:</strong> ${client.website ? `<a href="${escapeHtml(client.website)}" target="_blank">${escapeHtml(client.website)}</a>` : 'N/A'}
+                    </div>
+                    <div style="margin-top: 0.25rem; font-size: 0.85em; color: var(--text-secondary);">
+                        <strong>Registered:</strong> ${formatDate(client.created_at)}
+                    </div>
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    ${!client.approved ? `<button onclick="approveRSLClient('${escapeHtml(client.client_id)}')" class="btn-primary" title="Approve">✅ Approve</button>` : ''}
+                    <button onclick="deleteRSLClient('${escapeHtml(client.client_id)}')" class="btn-danger" title="Delete">🗑️</button>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+// Load RSL tokens
+async function loadRSLTokens() {
+    try {
+        const response = await apiRequest('/rsl/tokens');
+        if (response && response.success) {
+            rslTokens = response.tokens || [];
+            renderRSLTokens();
+        }
+    } catch (error) {
+        console.error('Error loading RSL tokens:', error);
+        showToast('Failed to load RSL tokens', 'error');
+    }
+}
+
+// Render RSL tokens list
+function renderRSLTokens() {
+    const container = document.getElementById('rslTokensList');
+    if (!container) return;
+    
+    if (rslTokens.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <p>No active tokens.</p>
+                <p style="color: var(--text-secondary); font-size: 0.9em;">Tokens will appear here when clients request them via the OLP endpoint.</p>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = rslTokens.map(token => {
+        const isExpired = new Date(token.expires_at) < new Date();
+        return `
+            <div class="card" style="margin-bottom: 1rem; ${isExpired ? 'opacity: 0.6;' : ''}">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div>
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                            <code style="font-size: 0.9em;">${escapeHtml(token.token.substring(0, 20))}...</code>
+                            <span class="status-badge status-${isExpired ? 'expired' : (token.revoked ? 'revoked' : 'active')}">
+                                ${isExpired ? 'Expired' : (token.revoked ? 'Revoked' : 'Active')}
+                            </span>
+                        </div>
+                        <div style="display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.9em;">
+                            <span style="color: var(--text-secondary);">
+                                <strong>Client:</strong> ${escapeHtml(token.client_id)}
+                            </span>
+                            <span style="color: var(--text-secondary);">
+                                <strong>License:</strong> #${token.license_id}
+                            </span>
+                            <span style="color: var(--text-secondary);">
+                                <strong>Scope:</strong> ${escapeHtml(token.scope || 'default')}
+                            </span>
+                        </div>
+                        <div style="margin-top: 0.5rem; font-size: 0.85em; color: var(--text-secondary);">
+                            <strong>Issued:</strong> ${formatDate(token.issued_at)} |
+                            <strong>Expires:</strong> ${formatDate(token.expires_at)}
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem;">
+                        ${!token.revoked && !isExpired ? `<button onclick="revokeRSLToken(${token.id})" class="btn-warning" title="Revoke">⛔ Revoke</button>` : ''}
+                        <button onclick="deleteRSLToken(${token.id})" class="btn-danger" title="Delete">🗑️</button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// Load RSL settings
+async function loadRSLSettings() {
+    try {
+        const response = await apiRequest('/rsl/settings');
+        if (response && response.success) {
+            const settings = response.settings;
+            
+            // Populate form fields
+            const enabledEl = document.getElementById('rslEnabled');
+            const licenseServerEl = document.getElementById('rslLicenseServerUrl');
+            const serverModeEl = document.getElementById('rslServerMode');
+            const webhookUrlEl = document.getElementById('rslWebhookUrl');
+            const webhookSecretEl = document.getElementById('rslWebhookSecret');
+            
+            if (enabledEl) enabledEl.checked = settings.rsl_enabled === '1' || settings.rsl_enabled === true;
+            if (licenseServerEl) licenseServerEl.value = settings.rsl_license_server || '';
+            
+            // Server mode (inject vs external)
+            if (serverModeEl) {
+                serverModeEl.value = settings.rsl_server_mode || 
+                    (settings.rsl_license_server ? 'external' : 'inject');
+                toggleServerModeUI();
+            }
+            
+            // Webhook settings
+            if (webhookUrlEl) webhookUrlEl.value = settings.rsl_webhook_url || '';
+            if (webhookSecretEl) webhookSecretEl.value = settings.rsl_webhook_secret || '';
+            
+            // Webhook events
+            try {
+                const webhookEvents = settings.rsl_webhook_events ? 
+                    JSON.parse(settings.rsl_webhook_events) : 
+                    ['client.registered', 'client.approved', 'token.issued', 'token.revoked'];
+                document.querySelectorAll('input[name="webhook_event"]').forEach(cb => {
+                    cb.checked = webhookEvents.includes(cb.value);
+                });
+            } catch (e) {
+                console.warn('Failed to parse webhook events');
+            }
+            
+            // Set default permit checkboxes
+            const permits = settings.rsl_default_permit ? settings.rsl_default_permit.split(',') : [];
+            document.querySelectorAll('input[name="rsl_permit"]').forEach(cb => {
+                cb.checked = permits.includes(cb.value);
+            });
+            
+            // Set default prohibit checkboxes
+            const prohibits = settings.rsl_default_prohibit ? settings.rsl_default_prohibit.split(',') : ['ai-train'];
+            document.querySelectorAll('input[name="rsl_prohibit"]').forEach(cb => {
+                cb.checked = prohibits.includes(cb.value);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading RSL settings:', error);
+    }
+}
+
+// Toggle license server mode UI
+function toggleServerModeUI() {
+    const mode = document.getElementById('rslServerMode')?.value;
+    const externalGroup = document.getElementById('externalServerGroup');
+    if (externalGroup) {
+        externalGroup.style.display = mode === 'external' ? 'block' : 'none';
+    }
+}
+
+// Generate webhook secret
+function generateWebhookSecret() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let secret = '';
+    for (let i = 0; i < 32; i++) {
+        secret += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    document.getElementById('rslWebhookSecret').value = secret;
+    document.getElementById('rslWebhookSecret').type = 'text';
+}
+
+// Save RSL webhook settings
+async function saveRSLWebhookSettings() {
+    try {
+        // Gather selected events
+        const events = [];
+        document.querySelectorAll('input[name="webhook_event"]:checked').forEach(cb => {
+            events.push(cb.value);
+        });
+        
+        const settings = {
+            rsl_webhook_url: document.getElementById('rslWebhookUrl')?.value || '',
+            rsl_webhook_secret: document.getElementById('rslWebhookSecret')?.value || '',
+            rsl_webhook_events: JSON.stringify(events)
+        };
+        
+        const response = await apiRequest('/rsl/settings', {
+            method: 'POST',
+            body: JSON.stringify(settings)
+        });
+        
+        if (response && response.success) {
+            showToast('Webhook settings saved successfully', 'success');
+        }
+    } catch (error) {
+        console.error('Error saving webhook settings:', error);
+        showToast('Failed to save webhook settings', 'error');
+    }
+}
+
+// Save RSL settings
+async function saveRSLSettings() {
+    try {
+        // Gather selected permits
+        const permits = [];
+        document.querySelectorAll('input[name="rsl_permit"]:checked').forEach(cb => {
+            permits.push(cb.value);
+        });
+        
+        // Gather selected prohibits
+        const prohibits = [];
+        document.querySelectorAll('input[name="rsl_prohibit"]:checked').forEach(cb => {
+            prohibits.push(cb.value);
+        });
+        
+        const serverMode = document.getElementById('rslServerMode')?.value || 'inject';
+        
+        const settings = {
+            rsl_enabled: document.getElementById('rslEnabled')?.checked ? '1' : '0',
+            rsl_default_permit: permits.join(','),
+            rsl_default_prohibit: prohibits.join(','),
+            rsl_license_server: serverMode === 'external' 
+                ? (document.getElementById('rslLicenseServerUrl')?.value || '')
+                : '',  // Empty means use injected path
+            rsl_server_mode: serverMode
+        };
+        
+        const response = await apiRequest('/rsl/settings', {
+            method: 'POST',
+            body: JSON.stringify(settings)
+        });
+        
+        if (response && response.success) {
+            showToast('RSL settings saved successfully', 'success');
+        }
+    } catch (error) {
+        console.error('Error saving RSL settings:', error);
+        showToast('Failed to save RSL settings', 'error');
+    }
+}
+
+// Show add license modal
+function showAddLicenseModal() {
+    const modalHtml = `
+        <div id="add-license-modal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; justify-content: center; align-items: center; z-index: 1000;">
+            <div class="card" style="width: 90%; max-width: 600px; max-height: 80vh; overflow-y: auto;">
+                <h2 style="margin-bottom: 1.5rem;">Create RSL License</h2>
+                
+                <div class="form-group">
+                    <label>License Name *</label>
+                    <input type="text" id="license-name" class="form-input" placeholder="e.g., AI Training Restriction">
+                </div>
+                
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="license-description" class="form-input" rows="2" placeholder="Description of this license configuration"></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Scope</label>
+                    <select id="license-site" class="form-input">
+                        <option value="">Global (All Sites)</option>
+                        ${window.allSites ? window.allSites.map(s => `<option value="${s.id}">${escapeHtml(s.domain)}</option>`).join('') : ''}
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Content URL Pattern</label>
+                    <input type="text" id="license-url-pattern" class="form-input" placeholder="/* (matches all)">
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label>Permitted Usage</label>
+                        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                            <label><input type="checkbox" id="permit-display" checked> Display</label>
+                            <label><input type="checkbox" id="permit-index"> Search Index</label>
+                            <label><input type="checkbox" id="permit-cache"> Cache</label>
+                            <label><input type="checkbox" id="permit-train"> AI Training</label>
+                            <label><input type="checkbox" id="permit-derive"> Derivative Works</label>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Prohibited Usage</label>
+                        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                            <label><input type="checkbox" id="prohibit-display"> Display</label>
+                            <label><input type="checkbox" id="prohibit-index"> Search Index</label>
+                            <label><input type="checkbox" id="prohibit-cache"> Cache</label>
+                            <label><input type="checkbox" id="prohibit-train" checked> AI Training</label>
+                            <label><input type="checkbox" id="prohibit-derive"> Derivative Works</label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label>Permitted Users</label>
+                        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                            <label><input type="checkbox" id="user-human" checked> Humans</label>
+                            <label><input type="checkbox" id="user-search" checked> Search Engines</label>
+                            <label><input type="checkbox" id="user-social"> Social Media</label>
+                            <label><input type="checkbox" id="user-ai"> AI Services</label>
+                            <label><input type="checkbox" id="user-bot"> Other Bots</label>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Payment Required</label>
+                        <select id="license-payment-type" class="form-input" onchange="togglePaymentFields()">
+                            <option value="">No Payment</option>
+                            <option value="per-request">Per Request</option>
+                            <option value="subscription">Subscription</option>
+                            <option value="one-time">One Time</option>
+                            <option value="negotiated">Negotiated</option>
+                        </select>
+                        <div id="payment-fields" style="display: none; margin-top: 0.5rem;">
+                            <input type="number" id="license-payment-amount" class="form-input" placeholder="Amount" style="margin-bottom: 0.5rem;">
+                            <select id="license-payment-currency" class="form-input">
+                                <option value="USD">USD</option>
+                                <option value="EUR">EUR</option>
+                                <option value="GBP">GBP</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem;">
+                    <button onclick="closeAddLicenseModal()" class="btn-secondary">Cancel</button>
+                    <button onclick="createRSLLicense()" class="btn-primary">Create License</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+function togglePaymentFields() {
+    const type = document.getElementById('license-payment-type').value;
+    const fields = document.getElementById('payment-fields');
+    if (fields) {
+        fields.style.display = type && type !== 'negotiated' ? 'block' : 'none';
+    }
+}
+
+function closeAddLicenseModal() {
+    const modal = document.getElementById('add-license-modal');
+    if (modal) modal.remove();
+}
+
+// Create RSL license
+async function createRSLLicense() {
+    try {
+        const name = document.getElementById('license-name')?.value;
+        if (!name) {
+            showToast('License name is required', 'error');
+            return;
+        }
+        
+        // Build permits array
+        const permits = { usage: [], user: [] };
+        if (document.getElementById('permit-display')?.checked) permits.usage.push('display');
+        if (document.getElementById('permit-index')?.checked) permits.usage.push('index');
+        if (document.getElementById('permit-cache')?.checked) permits.usage.push('cache');
+        if (document.getElementById('permit-train')?.checked) permits.usage.push('train');
+        if (document.getElementById('permit-derive')?.checked) permits.usage.push('derive');
+        
+        if (document.getElementById('user-human')?.checked) permits.user.push('human');
+        if (document.getElementById('user-search')?.checked) permits.user.push('search');
+        if (document.getElementById('user-social')?.checked) permits.user.push('social');
+        if (document.getElementById('user-ai')?.checked) permits.user.push('ai');
+        if (document.getElementById('user-bot')?.checked) permits.user.push('bot');
+        
+        // Build prohibits array
+        const prohibits = { usage: [] };
+        if (document.getElementById('prohibit-display')?.checked) prohibits.usage.push('display');
+        if (document.getElementById('prohibit-index')?.checked) prohibits.usage.push('index');
+        if (document.getElementById('prohibit-cache')?.checked) prohibits.usage.push('cache');
+        if (document.getElementById('prohibit-train')?.checked) prohibits.usage.push('train');
+        if (document.getElementById('prohibit-derive')?.checked) prohibits.usage.push('derive');
+        
+        const payload = {
+            name: name,
+            description: document.getElementById('license-description')?.value || '',
+            site_id: document.getElementById('license-site')?.value || null,
+            content_url_pattern: document.getElementById('license-url-pattern')?.value || '/*',
+            permits: permits,
+            prohibits: prohibits,
+            enabled: true
+        };
+        
+        // Add payment info if specified
+        const paymentType = document.getElementById('license-payment-type')?.value;
+        if (paymentType) {
+            payload.payment_type = paymentType;
+            payload.payment_amount = document.getElementById('license-payment-amount')?.value || null;
+            payload.payment_currency = document.getElementById('license-payment-currency')?.value || 'USD';
+        }
+        
+        const response = await apiRequest('/rsl/licenses', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        
+        if (response && response.success) {
+            showToast('License created successfully', 'success');
+            closeAddLicenseModal();
+            await loadRSLLicenses();
+            await loadRSLStats();
+        }
+    } catch (error) {
+        console.error('Error creating license:', error);
+        showToast('Failed to create license', 'error');
+    }
+}
+
+// View RSL license XML
+async function viewRSLLicense(id) {
+    try {
+        const response = await apiRequest(`/rsl/licenses/${id}/xml`);
+        if (response && response.success) {
+            const modalHtml = `
+                <div id="view-license-modal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; justify-content: center; align-items: center; z-index: 1000;">
+                    <div class="card" style="width: 90%; max-width: 700px; max-height: 80vh; overflow-y: auto;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                            <h2 style="margin: 0;">RSL License XML</h2>
+                            <button onclick="copyRSLXml()" class="btn-secondary">📋 Copy</button>
+                        </div>
+                        <pre id="rsl-xml-content" style="background: #111827; padding: 1rem; border-radius: 8px; overflow: auto; max-height: 400px; font-size: 0.85em; white-space: pre-wrap;">${escapeHtml(response.xml)}</pre>
+                        <div style="margin-top: 1rem; text-align: right;">
+                            <button onclick="document.getElementById('view-license-modal').remove()" class="btn-primary">Close</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }
+    } catch (error) {
+        console.error('Error viewing license:', error);
+        showToast('Failed to load license XML', 'error');
+    }
+}
+
+function copyRSLXml() {
+    const content = document.getElementById('rsl-xml-content')?.textContent;
+    if (content) {
+        navigator.clipboard.writeText(content).then(() => {
+            showToast('XML copied to clipboard', 'success');
+        }).catch(() => {
+            showToast('Failed to copy XML', 'error');
+        });
+    }
+}
+
+// Edit RSL license
+async function editRSLLicense(id) {
+    showToast('Edit functionality coming soon', 'info');
+    // TODO: Implement edit modal similar to add modal but pre-populated
+}
+
+// Toggle RSL license enabled state
+async function toggleRSLLicense(id, enabled) {
+    try {
+        const response = await apiRequest(`/rsl/licenses/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify({ enabled: enabled })
+        });
+        
+        if (response && response.success) {
+            showToast(enabled ? 'License enabled' : 'License disabled', 'success');
+            await loadRSLLicenses();
+        }
+    } catch (error) {
+        console.error('Error toggling license:', error);
+        showToast('Failed to update license', 'error');
+    }
+}
+
+// Delete RSL license
+async function deleteRSLLicense(id) {
+    if (!confirm('Are you sure you want to delete this license? This action cannot be undone.')) {
+        return;
+    }
+    
+    try {
+        const response = await apiRequest(`/rsl/licenses/${id}`, {
+            method: 'DELETE'
+        });
+        
+        if (response && response.success) {
+            showToast('License deleted', 'success');
+            await loadRSLLicenses();
+            await loadRSLStats();
+        }
+    } catch (error) {
+        console.error('Error deleting license:', error);
+        showToast('Failed to delete license', 'error');
+    }
+}
+
+// Approve RSL client
+async function approveRSLClient(clientId) {
+    try {
+        const response = await apiRequest(`/rsl/clients/${clientId}/approve`, {
+            method: 'POST'
+        });
+        
+        if (response && response.success) {
+            showToast('Client approved', 'success');
+            await loadRSLClients();
+            await loadRSLStats();
+        }
+    } catch (error) {
+        console.error('Error approving client:', error);
+        showToast('Failed to approve client', 'error');
+    }
+}
+
+// Delete RSL client
+async function deleteRSLClient(clientId) {
+    if (!confirm('Are you sure you want to delete this client? All associated tokens will also be deleted.')) {
+        return;
+    }
+    
+    try {
+        const response = await apiRequest(`/rsl/clients/${clientId}`, {
+            method: 'DELETE'
+        });
+        
+        if (response && response.success) {
+            showToast('Client deleted', 'success');
+            await loadRSLClients();
+            await loadRSLStats();
+        }
+    } catch (error) {
+        console.error('Error deleting client:', error);
+        showToast('Failed to delete client', 'error');
+    }
+}
+
+// Revoke RSL token
+async function revokeRSLToken(id) {
+    if (!confirm('Are you sure you want to revoke this token?')) {
+        return;
+    }
+    
+    try {
+        const response = await apiRequest(`/rsl/tokens/${id}/revoke`, {
+            method: 'POST'
+        });
+        
+        if (response && response.success) {
+            showToast('Token revoked', 'success');
+            await loadRSLTokens();
+            await loadRSLStats();
+        }
+    } catch (error) {
+        console.error('Error revoking token:', error);
+        showToast('Failed to revoke token', 'error');
+    }
+}
+
+// Delete RSL token
+async function deleteRSLToken(id) {
+    if (!confirm('Are you sure you want to delete this token?')) {
+        return;
+    }
+    
+    try {
+        const response = await apiRequest(`/rsl/tokens/${id}`, {
+            method: 'DELETE'
+        });
+        
+        if (response && response.success) {
+            showToast('Token deleted', 'success');
+            await loadRSLTokens();
+            await loadRSLStats();
+        }
+    } catch (error) {
+        console.error('Error deleting token:', error);
+        showToast('Failed to delete token', 'error');
+    }
+}
+
+// Switch RSL tab
+function switchRSLTab(tabName) {
+    currentRSLTab = tabName;
+    
+    // Update tab buttons
+    document.querySelectorAll('.rsl-tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tabName);
+    });
+    
+    // Update tab content
+    document.querySelectorAll('.rsl-tab-content').forEach(content => {
+        content.classList.toggle('active', content.id === `rsl-${tabName}-tab`);
+    });
+}
+
+// Open RSL builder in new tab
+function openRSLBuilder() {
+    window.open('/cat-waf/rsl-builder', '_blank');
+}
+
+// Window exports for RSL
+window.loadRSLData = loadRSLData;
+window.loadRSLStats = loadRSLStats;
+window.loadRSLLicenses = loadRSLLicenses;
+window.loadRSLClients = loadRSLClients;
+window.loadRSLTokens = loadRSLTokens;
+window.loadRSLSettings = loadRSLSettings;
+window.saveRSLSettings = saveRSLSettings;
+window.showAddLicenseModal = showAddLicenseModal;
+window.closeAddLicenseModal = closeAddLicenseModal;
+window.togglePaymentFields = togglePaymentFields;
+window.createRSLLicense = createRSLLicense;
+window.viewRSLLicense = viewRSLLicense;
+window.copyRSLXml = copyRSLXml;
+window.editRSLLicense = editRSLLicense;
+window.toggleRSLLicense = toggleRSLLicense;
+window.deleteRSLLicense = deleteRSLLicense;
+window.approveRSLClient = approveRSLClient;
+window.deleteRSLClient = deleteRSLClient;
+window.revokeRSLToken = revokeRSLToken;
+window.deleteRSLToken = deleteRSLToken;
+window.switchRSLTab = switchRSLTab;
+window.openRSLBuilder = openRSLBuilder;
+

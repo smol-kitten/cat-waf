@@ -1,0 +1,1511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RSL Builder - Cat-WAF</title>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --text-primary: #c9d1d9;
+            --text-secondary: #8b949e;
+            --accent-color: #58a6ff;
+            --success-color: #3fb950;
+            --warning-color: #d29922;
+            --danger-color: #f85149;
+            --border-color: #30363d;
+            --accent-subtle: #388bfd26;
+        }
+        
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        header h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+        
+        header p {
+            color: var(--text-secondary);
+        }
+        
+        .info-box {
+            background: var(--accent-subtle);
+            border: 1px solid var(--accent-color);
+            border-radius: 8px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            font-size: 0.9em;
+        }
+        
+        .info-box strong { color: var(--accent-color); }
+        
+        /* Load Config Bar */
+        .load-config-bar {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .load-config-bar label {
+            color: var(--text-secondary);
+            font-size: 0.9em;
+        }
+        
+        .load-config-bar input {
+            flex: 1;
+            min-width: 200px;
+            padding: 8px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+        }
+        
+        .load-config-bar .btn { margin-left: auto; }
+        
+        /* Presets */
+        .presets {
+            margin-bottom: 20px;
+        }
+        
+        .presets h3 {
+            margin-bottom: 10px;
+            font-size: 0.9em;
+            color: var(--text-secondary);
+        }
+        
+        .preset-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .preset-btn {
+            padding: 8px 16px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: all 0.2s;
+        }
+        
+        .preset-btn:hover {
+            border-color: var(--accent-color);
+            background: var(--accent-subtle);
+        }
+        
+        .preset-btn.active {
+            border-color: var(--accent-color);
+            background: var(--accent-color);
+            color: #000;
+        }
+        
+        /* Layout */
+        .layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        @media (max-width: 1200px) {
+            .layout { grid-template-columns: 1fr; }
+        }
+        
+        .panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .panel-header {
+            background: var(--bg-tertiary);
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .panel-body { padding: 16px; }
+        
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 0;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+        }
+        
+        .tab {
+            padding: 10px 16px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 0.9em;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        
+        .tab:hover { color: var(--text-primary); }
+        
+        .tab.active {
+            color: var(--accent-color);
+            border-bottom-color: var(--accent-color);
+        }
+        
+        .tab-content {
+            display: none;
+            padding: 16px;
+        }
+        
+        .tab-content.active { display: block; }
+        
+        /* Sections */
+        .section {
+            margin-bottom: 20px;
+        }
+        
+        .section:last-child { margin-bottom: 0; }
+        
+        .section h3 {
+            font-size: 0.9em;
+            margin-bottom: 10px;
+            color: var(--text-secondary);
+        }
+        
+        /* Form */
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: var(--text-secondary);
+            font-size: 0.85em;
+        }
+        
+        input[type="text"],
+        input[type="number"],
+        input[type="url"],
+        select,
+        textarea {
+            width: 100%;
+            padding: 8px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 0.9em;
+        }
+        
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--accent-color);
+        }
+        
+        textarea {
+            min-height: 300px;
+            resize: vertical;
+            font-family: 'Fira Code', 'Monaco', monospace;
+        }
+        
+        /* Checkboxes */
+        .checkbox-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 8px;
+        }
+        
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .checkbox-item input { width: auto; }
+        
+        .checkbox-item label {
+            font-size: 0.9em;
+            color: var(--text-primary);
+            cursor: pointer;
+        }
+        
+        /* Buttons */
+        .btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 0.9em;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background: var(--accent-color);
+            color: #000;
+        }
+        
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+        }
+        
+        .btn-success {
+            background: var(--success-color);
+            color: #000;
+        }
+        
+        .btn-danger {
+            background: var(--danger-color);
+            color: #fff;
+        }
+        
+        .btn:hover { opacity: 0.9; }
+        
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        /* Output area */
+        .output-area {
+            position: relative;
+        }
+        
+        .output-area textarea { min-height: 350px; }
+        
+        .copy-btn {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            padding: 4px 10px;
+            font-size: 0.8em;
+        }
+        
+        /* Discovery output */
+        .discovery-code {
+            background: var(--bg-tertiary);
+            padding: 10px 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.85em;
+            overflow-x: auto;
+            margin-bottom: 10px;
+        }
+        
+        /* Path Cards */
+        .path-cards { margin-bottom: 20px; }
+        
+        .path-card {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+        
+        .path-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+        }
+        
+        .path-card-header:hover {
+            background: var(--accent-subtle);
+        }
+        
+        .path-card-title {
+            font-weight: 600;
+            font-size: 0.95em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .path-card-title .url-pattern {
+            font-family: monospace;
+            background: var(--bg-primary);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        
+        .path-card-controls {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .path-card-controls button {
+            padding: 4px 10px;
+            font-size: 0.8em;
+        }
+        
+        .path-card-body {
+            padding: 15px;
+            display: none;
+        }
+        
+        .path-card.expanded .path-card-body {
+            display: block;
+        }
+        
+        .path-card.expanded .path-card-header {
+            border-bottom-color: var(--accent-color);
+        }
+        
+        .add-path-btn {
+            width: 100%;
+            padding: 12px;
+            border: 2px dashed var(--border-color);
+            border-radius: 8px;
+            background: transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.2s;
+        }
+        
+        .add-path-btn:hover {
+            border-color: var(--accent-color);
+            color: var(--accent-color);
+            background: var(--accent-subtle);
+        }
+        
+        /* Global Settings */
+        .global-settings {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .global-settings h4 {
+            margin-bottom: 10px;
+            font-size: 0.9em;
+            color: var(--accent-color);
+        }
+        
+        /* Footer */
+        footer {
+            text-align: center;
+            padding: 20px;
+            margin-top: 20px;
+            border-top: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            font-size: 0.9em;
+        }
+        
+        footer a { color: var(--accent-color); text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+        
+        /* Loading */
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: var(--text-secondary);
+        }
+        
+        .loading::after {
+            content: '';
+            animation: dots 1.5s infinite;
+        }
+        
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60%, 100% { content: '...'; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔐 RSL Builder</h1>
+            <p>Create Really Simple Licensing documents to control how AI systems use your content</p>
+        </header>
+        
+        <div class="info-box">
+            <strong>RSL (Really Simple Licensing)</strong> is an open standard for declaring machine-readable content licensing. 
+            Use this builder to create an rsl.xml file that tells AI systems what they can and cannot do with your content.
+            <strong>New:</strong> Configure different permissions for different URL paths!
+        </div>
+        
+        <!-- Load Config -->
+        <div class="load-config-bar">
+            <label>📥 Load existing configuration:</label>
+            <input type="text" id="loadConfigUrl" placeholder="https://example.com (will fetch from /rsl.xml or /.well-known/rsl)">
+            <button class="btn btn-primary" onclick="loadExistingConfig()">Load Config</button>
+            <button class="btn btn-secondary" onclick="resetForm()">🔄 Reset</button>
+        </div>
+        
+        <!-- Presets -->
+        <div class="presets">
+            <h3>Quick Start Presets</h3>
+            <div class="preset-grid">
+                <button class="preset-btn" data-preset="prohibit-ai-training">🚫 Prohibit AI Training</button>
+                <button class="preset-btn" data-preset="require-license">📜 Require License</button>
+                <button class="preset-btn" data-preset="pay-per-crawl">💰 Pay-Per-Crawl</button>
+                <button class="preset-btn" data-preset="attribution-only">📝 Attribution Only</button>
+                <button class="preset-btn" data-preset="non-commercial">🏠 Non-Commercial Only</button>
+                <button class="preset-btn" data-preset="all-rights-reserved">🔒 All Rights Reserved</button>
+            </div>
+        </div>
+        
+        <div class="layout">
+            <!-- Configuration Panel -->
+            <div class="panel">
+                <div class="panel-header">
+                    <span>⚙️ Configuration</span>
+                </div>
+                
+                <div class="tabs">
+                    <div class="tab active" data-tab="paths">📁 Content Paths</div>
+                    <div class="tab" data-tab="payment">💳 Payment</div>
+                    <div class="tab" data-tab="legal">⚖️ Legal</div>
+                    <div class="tab" data-tab="advanced">🔧 Advanced</div>
+                </div>
+                
+                <!-- Paths Tab (NEW) -->
+                <div id="paths-tab" class="tab-content active">
+                    <div class="section">
+                        <p style="color: var(--text-secondary); font-size: 0.9em; margin-bottom: 15px;">
+                            Configure different permissions for different URL paths. If you only need one set of permissions, 
+                            use <code>/*</code> to match all content.
+                        </p>
+                        
+                        <div id="pathCards" class="path-cards">
+                            <!-- Path cards will be generated by JS -->
+                        </div>
+                        
+                        <button class="add-path-btn" onclick="addPath()">➕ Add Content Path</button>
+                    </div>
+                </div>
+                
+                <!-- Payment Tab -->
+                <div id="payment-tab" class="tab-content">
+                    <div class="section">
+                        <h3>Payment Configuration (Global)</h3>
+                        <p style="color: var(--text-secondary); font-size: 0.85em; margin-bottom: 15px;">
+                            These payment settings apply to all content paths.
+                        </p>
+                        
+                        <div class="form-group">
+                            <label>Payment Type</label>
+                            <select id="paymentType" onchange="generateRSL()">
+                                <option value="free">Free</option>
+                                <option value="attribution">Attribution Required</option>
+                                <option value="purchase">License Purchase</option>
+                                <option value="subscription">Subscription</option>
+                                <option value="crawl">Pay-Per-Crawl</option>
+                                <option value="output">Pay-Per-Output</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Amount (if applicable)</label>
+                            <div style="display: flex; gap: 10px;">
+                                <input type="number" id="paymentAmount" step="0.001" min="0" placeholder="0.00" onchange="generateRSL()">
+                                <select id="paymentCurrency" style="width: 100px;" onchange="generateRSL()">
+                                    <option value="USD">USD</option>
+                                    <option value="EUR">EUR</option>
+                                    <option value="GBP">GBP</option>
+                                    <option value="BTC">BTC</option>
+                                    <option value="ETH">ETH</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Payment Standard (optional)</label>
+                            <select id="paymentStandard" onchange="generateRSL()">
+                                <option value="">None</option>
+                                <option value="stripe">Stripe</option>
+                                <option value="paypal">PayPal</option>
+                                <option value="square">Square</option>
+                                <option value="web-monetization">Web Monetization</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Custom Payment URL</label>
+                            <input type="url" id="paymentCustom" placeholder="https://example.com/pay" onchange="generateRSL()">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Legal Tab -->
+                <div id="legal-tab" class="tab-content">
+                    <div class="section">
+                        <h3>Legal Information (Global)</h3>
+                        
+                        <div class="form-group">
+                            <label>Terms of Service URL</label>
+                            <input type="url" id="legalTerms" placeholder="https://example.com/terms" onchange="generateRSL()">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Disclaimer URL</label>
+                            <input type="url" id="legalDisclaimer" placeholder="https://example.com/disclaimer" onchange="generateRSL()">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Contact URL</label>
+                            <input type="url" id="legalContact" placeholder="https://example.com/contact" onchange="generateRSL()">
+                        </div>
+                    </div>
+                    
+                    <div class="section">
+                        <h3>Copyright</h3>
+                        
+                        <div class="form-group">
+                            <label>Copyright Holder</label>
+                            <input type="text" id="copyrightHolder" placeholder="Your Name or Company" onchange="generateRSL()">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Copyright Year</label>
+                            <input type="text" id="copyrightYear" placeholder="2024" onchange="generateRSL()">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>License (e.g., SPDX identifier)</label>
+                            <input type="text" id="copyrightLicense" placeholder="CC-BY-4.0, MIT, proprietary, etc." onchange="generateRSL()">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Advanced Tab -->
+                <div id="advanced-tab" class="tab-content">
+                    <div class="section">
+                        <h3>License Server (OLP)</h3>
+                        
+                        <div class="form-group">
+                            <label>License Server URL</label>
+                            <input type="url" id="licenseServer" placeholder="https://example.com/api/rsl/olp" onchange="generateRSL()">
+                            <small style="color: var(--text-secondary);">OLP (Open License Protocol) server for automated licensing</small>
+                        </div>
+                        
+                        <div class="checkbox-item" style="margin-top: 10px;">
+                            <input type="checkbox" id="encryptedContent" onchange="generateRSL()">
+                            <label for="encryptedContent">Content requires EMS (Encrypted Media Streaming)</label>
+                        </div>
+                    </div>
+                    
+                    <div class="section">
+                        <h3>Signature</h3>
+                        <p style="color: var(--text-secondary); font-size: 0.85em; margin-bottom: 10px;">
+                            Sign your RSL document to prove authenticity. Upload a signed version or use your RSL server's signing feature.
+                        </p>
+                        <div class="form-group">
+                            <label>Signature Algorithm</label>
+                            <select id="signatureAlgorithm">
+                                <option value="">None (unsigned)</option>
+                                <option value="RS256">RS256 (RSA SHA-256)</option>
+                                <option value="ES256">ES256 (ECDSA P-256)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Output Panel -->
+            <div class="panel">
+                <div class="panel-header">
+                    <span>📄 Output</span>
+                </div>
+                
+                <div class="tabs">
+                    <div class="tab active" data-tab="xml">XML Document</div>
+                    <div class="tab" data-tab="discovery">Discovery</div>
+                    <div class="tab" data-tab="robots">robots.txt</div>
+                </div>
+                
+                <!-- XML Output -->
+                <div id="xml-tab" class="tab-content active">
+                    <div class="output-area">
+                        <button class="btn btn-secondary copy-btn" onclick="copyXML()">📋 Copy</button>
+                        <textarea id="xmlOutput" readonly></textarea>
+                    </div>
+                    
+                    <div class="btn-group">
+                        <button class="btn btn-success" onclick="downloadRSL()">
+                            💾 Download rsl.xml
+                        </button>
+                        <button class="btn btn-secondary" onclick="validateRSL()">
+                            ✓ Validate
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Discovery Output -->
+                <div id="discovery-tab" class="tab-content">
+                    <div class="section">
+                        <h3>HTTP Link Header</h3>
+                        <div class="discovery-code">
+                            <code id="httpHeader">Link: &lt;/rsl.xml&gt;; rel="license"; type="application/rsl+xml"</code>
+                        </div>
+                        <small style="color: var(--text-secondary);">Add this header to your HTTP responses</small>
+                    </div>
+                    
+                    <div class="section">
+                        <h3>HTML Link Element</h3>
+                        <div class="discovery-code">
+                            <code id="htmlLink">&lt;link rel="license" type="application/rsl+xml" href="/rsl.xml"&gt;</code>
+                        </div>
+                        <small style="color: var(--text-secondary);">Add this to your HTML &lt;head&gt;</small>
+                    </div>
+                    
+                    <div class="section">
+                        <h3>Well-Known URL</h3>
+                        <div class="discovery-code">
+                            <code>/.well-known/rsl</code>
+                        </div>
+                        <small style="color: var(--text-secondary);">Place your rsl.xml at this path for automatic discovery</small>
+                    </div>
+                </div>
+                
+                <!-- Robots.txt Output -->
+                <div id="robots-tab" class="tab-content">
+                    <div class="section">
+                        <h3>robots.txt with RSL</h3>
+                        <textarea id="robotsOutput" readonly style="min-height: 300px; font-family: monospace;"></textarea>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-success" onclick="downloadRobots()">
+                            💾 Download robots.txt
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <footer>
+            <p>
+                RSL Specification v1.0 - <a href="https://rslstandard.org/spec/1.0/" target="_blank">Documentation</a> | 
+                <a href="/cat-waf/olp-tester">OLP Tester</a> |
+                Powered by <a href="/">Cat-WAF</a>
+            </p>
+        </footer>
+    </div>
+    
+    <script>
+        // ============================================
+        // Multi-Path RSL Builder
+        // ============================================
+        
+        // State for content paths
+        let contentPaths = [
+            {
+                id: 1,
+                url: '/*',
+                permits: { usage: ['search'], user: [] },
+                prohibits: { usage: ['ai-train'], user: [] },
+                expanded: true
+            }
+        ];
+        
+        let nextPathId = 2;
+        
+        // Presets configuration
+        const presets = {
+            'prohibit-ai-training': {
+                permits: { usage: ['search', 'ai-index'] },
+                prohibits: { usage: ['ai-train'] },
+                payment: { type: 'free' }
+            },
+            'require-license': {
+                permits: { usage: ['search'] },
+                prohibits: { usage: ['ai-all'] },
+                payment: { type: 'purchase' }
+            },
+            'pay-per-crawl': {
+                permits: { usage: ['search'] },
+                prohibits: {},
+                payment: { type: 'crawl', amount: 0.001 }
+            },
+            'attribution-only': {
+                permits: { usage: ['all'] },
+                prohibits: {},
+                payment: { type: 'attribution' }
+            },
+            'non-commercial': {
+                permits: { usage: ['all'], user: ['non-commercial', 'education', 'personal'] },
+                prohibits: { user: ['commercial'] },
+                payment: { type: 'free' }
+            },
+            'all-rights-reserved': {
+                permits: {},
+                prohibits: { usage: ['all'] },
+                payment: { type: 'purchase' }
+            }
+        };
+        
+        // Available options
+        const usageOptions = [
+            { value: 'search', label: 'Search Indexing' },
+            { value: 'ai-index', label: 'AI Indexing' },
+            { value: 'ai-input', label: 'AI Input' },
+            { value: 'ai-train', label: 'AI Training' },
+            { value: 'ai-all', label: 'All AI Uses' },
+            { value: 'all', label: 'All Uses' }
+        ];
+        
+        const userOptions = [
+            { value: 'commercial', label: 'Commercial' },
+            { value: 'non-commercial', label: 'Non-Commercial' },
+            { value: 'education', label: 'Education' },
+            { value: 'personal', label: 'Personal' },
+            { value: 'research', label: 'Research' },
+            { value: 'government', label: 'Government' }
+        ];
+        
+        // ============================================
+        // Path Card Rendering
+        // ============================================
+        
+        function renderPathCards() {
+            const container = document.getElementById('pathCards');
+            container.innerHTML = '';
+            
+            contentPaths.forEach((path, index) => {
+                const card = document.createElement('div');
+                card.className = `path-card ${path.expanded ? 'expanded' : ''}`;
+                card.dataset.id = path.id;
+                
+                card.innerHTML = `
+                    <div class="path-card-header" onclick="togglePath(${path.id})">
+                        <div class="path-card-title">
+                            <span>📁</span>
+                            <span class="url-pattern">${escapeHtml(path.url)}</span>
+                            <span style="color: var(--text-secondary); font-size: 0.8em;">
+                                (${summarizePermissions(path)})
+                            </span>
+                        </div>
+                        <div class="path-card-controls" onclick="event.stopPropagation()">
+                            ${contentPaths.length > 1 ? `
+                                <button class="btn btn-danger" onclick="removePath(${path.id})">🗑️</button>
+                            ` : ''}
+                            <button class="btn btn-secondary">${path.expanded ? '▲' : '▼'}</button>
+                        </div>
+                    </div>
+                    <div class="path-card-body">
+                        <div class="form-group">
+                            <label>URL Pattern</label>
+                            <input type="text" value="${escapeHtml(path.url)}" 
+                                onchange="updatePathUrl(${path.id}, this.value)"
+                                placeholder="/*" />
+                            <small style="color: var(--text-secondary);">
+                                Use /* for all content, /blog/* for blog paths, etc.
+                            </small>
+                        </div>
+                        
+                        <div class="section">
+                            <h3>✅ Permitted Uses</h3>
+                            <div class="checkbox-grid">
+                                ${usageOptions.map(opt => `
+                                    <div class="checkbox-item">
+                                        <input type="checkbox" 
+                                            id="path${path.id}_permit_usage_${opt.value}"
+                                            ${path.permits.usage?.includes(opt.value) ? 'checked' : ''}
+                                            onchange="updatePathPermits(${path.id}, 'usage', '${opt.value}', this.checked)">
+                                        <label for="path${path.id}_permit_usage_${opt.value}">${opt.label}</label>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                        
+                        <div class="section">
+                            <h3>✅ Permitted User Types</h3>
+                            <div class="checkbox-grid">
+                                ${userOptions.map(opt => `
+                                    <div class="checkbox-item">
+                                        <input type="checkbox" 
+                                            id="path${path.id}_permit_user_${opt.value}"
+                                            ${path.permits.user?.includes(opt.value) ? 'checked' : ''}
+                                            onchange="updatePathPermits(${path.id}, 'user', '${opt.value}', this.checked)">
+                                        <label for="path${path.id}_permit_user_${opt.value}">${opt.label}</label>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                        
+                        <div class="section">
+                            <h3>🚫 Prohibited Uses</h3>
+                            <div class="checkbox-grid">
+                                ${usageOptions.map(opt => `
+                                    <div class="checkbox-item">
+                                        <input type="checkbox" 
+                                            id="path${path.id}_prohibit_usage_${opt.value}"
+                                            ${path.prohibits.usage?.includes(opt.value) ? 'checked' : ''}
+                                            onchange="updatePathProhibits(${path.id}, 'usage', '${opt.value}', this.checked)">
+                                        <label for="path${path.id}_prohibit_usage_${opt.value}">${opt.label}</label>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                        
+                        <div class="section">
+                            <h3>🚫 Prohibited User Types</h3>
+                            <div class="checkbox-grid">
+                                ${userOptions.map(opt => `
+                                    <div class="checkbox-item">
+                                        <input type="checkbox" 
+                                            id="path${path.id}_prohibit_user_${opt.value}"
+                                            ${path.prohibits.user?.includes(opt.value) ? 'checked' : ''}
+                                            onchange="updatePathProhibits(${path.id}, 'user', '${opt.value}', this.checked)">
+                                        <label for="path${path.id}_prohibit_user_${opt.value}">${opt.label}</label>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                container.appendChild(card);
+            });
+        }
+        
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+        
+        function summarizePermissions(path) {
+            const permitCount = (path.permits.usage?.length || 0) + (path.permits.user?.length || 0);
+            const prohibitCount = (path.prohibits.usage?.length || 0) + (path.prohibits.user?.length || 0);
+            return `${permitCount} permits, ${prohibitCount} prohibits`;
+        }
+        
+        // ============================================
+        // Path Management
+        // ============================================
+        
+        function addPath() {
+            contentPaths.push({
+                id: nextPathId++,
+                url: '/new-path/*',
+                permits: { usage: [], user: [] },
+                prohibits: { usage: [], user: [] },
+                expanded: true
+            });
+            
+            // Collapse other paths
+            contentPaths.forEach((p, i) => {
+                if (i < contentPaths.length - 1) p.expanded = false;
+            });
+            
+            renderPathCards();
+            generateRSL();
+        }
+        
+        function removePath(id) {
+            if (contentPaths.length <= 1) return;
+            contentPaths = contentPaths.filter(p => p.id !== id);
+            renderPathCards();
+            generateRSL();
+        }
+        
+        function togglePath(id) {
+            const path = contentPaths.find(p => p.id === id);
+            if (path) {
+                path.expanded = !path.expanded;
+                renderPathCards();
+            }
+        }
+        
+        function updatePathUrl(id, url) {
+            const path = contentPaths.find(p => p.id === id);
+            if (path) {
+                path.url = url;
+                renderPathCards();
+                generateRSL();
+            }
+        }
+        
+        function updatePathPermits(id, type, value, checked) {
+            const path = contentPaths.find(p => p.id === id);
+            if (!path) return;
+            
+            if (!path.permits[type]) path.permits[type] = [];
+            
+            if (checked) {
+                if (!path.permits[type].includes(value)) {
+                    path.permits[type].push(value);
+                }
+            } else {
+                path.permits[type] = path.permits[type].filter(v => v !== value);
+            }
+            
+            generateRSL();
+        }
+        
+        function updatePathProhibits(id, type, value, checked) {
+            const path = contentPaths.find(p => p.id === id);
+            if (!path) return;
+            
+            if (!path.prohibits[type]) path.prohibits[type] = [];
+            
+            if (checked) {
+                if (!path.prohibits[type].includes(value)) {
+                    path.prohibits[type].push(value);
+                }
+            } else {
+                path.prohibits[type] = path.prohibits[type].filter(v => v !== value);
+            }
+            
+            generateRSL();
+        }
+        
+        // ============================================
+        // Tab Switching
+        // ============================================
+        
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabId = tab.dataset.tab;
+                const tabGroup = tab.parentElement;
+                const contentGroup = tabGroup.parentElement;
+                
+                // Deactivate all tabs in this group
+                tabGroup.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                
+                // Show correct content
+                contentGroup.querySelectorAll('.tab-content').forEach(content => {
+                    content.classList.remove('active');
+                });
+                document.getElementById(`${tabId}-tab`).classList.add('active');
+            });
+        });
+        
+        // ============================================
+        // Presets
+        // ============================================
+        
+        document.querySelectorAll('.preset-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const preset = presets[btn.dataset.preset];
+                if (!preset) return;
+                
+                // Apply to first/all paths
+                contentPaths.forEach(path => {
+                    path.permits = {
+                        usage: preset.permits?.usage ? [...preset.permits.usage] : [],
+                        user: preset.permits?.user ? [...preset.permits.user] : []
+                    };
+                    path.prohibits = {
+                        usage: preset.prohibits?.usage ? [...preset.prohibits.usage] : [],
+                        user: preset.prohibits?.user ? [...preset.prohibits.user] : []
+                    };
+                });
+                
+                // Apply payment
+                if (preset.payment) {
+                    document.getElementById('paymentType').value = preset.payment.type || 'free';
+                    document.getElementById('paymentAmount').value = preset.payment.amount || '';
+                }
+                
+                // Update active button
+                document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                renderPathCards();
+                generateRSL();
+            });
+        });
+        
+        // ============================================
+        // Load Existing Configuration
+        // ============================================
+        
+        async function loadExistingConfig() {
+            const urlInput = document.getElementById('loadConfigUrl');
+            let baseUrl = urlInput.value.trim();
+            
+            if (!baseUrl) {
+                alert('Please enter a URL to load configuration from');
+                return;
+            }
+            
+            // Ensure URL has protocol
+            if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+                baseUrl = 'https://' + baseUrl;
+            }
+            
+            // Remove trailing slash
+            baseUrl = baseUrl.replace(/\/$/, '');
+            
+            // Try different RSL discovery locations
+            const locations = [
+                `${baseUrl}/rsl.xml`,
+                `${baseUrl}/.well-known/rsl`,
+                `${baseUrl}/api/rsl`,
+                `${baseUrl}/cat-waf/rsl.xml`
+            ];
+            
+            urlInput.disabled = true;
+            
+            for (const url of locations) {
+                try {
+                    const response = await fetch(`/api/cat-waf/rsl-fetch?url=${encodeURIComponent(url)}`);
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        
+                        if (data.success && data.config) {
+                            applyLoadedConfig(data.config);
+                            alert(`✓ Configuration loaded from ${url}`);
+                            urlInput.disabled = false;
+                            return;
+                        }
+                    }
+                } catch (err) {
+                    console.log(`Failed to load from ${url}:`, err);
+                }
+            }
+            
+            urlInput.disabled = false;
+            alert('Could not find RSL configuration at the specified URL. Tried:\n' + locations.join('\n'));
+        }
+        
+        function applyLoadedConfig(config) {
+            // Parse multi-path config
+            if (config.contents && Array.isArray(config.contents)) {
+                contentPaths = config.contents.map((content, index) => ({
+                    id: nextPathId++,
+                    url: content.url || '/*',
+                    permits: {
+                        usage: content.permits?.usage || [],
+                        user: content.permits?.user || []
+                    },
+                    prohibits: {
+                        usage: content.prohibits?.usage || [],
+                        user: content.prohibits?.user || []
+                    },
+                    expanded: index === 0
+                }));
+            } else if (config.content_url || config.permits || config.prohibits) {
+                // Single path config
+                contentPaths = [{
+                    id: nextPathId++,
+                    url: config.content_url || '/*',
+                    permits: {
+                        usage: config.permits?.usage || [],
+                        user: config.permits?.user || []
+                    },
+                    prohibits: {
+                        usage: config.prohibits?.usage || [],
+                        user: config.prohibits?.user || []
+                    },
+                    expanded: true
+                }];
+            }
+            
+            // Apply payment
+            if (config.payment) {
+                document.getElementById('paymentType').value = config.payment.type || 'free';
+                document.getElementById('paymentAmount').value = config.payment.amount || '';
+                document.getElementById('paymentCurrency').value = config.payment.currency || 'USD';
+                document.getElementById('paymentStandard').value = config.payment.standard || '';
+                document.getElementById('paymentCustom').value = config.payment.custom || '';
+            }
+            
+            // Apply legal
+            if (config.legal) {
+                document.getElementById('legalTerms').value = config.legal.terms || '';
+                document.getElementById('legalDisclaimer').value = config.legal.disclaimer || '';
+                document.getElementById('legalContact').value = config.legal.contact || '';
+            }
+            
+            // Apply copyright
+            if (config.copyright) {
+                document.getElementById('copyrightHolder').value = config.copyright.holder || '';
+                document.getElementById('copyrightYear').value = config.copyright.year || '';
+                document.getElementById('copyrightLicense').value = config.copyright.license || '';
+            }
+            
+            // Apply advanced
+            if (config.license_server) {
+                document.getElementById('licenseServer').value = config.license_server;
+            }
+            if (config.encrypted) {
+                document.getElementById('encryptedContent').checked = true;
+            }
+            
+            renderPathCards();
+            generateRSL();
+        }
+        
+        // ============================================
+        // Generate RSL XML
+        // ============================================
+        
+        async function generateRSL() {
+            // Build config with multi-path support
+            const config = {
+                contents: contentPaths.map(path => ({
+                    url: path.url,
+                    permits: {
+                        usage: path.permits.usage?.length ? path.permits.usage : undefined,
+                        user: path.permits.user?.length ? path.permits.user : undefined
+                    },
+                    prohibits: {
+                        usage: path.prohibits.usage?.length ? path.prohibits.usage : undefined,
+                        user: path.prohibits.user?.length ? path.prohibits.user : undefined
+                    }
+                })),
+                license_server: document.getElementById('licenseServer').value || undefined,
+                encrypted: document.getElementById('encryptedContent').checked,
+                payment: {
+                    type: document.getElementById('paymentType').value
+                },
+                legal: {},
+                copyright: {}
+            };
+            
+            // Payment
+            const amount = parseFloat(document.getElementById('paymentAmount').value);
+            if (amount > 0) {
+                config.payment.amount = amount;
+                config.payment.currency = document.getElementById('paymentCurrency').value;
+            }
+            if (document.getElementById('paymentStandard').value) {
+                config.payment.standard = document.getElementById('paymentStandard').value;
+            }
+            if (document.getElementById('paymentCustom').value) {
+                config.payment.custom = document.getElementById('paymentCustom').value;
+            }
+            
+            // Legal
+            if (document.getElementById('legalTerms').value) {
+                config.legal.terms = document.getElementById('legalTerms').value;
+            }
+            if (document.getElementById('legalDisclaimer').value) {
+                config.legal.disclaimer = document.getElementById('legalDisclaimer').value;
+            }
+            if (document.getElementById('legalContact').value) {
+                config.legal.contact = document.getElementById('legalContact').value;
+            }
+            
+            // Copyright
+            if (document.getElementById('copyrightHolder').value) {
+                config.copyright.holder = document.getElementById('copyrightHolder').value;
+            }
+            if (document.getElementById('copyrightYear').value) {
+                config.copyright.year = document.getElementById('copyrightYear').value;
+            }
+            if (document.getElementById('copyrightLicense').value) {
+                config.copyright.license = document.getElementById('copyrightLicense').value;
+            }
+            
+            try {
+                const response = await fetch('/api/cat-waf/rsl-builder?format=json', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                
+                const data = await response.json();
+                
+                // Update XML output
+                document.getElementById('xmlOutput').value = data.xml || '';
+                
+                // Update discovery outputs
+                if (data.discovery) {
+                    document.getElementById('httpHeader').textContent = data.discovery.http_header || '';
+                    document.getElementById('htmlLink').textContent = data.discovery.html_link || '';
+                }
+                
+                // Generate robots.txt
+                generateRobotsTxt();
+                
+            } catch (err) {
+                console.error('Error generating RSL:', err);
+                // Generate client-side fallback
+                document.getElementById('xmlOutput').value = generateRSLClientSide();
+            }
+        }
+        
+        function generateRSLClientSide() {
+            let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+            xml += '<rsl xmlns="https://rslstandard.org/rsl" version="1.0">\n';
+            
+            // Generate content elements for each path
+            contentPaths.forEach(path => {
+                xml += `  <content url="${escapeXml(path.url)}">\n`;
+                
+                // Permits
+                if (path.permits.usage?.length || path.permits.user?.length) {
+                    xml += '    <permits>\n';
+                    path.permits.usage?.forEach(u => {
+                        xml += `      <usage type="${u}"/>\n`;
+                    });
+                    path.permits.user?.forEach(u => {
+                        xml += `      <user type="${u}"/>\n`;
+                    });
+                    xml += '    </permits>\n';
+                }
+                
+                // Prohibits
+                if (path.prohibits.usage?.length || path.prohibits.user?.length) {
+                    xml += '    <prohibits>\n';
+                    path.prohibits.usage?.forEach(u => {
+                        xml += `      <usage type="${u}"/>\n`;
+                    });
+                    path.prohibits.user?.forEach(u => {
+                        xml += `      <user type="${u}"/>\n`;
+                    });
+                    xml += '    </prohibits>\n';
+                }
+                
+                xml += '  </content>\n';
+            });
+            
+            // Payment
+            const paymentType = document.getElementById('paymentType').value;
+            if (paymentType && paymentType !== 'free') {
+                const amount = document.getElementById('paymentAmount').value;
+                const currency = document.getElementById('paymentCurrency').value;
+                xml += `  <payment type="${paymentType}"`;
+                if (amount) xml += ` amount="${amount}" currency="${currency}"`;
+                xml += '/>\n';
+            }
+            
+            // License server
+            const licenseServer = document.getElementById('licenseServer').value;
+            if (licenseServer) {
+                xml += `  <license-server url="${escapeXml(licenseServer)}"/>\n`;
+            }
+            
+            xml += '</rsl>';
+            return xml;
+        }
+        
+        function escapeXml(str) {
+            return str
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&apos;');
+        }
+        
+        function generateRobotsTxt() {
+            let robots = '# RSL License - Really Simple Licensing\n';
+            robots += 'License: /rsl.xml\n\n';
+            robots += '# Default rules\n';
+            robots += 'User-agent: *\n';
+            robots += 'Allow: /\n';
+            
+            // Check if any path prohibits AI
+            const prohibitAI = contentPaths.some(path => 
+                path.prohibits.usage?.includes('ai-train') || 
+                path.prohibits.usage?.includes('ai-all') ||
+                path.prohibits.usage?.includes('all')
+            );
+            
+            if (prohibitAI) {
+                robots += '\n# AI Training Bots (Prohibited by RSL)\n';
+                const aiBots = [
+                    'GPTBot', 'ChatGPT-User', 'Google-Extended', 'CCBot',
+                    'anthropic-ai', 'Claude-Web', 'cohere-ai', 'PerplexityBot',
+                    'Bytespider', 'PetalBot', 'Amazonbot', 'FacebookBot'
+                ];
+                
+                // If specific paths prohibit AI, add path-specific rules
+                const aiProhibitedPaths = contentPaths.filter(path =>
+                    path.prohibits.usage?.includes('ai-train') || 
+                    path.prohibits.usage?.includes('ai-all') ||
+                    path.prohibits.usage?.includes('all')
+                );
+                
+                aiBots.forEach(bot => {
+                    robots += `User-agent: ${bot}\n`;
+                    if (aiProhibitedPaths.length === contentPaths.length) {
+                        // All paths prohibit
+                        robots += 'Disallow: /\n\n';
+                    } else {
+                        // Specific paths
+                        aiProhibitedPaths.forEach(path => {
+                            robots += `Disallow: ${path.url.replace('*', '')}\n`;
+                        });
+                        robots += '\n';
+                    }
+                });
+            }
+            
+            document.getElementById('robotsOutput').value = robots;
+        }
+        
+        // ============================================
+        // Utility Functions
+        // ============================================
+        
+        function copyXML() {
+            const output = document.getElementById('xmlOutput');
+            output.select();
+            document.execCommand('copy');
+            
+            const btn = document.querySelector('.copy-btn');
+            btn.textContent = '✓ Copied!';
+            setTimeout(() => btn.textContent = '📋 Copy', 2000);
+        }
+        
+        function downloadRSL() {
+            const xml = document.getElementById('xmlOutput').value;
+            const blob = new Blob([xml], { type: 'application/rsl+xml' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'rsl.xml';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+        
+        function downloadRobots() {
+            const txt = document.getElementById('robotsOutput').value;
+            const blob = new Blob([txt], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'robots.txt';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+        
+        async function validateRSL() {
+            const xml = document.getElementById('xmlOutput').value;
+            
+            try {
+                const response = await fetch('/api/cat-waf/rsl-validate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ xml })
+                });
+                
+                const data = await response.json();
+                
+                if (data.valid) {
+                    alert('✓ RSL document is valid!');
+                } else {
+                    let msg = 'RSL validation failed:\n\n';
+                    if (data.errors?.length) {
+                        msg += 'Errors:\n' + data.errors.map(e => '- ' + e.message).join('\n');
+                    }
+                    if (data.warnings?.length) {
+                        msg += '\n\nWarnings:\n' + data.warnings.map(w => '- ' + w.message).join('\n');
+                    }
+                    alert(msg);
+                }
+            } catch (err) {
+                alert('Error validating RSL: ' + err.message);
+            }
+        }
+        
+        function resetForm() {
+            // Reset to default state
+            contentPaths = [
+                {
+                    id: nextPathId++,
+                    url: '/*',
+                    permits: { usage: ['search'], user: [] },
+                    prohibits: { usage: ['ai-train'], user: [] },
+                    expanded: true
+                }
+            ];
+            
+            // Reset payment
+            document.getElementById('paymentType').value = 'free';
+            document.getElementById('paymentAmount').value = '';
+            document.getElementById('paymentCurrency').value = 'USD';
+            document.getElementById('paymentStandard').value = '';
+            document.getElementById('paymentCustom').value = '';
+            
+            // Reset legal
+            document.getElementById('legalTerms').value = '';
+            document.getElementById('legalDisclaimer').value = '';
+            document.getElementById('legalContact').value = '';
+            
+            // Reset copyright
+            document.getElementById('copyrightHolder').value = '';
+            document.getElementById('copyrightYear').value = '';
+            document.getElementById('copyrightLicense').value = '';
+            
+            // Reset advanced
+            document.getElementById('licenseServer').value = '';
+            document.getElementById('encryptedContent').checked = false;
+            document.getElementById('loadConfigUrl').value = '';
+            
+            // Clear preset selection
+            document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+            
+            renderPathCards();
+            generateRSL();
+        }
+        
+        // ============================================
+        // URL Parameter Handling (Pre-populate from URL)
+        // ============================================
+        
+        function checkUrlParams() {
+            const params = new URLSearchParams(window.location.search);
+            const loadUrl = params.get('load') || params.get('url') || params.get('site');
+            
+            if (loadUrl) {
+                document.getElementById('loadConfigUrl').value = loadUrl;
+                loadExistingConfig();
+            }
+        }
+        
+        // ============================================
+        // Initialize
+        // ============================================
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            renderPathCards();
+            generateRSL();
+            checkUrlParams();
+        });
+    </script>
+</body>
+</html>

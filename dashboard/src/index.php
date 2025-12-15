@@ -13,9 +13,19 @@ $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $uri = explode('/', trim($uri, '/'));
 
 // Public endpoints (no auth required)
-$publicEndpoints = ['health', 'info'];
+// Note: 'rsl' has partial public access (OLP endpoints and builder tools)
+$publicEndpoints = ['health', 'info', 'cat-waf'];
+$partialPublicEndpoints = ['rsl']; // Some sub-endpoints are public
 if (!in_array($uri[0] ?? '', $publicEndpoints)) {
-    $user = authenticate();
+    // Check if it's a partial public endpoint
+    $isPartialPublic = in_array($uri[0] ?? '', $partialPublicEndpoints);
+    $publicRslEndpoints = ['olp', 'generate', 'validate'];
+    
+    if ($isPartialPublic && isset($uri[1]) && in_array($uri[1], $publicRslEndpoints)) {
+        // Allow public access to OLP and builder tools
+    } else {
+        $user = authenticate();
+    }
 }
 
 $db = getDB();
@@ -36,7 +46,7 @@ try {
                 'status' => 'ok',
                 'timestamp' => time(),
                 'database' => $dbStatus,
-                'version' => '1.0.0'
+                'version' => '1.5.0'
             ]);
             break;
             
@@ -57,7 +67,7 @@ try {
             
             sendResponse([
                 'name' => 'CatWAF Dashboard API',
-                'version' => '1.0.0',
+                'version' => '1.5.0',
                 'completion' => '89%',
                 'tagline' => 'Purr-tecting your sites since 2025',
                 'features' => [
@@ -215,6 +225,17 @@ try {
             handleRecovery($method, array_slice($uri, 1), $db);
             break;
             
+        case 'rsl':
+            require_once 'endpoints/rsl.php';
+            handleRSL($method, array_slice($uri, 1), $db);
+            break;
+            
+        case 'cat-waf':
+            // Public tools endpoint - serves RSL builder and other public utilities
+            require_once 'endpoints/cat-waf-tools.php';
+            handleCatWafTools($method, array_slice($uri, 1), $db);
+            break;
+
         default:
             http_response_code(404);
             echo json_encode(['error' => 'Endpoint not found']);

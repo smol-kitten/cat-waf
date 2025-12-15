@@ -4,14 +4,92 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Add Site - WAF Dashboard</title>
-    <link rel="stylesheet" href="style.css?v=3">
+    <link rel="stylesheet" href="style.css?v=4">
+    <style>
+        .template-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .template-card {
+            background: var(--bg-card);
+            border: 2px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 1.25rem;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .template-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-2px);
+        }
+        .template-card.selected {
+            border-color: var(--primary);
+            background: linear-gradient(135deg, rgba(255, 107, 157, 0.1), rgba(179, 136, 255, 0.1));
+        }
+        .template-card h4 {
+            margin: 0 0 0.5rem 0;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .template-card p {
+            margin: 0;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+        .template-card .features {
+            margin-top: 0.75rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.25rem;
+        }
+        .template-card .feature-tag {
+            font-size: 0.7rem;
+            padding: 0.2rem 0.5rem;
+            background: var(--bg-tertiary);
+            border-radius: var(--radius-sm);
+            color: var(--text-muted);
+        }
+        .feature-tag.enabled {
+            background: rgba(76, 175, 80, 0.15);
+            color: var(--success);
+        }
+        .quick-form {
+            max-width: 600px;
+        }
+        .advanced-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 1rem;
+            background: var(--bg-tertiary);
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            margin-bottom: 1rem;
+        }
+        .advanced-toggle:hover {
+            background: var(--bg-card);
+        }
+        .advanced-section {
+            display: none;
+            padding: 1rem;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            margin-top: 1rem;
+        }
+        .advanced-section.visible {
+            display: block;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
         <div class="page-header">
             <div>
                 <h1>Add New Site</h1>
-                <p class="text-muted">Configure a new site to protect with the WAF</p>
+                <p class="text-muted">Quick setup to protect a site with CatWAF</p>
             </div>
             <div>
                 <button class="btn-secondary" onclick="window.location.href='dashboard.html?page=sites'">
@@ -20,35 +98,122 @@
             </div>
         </div>
 
+        <!-- Template Selection -->
         <div class="card">
-            <form id="addSiteForm" onsubmit="event.preventDefault(); submitAddSite();">
+            <div class="card-header">
+                <h3>🎨 Choose a Template</h3>
+            </div>
+            <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                Select a preset configuration to get started quickly, or choose "Custom" for manual setup.
+            </p>
+            
+            <div class="template-grid">
+                <div class="template-card" onclick="selectTemplate('standard')" id="tpl-standard">
+                    <h4>🌐 Standard Website</h4>
+                    <p>Balanced security for most websites</p>
+                    <div class="features">
+                        <span class="feature-tag enabled">WAF ✓</span>
+                        <span class="feature-tag enabled">Rate Limit ✓</span>
+                        <span class="feature-tag enabled">SSL Auto ✓</span>
+                        <span class="feature-tag enabled">Bot Protection ✓</span>
+                    </div>
+                </div>
+                
+                <div class="template-card" onclick="selectTemplate('api')" id="tpl-api">
+                    <h4>⚡ API Server</h4>
+                    <p>Higher rate limits, JSON-focused rules</p>
+                    <div class="features">
+                        <span class="feature-tag enabled">WAF (API mode) ✓</span>
+                        <span class="feature-tag enabled">High Rate ✓</span>
+                        <span class="feature-tag enabled">SSL Auto ✓</span>
+                        <span class="feature-tag">Bot Protection</span>
+                    </div>
+                </div>
+                
+                <div class="template-card" onclick="selectTemplate('static')" id="tpl-static">
+                    <h4>📁 Static Files</h4>
+                    <p>CDN-like caching for static content</p>
+                    <div class="features">
+                        <span class="feature-tag">WAF (light)</span>
+                        <span class="feature-tag enabled">Rate Limit ✓</span>
+                        <span class="feature-tag enabled">SSL Auto ✓</span>
+                        <span class="feature-tag enabled">Compression ✓</span>
+                    </div>
+                </div>
+                
+                <div class="template-card" onclick="selectTemplate('strict')" id="tpl-strict">
+                    <h4>🛡️ High Security</h4>
+                    <p>Maximum protection, stricter rules</p>
+                    <div class="features">
+                        <span class="feature-tag enabled">WAF (strict) ✓</span>
+                        <span class="feature-tag enabled">Low Rate ✓</span>
+                        <span class="feature-tag enabled">SSL Auto ✓</span>
+                        <span class="feature-tag enabled">Challenge ✓</span>
+                    </div>
+                </div>
+                
+                <div class="template-card" onclick="selectTemplate('internal')" id="tpl-internal">
+                    <h4>🏠 Internal Service</h4>
+                    <p>Minimal protection for trusted networks</p>
+                    <div class="features">
+                        <span class="feature-tag">WAF</span>
+                        <span class="feature-tag">Rate Limit</span>
+                        <span class="feature-tag">SSL</span>
+                        <span class="feature-tag enabled">Telemetry ✓</span>
+                    </div>
+                </div>
+                
+                <div class="template-card selected" onclick="selectTemplate('custom')" id="tpl-custom">
+                    <h4>⚙️ Custom</h4>
+                    <p>Configure everything manually</p>
+                    <div class="features">
+                        <span class="feature-tag">You decide...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Add Form -->
+        <div class="card">
+            <form id="addSiteForm" onsubmit="event.preventDefault(); submitAddSite();" class="quick-form">
                 <div class="form-section">
-                    <h3>Basic Configuration</h3>
+                    <h3>Required Information</h3>
                     
                     <div class="form-group">
                         <label for="siteDomain">Domain *</label>
                         <input type="text" id="siteDomain" name="domain" placeholder="example.com" required>
-                        <small>The domain name this site will respond to</small>
+                        <small>The domain this site will respond to (e.g., example.com or sub.example.com)</small>
                     </div>
 
                     <div class="form-group">
-                        <label for="siteBackend">Backend URL *</label>
-                        <input type="text" id="siteBackend" name="backend" placeholder="http://backend:8080" required>
-                        <small>The upstream server to proxy requests to</small>
+                        <label for="siteBackend">Backend Server *</label>
+                        <input type="text" id="siteBackend" name="backend" placeholder="http://10.0.0.10:8080" required>
+                        <small>Internal server address (IP:port or hostname:port)</small>
                     </div>
                 </div>
 
-                <div class="form-section">
-                    <h3>Security Settings</h3>
-                    
+                <!-- Template Preview -->
+                <div class="form-section" id="templatePreview">
+                    <h3>Template Settings: <span id="templateName">Custom</span></h3>
+                    <div id="templateDetails" style="color: var(--text-secondary); font-size: 0.9rem;">
+                        <p>Configure settings below or select a template above for quick setup.</p>
+                    </div>
+                </div>
+
+                <!-- Advanced Options Toggle -->
+                <div class="advanced-toggle" onclick="toggleAdvanced()">
+                    <span id="advancedIcon">▶</span>
+                    <span>Advanced Options</span>
+                    <span style="color: var(--text-muted); margin-left: auto; font-size: 0.85rem;">Click to expand</span>
+                </div>
+
+                <div class="advanced-section" id="advancedSection">
                     <div class="form-group">
-                        <label for="siteRateLimit">Rate Limit Zone</label>
-                        <select id="siteRateLimit" name="rate_limit_zone">
-                            <option value="general">General (10 req/s)</option>
-                            <option value="strict">Strict (5 req/s)</option>
-                            <option value="api">API (20 req/s)</option>
-                            <option value="custom">Custom</option>
-                        </select>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="siteSSL" name="ssl_enabled">
+                            <span>Enable SSL/TLS</span>
+                        </label>
+                        <small>Auto-provision Let's Encrypt certificate</small>
                     </div>
 
                     <div class="form-group">
@@ -56,64 +221,58 @@
                             <input type="checkbox" id="siteModSec" name="enable_modsecurity" checked>
                             <span>Enable ModSecurity WAF</span>
                         </label>
-                        <small>Enable OWASP Core Rule Set protection</small>
+                        <small>OWASP Core Rule Set protection</small>
                     </div>
 
                     <div class="form-group">
                         <label class="checkbox-label">
-                            <input type="checkbox" id="siteGeoIP" name="enable_geoip_blocking">
-                            <span>Enable GeoIP Blocking</span>
+                            <input type="checkbox" id="siteBotProtection" name="enable_bot_protection" checked>
+                            <span>Bot Protection</span>
                         </label>
-                        <small>Block requests from specific countries</small>
+                        <small>Block known bad bots and scrapers</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="siteRateLimit">Rate Limiting</label>
+                        <select id="siteRateLimit" name="rate_limit_zone">
+                            <option value="general">Standard (10 req/s)</option>
+                            <option value="api">High (20 req/s) - for APIs</option>
+                            <option value="strict">Low (5 req/s) - strict</option>
+                            <option value="unlimited">Unlimited</option>
+                        </select>
                     </div>
 
                     <div class="form-group">
                         <label class="checkbox-label">
-                            <input type="checkbox" id="siteSSL" name="ssl_enabled">
-                            <span>Enable SSL/TLS</span>
+                            <input type="checkbox" id="siteChallenge" name="challenge_enabled">
+                            <span>JavaScript Challenge</span>
                         </label>
-                        <small>Automatically provision Let's Encrypt certificate</small>
+                        <small>Require solving a challenge before access</small>
                     </div>
 
-                </div>
-
-                <div class="form-section">
-                    <h3>Advanced Options</h3>
-                    
                     <div class="form-group">
                         <label class="checkbox-label">
                             <input type="checkbox" id="siteTelemetry" name="enable_telemetry" checked>
                             <span>Enable Telemetry</span>
                         </label>
-                        <small>Collect performance and usage metrics</small>
+                        <small>Collect performance metrics</small>
                     </div>
 
                     <div class="form-group">
                         <label class="checkbox-label">
-                            <input type="checkbox" id="siteWAFHeaders" name="enable_waf_headers" checked>
-                            <span>Add WAF Headers</span>
+                            <input type="checkbox" id="siteRSL" name="enable_rsl">
+                            <span>Enable RSL (Really Simple Licensing)</span>
                         </label>
-                        <small>Include X-WAF-* response headers</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="siteCustomHeaders">Custom Headers</label>
-                        <textarea id="siteCustomHeaders" name="custom_headers" rows="4" placeholder="X-Custom-Header: value&#10;X-Another-Header: value"></textarea>
-                        <small>One header per line in format: Header-Name: value</small>
-                    </div>
-
-                    <div class="info-box" style="margin-top: 1rem;">
-                        <strong>ℹ️ WebSocket Configuration</strong>
-                        <p>After creating the site, you can configure WebSocket support in the site editor under the <strong>Backend Servers</strong> section. Each backend can have its own WebSocket settings (enable toggle, WS/WSS protocol, port, and path).</p>
+                        <small>Add license endpoints for AI/crawler control</small>
                     </div>
                 </div>
 
-                <div class="form-actions">
+                <div class="form-actions" style="margin-top: 1.5rem;">
                     <button type="button" class="btn-secondary" onclick="window.location.href='dashboard.html?page=sites'">
                         Cancel
                     </button>
                     <button type="submit" class="btn-primary">
-                        Add Site
+                        🚀 Create Site
                     </button>
                 </div>
             </form>
@@ -122,8 +281,121 @@
 
     <script src="toast.js?v=2"></script>
     <script>
-        const API_BASE = 'http://localhost:8080/api';
+        const API_BASE = window.location.origin + '/api';
         const API_KEY = localStorage.getItem('waf_api_key') || 'your_secure_api_key_here';
+        
+        let selectedTemplate = 'custom';
+
+        // Template configurations
+        const templates = {
+            standard: {
+                name: 'Standard Website',
+                ssl_enabled: true,
+                enable_modsecurity: true,
+                enable_bot_protection: true,
+                rate_limit_zone: 'general',
+                challenge_enabled: false,
+                enable_telemetry: true,
+                enable_rsl: false,
+                description: 'Balanced security suitable for most websites. Includes WAF, rate limiting, SSL, and bot protection.'
+            },
+            api: {
+                name: 'API Server',
+                ssl_enabled: true,
+                enable_modsecurity: true,
+                enable_bot_protection: false,
+                rate_limit_zone: 'api',
+                challenge_enabled: false,
+                enable_telemetry: true,
+                enable_rsl: false,
+                description: 'Optimized for API traffic with higher rate limits. Bot protection disabled to allow legitimate API clients.'
+            },
+            static: {
+                name: 'Static Files',
+                ssl_enabled: true,
+                enable_modsecurity: false,
+                enable_bot_protection: true,
+                rate_limit_zone: 'general',
+                challenge_enabled: false,
+                enable_telemetry: true,
+                enable_rsl: false,
+                description: 'Light security for serving static files. WAF disabled for performance, rate limiting active.'
+            },
+            strict: {
+                name: 'High Security',
+                ssl_enabled: true,
+                enable_modsecurity: true,
+                enable_bot_protection: true,
+                rate_limit_zone: 'strict',
+                challenge_enabled: true,
+                enable_telemetry: true,
+                enable_rsl: false,
+                description: 'Maximum protection with strict rate limits and JavaScript challenge. Recommended for high-value targets.'
+            },
+            internal: {
+                name: 'Internal Service',
+                ssl_enabled: false,
+                enable_modsecurity: false,
+                enable_bot_protection: false,
+                rate_limit_zone: 'general',
+                challenge_enabled: false,
+                enable_telemetry: true,
+                enable_rsl: false,
+                description: 'Minimal protection for trusted internal networks. Most security features disabled.'
+            },
+            custom: {
+                name: 'Custom',
+                ssl_enabled: false,
+                enable_modsecurity: true,
+                enable_bot_protection: true,
+                rate_limit_zone: 'general',
+                challenge_enabled: false,
+                enable_telemetry: true,
+                enable_rsl: false,
+                description: 'Configure all settings manually using the advanced options below.'
+            }
+        };
+
+        function selectTemplate(templateId) {
+            // Update visual selection
+            document.querySelectorAll('.template-card').forEach(card => card.classList.remove('selected'));
+            document.getElementById('tpl-' + templateId).classList.add('selected');
+            
+            selectedTemplate = templateId;
+            const template = templates[templateId];
+            
+            // Update preview
+            document.getElementById('templateName').textContent = template.name;
+            document.getElementById('templateDetails').innerHTML = `<p>${template.description}</p>`;
+            
+            // Apply template settings to form
+            document.getElementById('siteSSL').checked = template.ssl_enabled;
+            document.getElementById('siteModSec').checked = template.enable_modsecurity;
+            document.getElementById('siteBotProtection').checked = template.enable_bot_protection;
+            document.getElementById('siteRateLimit').value = template.rate_limit_zone;
+            document.getElementById('siteChallenge').checked = template.challenge_enabled;
+            document.getElementById('siteTelemetry').checked = template.enable_telemetry;
+            document.getElementById('siteRSL').checked = template.enable_rsl;
+            
+            // Show advanced section for custom template
+            if (templateId === 'custom') {
+                document.getElementById('advancedSection').classList.add('visible');
+                document.getElementById('advancedIcon').textContent = '▼';
+            }
+        }
+
+        function toggleAdvanced() {
+            const section = document.getElementById('advancedSection');
+            const icon = document.getElementById('advancedIcon');
+            
+            if (section.classList.contains('visible')) {
+                section.classList.remove('visible');
+                icon.textContent = '▶';
+            } else {
+                section.classList.add('visible');
+                icon.textContent = '▼';
+            }
+        }
 
         async function apiRequest(endpoint, options = {}) {
             const response = await fetch(`${API_BASE}${endpoint}`, {
@@ -151,13 +423,18 @@
                 domain: formData.get('domain'),
                 backend_url: formData.get('backend'),
                 rate_limit_zone: formData.get('rate_limit_zone') || 'general',
-                enable_modsecurity: formData.get('enable_modsecurity') === 'on',
-                enable_geoip_blocking: formData.get('enable_geoip_blocking') === 'on',
-                ssl_enabled: formData.get('ssl_enabled') === 'on',
-                enable_caching: formData.get('enable_caching') === 'on',
-                enable_telemetry: formData.get('enable_telemetry') === 'on',
-                enable_waf_headers: formData.get('enable_waf_headers') === 'on',
-                custom_headers: formData.get('custom_headers') || ''
+                enable_modsecurity: document.getElementById('siteModSec').checked,
+                enable_bot_protection: document.getElementById('siteBotProtection').checked,
+                ssl_enabled: document.getElementById('siteSSL').checked,
+                enable_telemetry: document.getElementById('siteTelemetry').checked,
+                enable_waf_headers: true, // Always on for now
+                challenge_enabled: document.getElementById('siteChallenge').checked,
+                enable_rsl: document.getElementById('siteRSL').checked,
+                rsl_inject_olp: document.getElementById('siteRSL').checked,
+                // Rate limit settings
+                enable_rate_limit: formData.get('rate_limit_zone') !== 'unlimited',
+                rate_limit_burst: formData.get('rate_limit_zone') === 'api' ? 50 : 
+                                   formData.get('rate_limit_zone') === 'strict' ? 10 : 20
             };
 
             try {
@@ -166,9 +443,8 @@
                     body: JSON.stringify(data)
                 });
 
-                Toast.show('✅ Site added successfully!', 'success');
+                Toast.show('✅ Site created successfully!', 'success');
                 
-                // Redirect to sites list after short delay
                 setTimeout(() => {
                     window.location.href = 'dashboard.html?page=sites';
                 }, 1500);
@@ -178,8 +454,11 @@
             }
         }
 
-        // Pre-fill from copy operation if data in sessionStorage
+        // Pre-fill from copy operation
         window.addEventListener('DOMContentLoaded', () => {
+            // Select custom template by default
+            selectTemplate('custom');
+            
             const copiedData = sessionStorage.getItem('copySiteData');
             if (copiedData) {
                 try {
@@ -187,15 +466,18 @@
                     document.getElementById('siteBackend').value = data.backend_url || '';
                     document.getElementById('siteRateLimit').value = data.rate_limit_zone || 'general';
                     document.getElementById('siteModSec').checked = Boolean(data.enable_modsecurity);
-                    document.getElementById('siteGeoIP').checked = Boolean(data.enable_geoip_blocking);
+                    document.getElementById('siteBotProtection').checked = Boolean(data.enable_bot_protection);
                     document.getElementById('siteSSL').checked = Boolean(data.ssl_enabled);
-                    document.getElementById('siteCaching').checked = Boolean(data.enable_caching);
                     document.getElementById('siteTelemetry').checked = Boolean(data.enable_telemetry);
-                    document.getElementById('siteWAFHeaders').checked = Boolean(data.enable_waf_headers);
-                    document.getElementById('siteCustomHeaders').value = data.custom_headers || '';
+                    document.getElementById('siteChallenge').checked = Boolean(data.challenge_enabled);
+                    document.getElementById('siteRSL').checked = Boolean(data.enable_rsl);
                     
                     sessionStorage.removeItem('copySiteData');
                     Toast.show('Site configuration copied. Enter a new domain.', 'info');
+                    
+                    // Show advanced section when copying
+                    document.getElementById('advancedSection').classList.add('visible');
+                    document.getElementById('advancedIcon').textContent = '▼';
                 } catch (e) {
                     console.error('Failed to parse copied site data:', e);
                 }

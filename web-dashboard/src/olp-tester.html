@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OLP Tester - Cat-WAF</title>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --text-primary: #c9d1d9;
+            --text-secondary: #8b949e;
+            --accent-color: #58a6ff;
+            --success-color: #3fb950;
+            --warning-color: #d29922;
+            --danger-color: #f85149;
+            --border-color: #30363d;
+            --accent-subtle: #388bfd26;
+        }
+        
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        header h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+        
+        header p {
+            color: var(--text-secondary);
+        }
+        
+        .info-box {
+            background: var(--accent-subtle);
+            border: 1px solid var(--accent-color);
+            border-radius: 8px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            font-size: 0.9em;
+        }
+        
+        .info-box strong { color: var(--accent-color); }
+        
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 0;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 20px;
+        }
+        
+        .tab {
+            padding: 12px 24px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 0.95em;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+        }
+        
+        .tab:hover { color: var(--text-primary); }
+        
+        .tab.active {
+            color: var(--accent-color);
+            border-bottom-color: var(--accent-color);
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active { display: block; }
+        
+        /* Panels */
+        .panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+        
+        .panel-header {
+            background: var(--bg-tertiary);
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .panel-body { padding: 16px; }
+        
+        /* Form */
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        
+        @media (max-width: 768px) {
+            .form-row { grid-template-columns: 1fr; }
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: var(--text-secondary);
+            font-size: 0.85em;
+        }
+        
+        .form-group.full-width {
+            grid-column: 1 / -1;
+        }
+        
+        input[type="text"],
+        input[type="url"],
+        input[type="password"],
+        select,
+        textarea {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 0.9em;
+        }
+        
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--accent-color);
+        }
+        
+        textarea {
+            min-height: 150px;
+            resize: vertical;
+            font-family: 'Fira Code', 'Monaco', monospace;
+            font-size: 0.85em;
+        }
+        
+        /* Buttons */
+        .btn {
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 0.9em;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+            font-weight: 500;
+        }
+        
+        .btn-primary {
+            background: var(--accent-color);
+            color: #000;
+        }
+        
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+        }
+        
+        .btn-success {
+            background: var(--success-color);
+            color: #000;
+        }
+        
+        .btn-danger {
+            background: var(--danger-color);
+            color: #fff;
+        }
+        
+        .btn:hover { opacity: 0.9; }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        /* Response Display */
+        .response-panel {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .response-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .response-status {
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+        
+        .response-status.success {
+            background: rgba(63, 185, 80, 0.2);
+            color: var(--success-color);
+        }
+        
+        .response-status.error {
+            background: rgba(248, 81, 73, 0.2);
+            color: var(--danger-color);
+        }
+        
+        .response-time {
+            color: var(--text-secondary);
+            font-size: 0.85em;
+        }
+        
+        .response-body {
+            padding: 15px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .response-body pre {
+            font-family: 'Fira Code', 'Monaco', monospace;
+            font-size: 0.85em;
+            white-space: pre-wrap;
+            word-break: break-word;
+            margin: 0;
+        }
+        
+        /* CURL Display */
+        .curl-command {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 12px 15px;
+            margin-top: 15px;
+            position: relative;
+        }
+        
+        .curl-command code {
+            font-family: 'Fira Code', 'Monaco', monospace;
+            font-size: 0.85em;
+            word-break: break-all;
+            white-space: pre-wrap;
+        }
+        
+        .curl-command .copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            padding: 4px 8px;
+            font-size: 0.75em;
+        }
+        
+        /* Token Display */
+        .token-display {
+            background: var(--bg-primary);
+            border: 1px solid var(--success-color);
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+        
+        .token-display h4 {
+            color: var(--success-color);
+            margin-bottom: 10px;
+        }
+        
+        .token-value {
+            font-family: 'Fira Code', 'Monaco', monospace;
+            word-break: break-all;
+            background: var(--bg-tertiary);
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+        
+        /* Quick Actions */
+        .quick-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .quick-action {
+            padding: 8px 16px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: all 0.2s;
+        }
+        
+        .quick-action:hover {
+            border-color: var(--accent-color);
+            background: var(--accent-subtle);
+        }
+        
+        /* Endpoint List */
+        .endpoint-list {
+            display: grid;
+            gap: 10px;
+        }
+        
+        .endpoint-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+        }
+        
+        .endpoint-method {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75em;
+            font-weight: 600;
+        }
+        
+        .endpoint-method.post {
+            background: rgba(63, 185, 80, 0.2);
+            color: var(--success-color);
+        }
+        
+        .endpoint-method.get {
+            background: rgba(88, 166, 255, 0.2);
+            color: var(--accent-color);
+        }
+        
+        .endpoint-path {
+            font-family: monospace;
+            flex: 1;
+        }
+        
+        .endpoint-desc {
+            color: var(--text-secondary);
+            font-size: 0.85em;
+        }
+        
+        /* Footer */
+        footer {
+            text-align: center;
+            padding: 20px;
+            margin-top: 20px;
+            border-top: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            font-size: 0.9em;
+        }
+        
+        footer a { color: var(--accent-color); text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+        
+        /* Hidden */
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔑 OLP Tester</h1>
+            <p>Test Open License Protocol endpoints for RSL-based licensing</p>
+        </header>
+        
+        <div class="info-box">
+            <strong>OLP (Open License Protocol)</strong> is an OAuth 2.0-based protocol for automated license acquisition.
+            Use this tool to test your OLP implementation or explore how the protocol works.
+        </div>
+        
+        <!-- Tabs -->
+        <div class="tabs">
+            <div class="tab active" data-tab="overview">📋 Overview</div>
+            <div class="tab" data-tab="register">📝 Client Registration</div>
+            <div class="tab" data-tab="token">🎫 Request Token</div>
+            <div class="tab" data-tab="introspect">🔍 Introspect Token</div>
+            <div class="tab" data-tab="key">🔐 Get EMS Key</div>
+        </div>
+        
+        <!-- Overview Tab -->
+        <div id="overview-tab" class="tab-content active">
+            <div class="panel">
+                <div class="panel-header">OLP Endpoints</div>
+                <div class="panel-body">
+                    <p style="margin-bottom: 15px; color: var(--text-secondary);">
+                        The Open License Protocol defines these endpoints for license management:
+                    </p>
+                    
+                    <div class="endpoint-list">
+                        <div class="endpoint-item">
+                            <span class="endpoint-method post">POST</span>
+                            <span class="endpoint-path">/api/rsl/olp/register</span>
+                            <span class="endpoint-desc">Register as a new OLP client</span>
+                        </div>
+                        <div class="endpoint-item">
+                            <span class="endpoint-method post">POST</span>
+                            <span class="endpoint-path">/api/rsl/olp/token</span>
+                            <span class="endpoint-desc">Request a license token (OAuth 2.0 client_credentials)</span>
+                        </div>
+                        <div class="endpoint-item">
+                            <span class="endpoint-method post">POST</span>
+                            <span class="endpoint-path">/api/rsl/olp/introspect</span>
+                            <span class="endpoint-desc">Validate and inspect a token</span>
+                        </div>
+                        <div class="endpoint-item">
+                            <span class="endpoint-method post">POST</span>
+                            <span class="endpoint-path">/api/rsl/olp/key</span>
+                            <span class="endpoint-desc">Get EMS decryption key for encrypted content</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="panel">
+                <div class="panel-header">Configuration</div>
+                <div class="panel-body">
+                    <div class="form-group">
+                        <label>OLP Server Base URL</label>
+                        <input type="url" id="baseUrl" placeholder="https://example.com" value="">
+                    </div>
+                    <p style="color: var(--text-secondary); font-size: 0.9em;">
+                        Enter the base URL of the site with RSL/OLP support. The tester will automatically append the correct paths.
+                    </p>
+                </div>
+            </div>
+            
+            <div class="panel">
+                <div class="panel-header">Saved Credentials</div>
+                <div class="panel-body">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Client ID</label>
+                            <input type="text" id="savedClientId" placeholder="Your client ID">
+                        </div>
+                        <div class="form-group">
+                            <label>Client Secret</label>
+                            <input type="password" id="savedClientSecret" placeholder="Your client secret">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Access Token (if you have one)</label>
+                        <input type="text" id="savedAccessToken" placeholder="Your access token">
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-secondary" onclick="saveCredentials()">💾 Save to Browser</button>
+                        <button class="btn btn-secondary" onclick="loadCredentials()">📂 Load Saved</button>
+                        <button class="btn btn-danger" onclick="clearCredentials()">🗑️ Clear</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Register Tab -->
+        <div id="register-tab" class="tab-content">
+            <div class="panel">
+                <div class="panel-header">Client Registration</div>
+                <div class="panel-body">
+                    <p style="margin-bottom: 15px; color: var(--text-secondary);">
+                        Register as an OLP client to receive credentials for requesting license tokens.
+                    </p>
+                    
+                    <div class="form-group">
+                        <label>Client Name *</label>
+                        <input type="text" id="regClientName" placeholder="My AI Application">
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Contact Email</label>
+                            <input type="text" id="regContactEmail" placeholder="contact@example.com">
+                        </div>
+                        <div class="form-group">
+                            <label>Contact URL</label>
+                            <input type="url" id="regContactUrl" placeholder="https://example.com">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Redirect URI (optional)</label>
+                        <input type="url" id="regRedirectUri" placeholder="https://example.com/callback">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Scopes (space-separated)</label>
+                        <input type="text" id="regScopes" placeholder="license:read content:access" value="license:read content:access">
+                    </div>
+                    
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="registerClient()">📝 Register Client</button>
+                    </div>
+                    
+                    <div id="registerResponse" class="hidden" style="margin-top: 20px;">
+                        <div class="response-panel">
+                            <div class="response-header">
+                                <span>Response</span>
+                                <span id="registerStatus" class="response-status"></span>
+                            </div>
+                            <div class="response-body">
+                                <pre id="registerBody"></pre>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="curl-command">
+                        <button class="btn btn-secondary copy-btn" onclick="copyCurl('registerCurl')">📋</button>
+                        <code id="registerCurl">curl -X POST "{baseUrl}/api/rsl/olp/register" \
+  -H "Content-Type: application/json" \
+  -d '{"client_name": "My App", "contacts": ["email@example.com"]}'</code>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Token Tab -->
+        <div id="token-tab" class="tab-content">
+            <div class="panel">
+                <div class="panel-header">Request License Token</div>
+                <div class="panel-body">
+                    <p style="margin-bottom: 15px; color: var(--text-secondary);">
+                        Use OAuth 2.0 client_credentials grant to request a license token.
+                    </p>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Client ID *</label>
+                            <input type="text" id="tokenClientId" placeholder="Your client ID">
+                        </div>
+                        <div class="form-group">
+                            <label>Client Secret *</label>
+                            <input type="password" id="tokenClientSecret" placeholder="Your client secret">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Grant Type</label>
+                        <select id="tokenGrantType">
+                            <option value="client_credentials">client_credentials</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Scopes (space-separated)</label>
+                        <input type="text" id="tokenScopes" placeholder="license:read content:access" value="license:read content:access">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Content URL (optional - for content-specific licenses)</label>
+                        <input type="url" id="tokenContentUrl" placeholder="https://example.com/article/123">
+                    </div>
+                    
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="requestToken()">🎫 Request Token</button>
+                        <button class="btn btn-secondary" onclick="useStoredCredentials('token')">📂 Use Saved Credentials</button>
+                    </div>
+                    
+                    <div id="tokenResponse" class="hidden" style="margin-top: 20px;">
+                        <div class="response-panel">
+                            <div class="response-header">
+                                <span>Response</span>
+                                <div>
+                                    <span id="tokenTime" class="response-time"></span>
+                                    <span id="tokenStatus" class="response-status"></span>
+                                </div>
+                            </div>
+                            <div class="response-body">
+                                <pre id="tokenBody"></pre>
+                            </div>
+                        </div>
+                        
+                        <div id="tokenDisplay" class="token-display hidden">
+                            <h4>✓ Token Received</h4>
+                            <p style="margin-bottom: 10px; color: var(--text-secondary);">Save this token for subsequent requests:</p>
+                            <div class="token-value" id="tokenValue"></div>
+                            <div class="btn-group">
+                                <button class="btn btn-secondary" onclick="copyToken()">📋 Copy Token</button>
+                                <button class="btn btn-success" onclick="saveToken()">💾 Save Token</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="curl-command">
+                        <button class="btn btn-secondary copy-btn" onclick="copyCurl('tokenCurl')">📋</button>
+                        <code id="tokenCurl">curl -X POST "{baseUrl}/api/rsl/olp/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=client_credentials&client_id={client_id}&client_secret={client_secret}&scope=license:read"</code>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Introspect Tab -->
+        <div id="introspect-tab" class="tab-content">
+            <div class="panel">
+                <div class="panel-header">Introspect Token</div>
+                <div class="panel-body">
+                    <p style="margin-bottom: 15px; color: var(--text-secondary);">
+                        Validate a token and retrieve its claims (permissions, expiration, etc.).
+                    </p>
+                    
+                    <div class="form-group">
+                        <label>Access Token *</label>
+                        <textarea id="introspectToken" placeholder="Paste your access token here"></textarea>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Client ID (for authentication)</label>
+                            <input type="text" id="introspectClientId" placeholder="Your client ID">
+                        </div>
+                        <div class="form-group">
+                            <label>Client Secret (for authentication)</label>
+                            <input type="password" id="introspectClientSecret" placeholder="Your client secret">
+                        </div>
+                    </div>
+                    
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="introspectToken()">🔍 Introspect Token</button>
+                        <button class="btn btn-secondary" onclick="useSavedToken()">📂 Use Saved Token</button>
+                    </div>
+                    
+                    <div id="introspectResponse" class="hidden" style="margin-top: 20px;">
+                        <div class="response-panel">
+                            <div class="response-header">
+                                <span>Response</span>
+                                <div>
+                                    <span id="introspectTime" class="response-time"></span>
+                                    <span id="introspectStatus" class="response-status"></span>
+                                </div>
+                            </div>
+                            <div class="response-body">
+                                <pre id="introspectBody"></pre>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="curl-command">
+                        <button class="btn btn-secondary copy-btn" onclick="copyCurl('introspectCurl')">📋</button>
+                        <code id="introspectCurl">curl -X POST "{baseUrl}/api/rsl/olp/introspect" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "token={access_token}&client_id={client_id}&client_secret={client_secret}"</code>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Key Tab -->
+        <div id="key-tab" class="tab-content">
+            <div class="panel">
+                <div class="panel-header">Get EMS Decryption Key</div>
+                <div class="panel-body">
+                    <p style="margin-bottom: 15px; color: var(--text-secondary);">
+                        Request a decryption key for encrypted media streaming (EMS) content.
+                        Requires a valid license token.
+                    </p>
+                    
+                    <div class="form-group">
+                        <label>Access Token *</label>
+                        <textarea id="keyToken" placeholder="Your access token" style="min-height: 80px;"></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Content ID / Key ID *</label>
+                        <input type="text" id="keyContentId" placeholder="content-uuid-or-key-id">
+                    </div>
+                    
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="requestKey()">🔐 Request Key</button>
+                        <button class="btn btn-secondary" onclick="useSavedTokenForKey()">📂 Use Saved Token</button>
+                    </div>
+                    
+                    <div id="keyResponse" class="hidden" style="margin-top: 20px;">
+                        <div class="response-panel">
+                            <div class="response-header">
+                                <span>Response</span>
+                                <div>
+                                    <span id="keyTime" class="response-time"></span>
+                                    <span id="keyStatus" class="response-status"></span>
+                                </div>
+                            </div>
+                            <div class="response-body">
+                                <pre id="keyBody"></pre>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="curl-command">
+                        <button class="btn btn-secondary copy-btn" onclick="copyCurl('keyCurl')">📋</button>
+                        <code id="keyCurl">curl -X POST "{baseUrl}/api/rsl/olp/key" \
+  -H "Authorization: Bearer {access_token}" \
+  -H "Content-Type: application/json" \
+  -d '{"key_id": "{content_id}"}'</code>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <footer>
+            <p>
+                OLP Specification - <a href="https://rslstandard.org/spec/1.0/" target="_blank">RSL Documentation</a> | 
+                <a href="/cat-waf/rsl-builder">RSL Builder</a> |
+                Powered by <a href="/">Cat-WAF</a>
+            </p>
+        </footer>
+    </div>
+    
+    <script>
+        // ============================================
+        // Tab Switching
+        // ============================================
+        
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabId = tab.dataset.tab;
+                
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                
+                document.querySelectorAll('.tab-content').forEach(content => {
+                    content.classList.remove('active');
+                });
+                document.getElementById(`${tabId}-tab`).classList.add('active');
+            });
+        });
+        
+        // ============================================
+        // Utility Functions
+        // ============================================
+        
+        function getBaseUrl() {
+            return document.getElementById('baseUrl').value.replace(/\/$/, '') || window.location.origin;
+        }
+        
+        function showResponse(containerId, statusId, bodyId, response, startTime) {
+            const container = document.getElementById(containerId);
+            const statusEl = document.getElementById(statusId);
+            const bodyEl = document.getElementById(bodyId);
+            
+            container.classList.remove('hidden');
+            
+            const elapsed = Date.now() - startTime;
+            const timeEl = document.getElementById(containerId.replace('Response', 'Time'));
+            if (timeEl) {
+                timeEl.textContent = `${elapsed}ms`;
+            }
+            
+            if (response.ok) {
+                statusEl.className = 'response-status success';
+                statusEl.textContent = `${response.status} OK`;
+            } else {
+                statusEl.className = 'response-status error';
+                statusEl.textContent = `${response.status} Error`;
+            }
+            
+            return response.json();
+        }
+        
+        function formatJSON(obj) {
+            return JSON.stringify(obj, null, 2);
+        }
+        
+        function copyCurl(elementId) {
+            const code = document.getElementById(elementId);
+            let text = code.textContent;
+            
+            // Replace placeholders
+            text = text.replace('{baseUrl}', getBaseUrl());
+            text = text.replace('{client_id}', document.getElementById('savedClientId')?.value || '{client_id}');
+            text = text.replace('{client_secret}', document.getElementById('savedClientSecret')?.value || '{client_secret}');
+            text = text.replace('{access_token}', document.getElementById('savedAccessToken')?.value || '{access_token}');
+            
+            navigator.clipboard.writeText(text);
+            alert('Copied to clipboard!');
+        }
+        
+        // ============================================
+        // Credentials Management
+        // ============================================
+        
+        function saveCredentials() {
+            const creds = {
+                clientId: document.getElementById('savedClientId').value,
+                clientSecret: document.getElementById('savedClientSecret').value,
+                accessToken: document.getElementById('savedAccessToken').value,
+                baseUrl: document.getElementById('baseUrl').value
+            };
+            localStorage.setItem('olp_credentials', JSON.stringify(creds));
+            alert('Credentials saved to browser storage');
+        }
+        
+        function loadCredentials() {
+            const saved = localStorage.getItem('olp_credentials');
+            if (saved) {
+                const creds = JSON.parse(saved);
+                document.getElementById('savedClientId').value = creds.clientId || '';
+                document.getElementById('savedClientSecret').value = creds.clientSecret || '';
+                document.getElementById('savedAccessToken').value = creds.accessToken || '';
+                if (creds.baseUrl) {
+                    document.getElementById('baseUrl').value = creds.baseUrl;
+                }
+                alert('Credentials loaded');
+            } else {
+                alert('No saved credentials found');
+            }
+        }
+        
+        function clearCredentials() {
+            localStorage.removeItem('olp_credentials');
+            document.getElementById('savedClientId').value = '';
+            document.getElementById('savedClientSecret').value = '';
+            document.getElementById('savedAccessToken').value = '';
+            alert('Credentials cleared');
+        }
+        
+        function useStoredCredentials(target) {
+            const clientId = document.getElementById('savedClientId').value;
+            const clientSecret = document.getElementById('savedClientSecret').value;
+            
+            if (target === 'token') {
+                document.getElementById('tokenClientId').value = clientId;
+                document.getElementById('tokenClientSecret').value = clientSecret;
+            }
+        }
+        
+        function useSavedToken() {
+            const token = document.getElementById('savedAccessToken').value;
+            document.getElementById('introspectToken').value = token;
+            
+            const clientId = document.getElementById('savedClientId').value;
+            const clientSecret = document.getElementById('savedClientSecret').value;
+            document.getElementById('introspectClientId').value = clientId;
+            document.getElementById('introspectClientSecret').value = clientSecret;
+        }
+        
+        function useSavedTokenForKey() {
+            document.getElementById('keyToken').value = document.getElementById('savedAccessToken').value;
+        }
+        
+        function copyToken() {
+            const token = document.getElementById('tokenValue').textContent;
+            navigator.clipboard.writeText(token);
+            alert('Token copied to clipboard!');
+        }
+        
+        function saveToken() {
+            const token = document.getElementById('tokenValue').textContent;
+            document.getElementById('savedAccessToken').value = token;
+            saveCredentials();
+        }
+        
+        // ============================================
+        // API Calls
+        // ============================================
+        
+        async function registerClient() {
+            const baseUrl = getBaseUrl();
+            const startTime = Date.now();
+            
+            const body = {
+                client_name: document.getElementById('regClientName').value,
+                contacts: [],
+                redirect_uris: [],
+                scope: document.getElementById('regScopes').value
+            };
+            
+            if (document.getElementById('regContactEmail').value) {
+                body.contacts.push(document.getElementById('regContactEmail').value);
+            }
+            if (document.getElementById('regContactUrl').value) {
+                body.contacts.push(document.getElementById('regContactUrl').value);
+            }
+            if (document.getElementById('regRedirectUri').value) {
+                body.redirect_uris.push(document.getElementById('regRedirectUri').value);
+            }
+            
+            try {
+                const response = await fetch(`${baseUrl}/api/rsl/olp/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                
+                const data = await showResponse('registerResponse', 'registerStatus', 'registerBody', response, startTime);
+                document.getElementById('registerBody').textContent = formatJSON(data);
+                
+                // Auto-fill credentials if successful
+                if (data.client_id) {
+                    document.getElementById('savedClientId').value = data.client_id;
+                    if (data.client_secret) {
+                        document.getElementById('savedClientSecret').value = data.client_secret;
+                    }
+                }
+            } catch (err) {
+                document.getElementById('registerResponse').classList.remove('hidden');
+                document.getElementById('registerStatus').className = 'response-status error';
+                document.getElementById('registerStatus').textContent = 'Network Error';
+                document.getElementById('registerBody').textContent = err.message;
+            }
+        }
+        
+        async function requestToken() {
+            const baseUrl = getBaseUrl();
+            const startTime = Date.now();
+            
+            const params = new URLSearchParams({
+                grant_type: document.getElementById('tokenGrantType').value,
+                client_id: document.getElementById('tokenClientId').value,
+                client_secret: document.getElementById('tokenClientSecret').value,
+                scope: document.getElementById('tokenScopes').value
+            });
+            
+            const contentUrl = document.getElementById('tokenContentUrl').value;
+            if (contentUrl) {
+                params.append('content_url', contentUrl);
+            }
+            
+            try {
+                const response = await fetch(`${baseUrl}/api/rsl/olp/token`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: params.toString()
+                });
+                
+                const data = await showResponse('tokenResponse', 'tokenStatus', 'tokenBody', response, startTime);
+                document.getElementById('tokenBody').textContent = formatJSON(data);
+                
+                // Show token if successful
+                if (data.access_token) {
+                    document.getElementById('tokenDisplay').classList.remove('hidden');
+                    document.getElementById('tokenValue').textContent = data.access_token;
+                } else {
+                    document.getElementById('tokenDisplay').classList.add('hidden');
+                }
+            } catch (err) {
+                document.getElementById('tokenResponse').classList.remove('hidden');
+                document.getElementById('tokenStatus').className = 'response-status error';
+                document.getElementById('tokenStatus').textContent = 'Network Error';
+                document.getElementById('tokenBody').textContent = err.message;
+                document.getElementById('tokenDisplay').classList.add('hidden');
+            }
+        }
+        
+        async function introspectToken() {
+            const baseUrl = getBaseUrl();
+            const startTime = Date.now();
+            
+            const params = new URLSearchParams({
+                token: document.getElementById('introspectToken').value
+            });
+            
+            const clientId = document.getElementById('introspectClientId').value;
+            const clientSecret = document.getElementById('introspectClientSecret').value;
+            if (clientId) params.append('client_id', clientId);
+            if (clientSecret) params.append('client_secret', clientSecret);
+            
+            try {
+                const response = await fetch(`${baseUrl}/api/rsl/olp/introspect`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: params.toString()
+                });
+                
+                const data = await showResponse('introspectResponse', 'introspectStatus', 'introspectBody', response, startTime);
+                document.getElementById('introspectBody').textContent = formatJSON(data);
+            } catch (err) {
+                document.getElementById('introspectResponse').classList.remove('hidden');
+                document.getElementById('introspectStatus').className = 'response-status error';
+                document.getElementById('introspectStatus').textContent = 'Network Error';
+                document.getElementById('introspectBody').textContent = err.message;
+            }
+        }
+        
+        async function requestKey() {
+            const baseUrl = getBaseUrl();
+            const startTime = Date.now();
+            const token = document.getElementById('keyToken').value;
+            
+            try {
+                const response = await fetch(`${baseUrl}/api/rsl/olp/key`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        key_id: document.getElementById('keyContentId').value
+                    })
+                });
+                
+                const data = await showResponse('keyResponse', 'keyStatus', 'keyBody', response, startTime);
+                document.getElementById('keyBody').textContent = formatJSON(data);
+            } catch (err) {
+                document.getElementById('keyResponse').classList.remove('hidden');
+                document.getElementById('keyStatus').className = 'response-status error';
+                document.getElementById('keyStatus').textContent = 'Network Error';
+                document.getElementById('keyBody').textContent = err.message;
+            }
+        }
+        
+        // ============================================
+        // Initialize
+        // ============================================
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            // Set default base URL to current origin
+            document.getElementById('baseUrl').value = window.location.origin;
+            
+            // Load saved credentials if any
+            const saved = localStorage.getItem('olp_credentials');
+            if (saved) {
+                const creds = JSON.parse(saved);
+                if (creds.clientId) document.getElementById('savedClientId').value = creds.clientId;
+                if (creds.clientSecret) document.getElementById('savedClientSecret').value = creds.clientSecret;
+                if (creds.accessToken) document.getElementById('savedAccessToken').value = creds.accessToken;
+                if (creds.baseUrl) document.getElementById('baseUrl').value = creds.baseUrl;
+            }
+            
+            // Check URL params for pre-fill
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('server')) {
+                document.getElementById('baseUrl').value = params.get('server');
+            }
+        });
+    </script>
+</body>
+</html>

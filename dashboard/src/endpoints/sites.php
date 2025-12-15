@@ -688,6 +688,11 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
         $config .= generateWebSocketLocation($upstream_name, $websocket_path, $websocket_protocol, $websocket_port, $backend, $site);
     }
     
+    // Add RSL/OLP location blocks to HTTP (for non-SSL or when redirect disabled)
+    if (!$ssl_enabled || $disable_http_redirect) {
+        $config .= generateRSLLocation($siteData);
+    }
+    
     if ($ssl_enabled) {
         // Check if HTTP->HTTPS redirect is disabled (to prevent infinite loops when backend also redirects)
         // Only disable nginx redirect if backend is actively redirecting to HTTPS (not just using port 80)
@@ -882,6 +887,9 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
         if ($websocket_enabled) {
             $config .= generateWebSocketLocation($upstream_name, $websocket_path, $websocket_protocol, $websocket_port, $backend, $site);
         }
+        
+        // Add RSL/OLP location blocks if enabled for this site
+        $config .= generateRSLLocation($siteData);
         
         $config .= generateLocationBlock($upstream_name, $domain, $modsec_enabled, $geoip_enabled,
                                            $blocked_countries, $rate_limit_zone, $custom_config,
@@ -1211,6 +1219,79 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
     $block .= "        proxy_connect_timeout 90s;\n";  // Increased for Bitwarden
     $block .= "        proxy_send_timeout 90s;\n";
     $block .= "        proxy_read_timeout 90s;\n";
+    $block .= "    }\n\n";
+    
+    return $block;
+}
+
+/**
+ * Generate RSL/OLP location block for proxying license requests to dashboard API
+ * This enables sites to serve OLP endpoints at /cat-waf/rsl/olp/
+ */
+function generateRSLLocation($siteData, $dashboardHost = 'dashboard:80') {
+    $block = "";
+    
+    // Check if RSL is enabled for this site
+    $enable_rsl = $siteData['enable_rsl'] ?? 0;
+    $rsl_inject_olp = $siteData['rsl_inject_olp'] ?? 0;
+    
+    if (!$enable_rsl || !$rsl_inject_olp) {
+        return $block;
+    }
+    
+    $siteId = $siteData['id'] ?? 0;
+    $domain = $siteData['domain'] ?? '';
+    
+    // RSL document endpoint - serve the site's RSL document
+    $block .= "    # RSL (Really Simple Licensing) - License Document\n";
+    $block .= "    location = /rsl.xml {\n";
+    $block .= "        proxy_pass http://{$dashboardHost}/rsl/generate?site_id={$siteId};\n";
+    $block .= "        proxy_set_header Host \$host;\n";
+    $block .= "        proxy_set_header X-Real-IP \$remote_addr;\n";
+    $block .= "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;\n";
+    $block .= "        proxy_set_header X-Forwarded-Proto \$scheme;\n";
+    $block .= "        add_header Content-Type \"application/xml; charset=utf-8\";\n";
+    $block .= "        add_header Cache-Control \"public, max-age=3600\";\n";
+    $block .= "    }\n\n";
+    
+    // RSL well-known endpoint
+    $block .= "    location = /.well-known/rsl {\n";
+    $block .= "        proxy_pass http://{$dashboardHost}/rsl/generate?site_id={$siteId};\n";
+    $block .= "        proxy_set_header Host \$host;\n";
+    $block .= "        proxy_set_header X-Real-IP \$remote_addr;\n";
+    $block .= "        add_header Content-Type \"application/xml; charset=utf-8\";\n";
+    $block .= "    }\n\n";
+    
+    // OLP (Open License Protocol) endpoints - proxy to dashboard API
+    $block .= "    # OLP (Open License Protocol) - Token/Key Endpoints\n";
+    $block .= "    location /cat-waf/rsl/olp/ {\n";
+    $block .= "        # Rewrite to strip the cat-waf prefix for the API\n";
+    $block .= "        rewrite ^/cat-waf/rsl/olp/(.*)$ /rsl/olp/\$1 break;\n";
+    $block .= "        proxy_pass http://{$dashboardHost};\n";
+    $block .= "        proxy_set_header Host \$host;\n";
+    $block .= "        proxy_set_header X-Real-IP \$remote_addr;\n";
+    $block .= "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;\n";
+    $block .= "        proxy_set_header X-Forwarded-Proto \$scheme;\n";
+    $block .= "        proxy_set_header X-RSL-Site-ID \"{$siteId}\";\n";
+    $block .= "        proxy_set_header X-RSL-Domain \"{$domain}\";\n";
+    $block .= "        \n";
+    $block .= "        # CORS headers for API access\n";
+    $block .= "        add_header Access-Control-Allow-Origin \"*\" always;\n";
+    $block .= "        add_header Access-Control-Allow-Methods \"GET, POST, OPTIONS\" always;\n";
+    $block .= "        add_header Access-Control-Allow-Headers \"Authorization, Content-Type, X-Requested-With\" always;\n";
+    $block .= "        \n";
+    $block .= "        # Handle preflight requests\n";
+    $block .= "        if (\$request_method = OPTIONS) {\n";
+    $block .= "            return 204;\n";
+    $block .= "        }\n";
+    $block .= "    }\n\n";
+    
+    // OLP Well-Known metadata
+    $block .= "    location = /.well-known/olp-configuration {\n";
+    $block .= "        proxy_pass http://{$dashboardHost}/rsl/olp/well-known;\n";
+    $block .= "        proxy_set_header Host \$host;\n";
+    $block .= "        proxy_set_header X-Forwarded-Proto \$scheme;\n";
+    $block .= "        add_header Content-Type \"application/json\";\n";
     $block .= "    }\n\n";
     
     return $block;

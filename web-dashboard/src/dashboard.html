@@ -56,6 +56,10 @@
                     <span class="nav-icon">⚡</span>
                     <span class="nav-text">Performance</span>
                 </a>
+                <a href="#" class="nav-item" data-page="rsl">
+                    <span class="nav-icon">🔐</span>
+                    <span class="nav-text">RSL Licensing</span>
+                </a>
 
                 <a href="#" class="nav-item" data-page="logs">
                     <span class="nav-icon">📝</span>
@@ -71,7 +75,7 @@
                 <div class="cat-status">
                     <div class="cat-text">All systems purring!</div>
                     <div class="version-text" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; text-align: center;">
-                        v1.0.0 | Nya~
+                        v1.5.0 | Nya~
                     </div>
                 </div>
             </div>
@@ -314,6 +318,267 @@
                         <div class="analytics-card">
                             <h3>Attack Types</h3>
                             <div id="attackTypes" class="list-container">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- RSL Licensing Page -->
+                <div class="page" id="rsl-page">
+                    <div class="page-header">
+                        <h2>🔐 RSL Licensing</h2>
+                        <p class="page-subtitle">Manage content licensing with Really Simple Licensing (RSL)</p>
+                    </div>
+                    
+                    <!-- RSL Tabs -->
+                    <div class="tabs">
+                        <button class="tab active" data-tab="rsl-overview">📊 Overview</button>
+                        <button class="tab" data-tab="rsl-licenses">📜 Licenses</button>
+                        <button class="tab" data-tab="rsl-clients">👥 Clients</button>
+                        <button class="tab" data-tab="rsl-tokens">🎟️ Tokens</button>
+                        <button class="tab" data-tab="rsl-settings">⚙️ Settings</button>
+                    </div>
+                    
+                    <!-- RSL Overview Tab -->
+                    <div class="tab-content active" id="rsl-overview-tab">
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-label">Total Licenses</div>
+                                <div class="stat-value" id="rslLicenseCount">0</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Active Clients</div>
+                                <div class="stat-value" id="rslClientCount">0</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Active Tokens</div>
+                                <div class="stat-value" id="rslTokenCount">0</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Requests (24h)</div>
+                                <div class="stat-value" id="rslRequestCount">0</div>
+                            </div>
+                        </div>
+                        
+                        <div class="card" style="margin-top: 1.5rem;">
+                            <div class="card-header">
+                                <h3>Quick Actions</h3>
+                            </div>
+                            <div class="card-body">
+                                <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                                    <a href="/cat-waf/rsl-builder" target="_blank" class="btn-primary">
+                                        🔧 Open RSL Builder
+                                    </a>
+                                    <button class="btn-secondary" onclick="showAddLicenseModal()">
+                                        ➕ Create License
+                                    </button>
+                                    <button class="btn-secondary" onclick="loadRSLStats()">
+                                        🔄 Refresh Stats
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="card" style="margin-top: 1.5rem;">
+                            <div class="card-header">
+                                <h3>What is RSL?</h3>
+                            </div>
+                            <div class="card-body">
+                                <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                                    RSL (Really Simple Licensing) is an XML standard for declaring licensing terms for your digital content. 
+                                    It helps you control how AI systems, search engines, and other automated systems interact with your content.
+                                </p>
+                                <ul style="color: var(--text-secondary); padding-left: 1.5rem;">
+                                    <li><strong>Prohibit AI Training</strong> - Block AI systems from training on your content</li>
+                                    <li><strong>Require Licenses</strong> - Require payment or licensing for content access</li>
+                                    <li><strong>Per-Crawl Pricing</strong> - Charge for each crawl or scrape request</li>
+                                    <li><strong>User Type Restrictions</strong> - Allow commercial vs non-commercial use</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- RSL Licenses Tab -->
+                    <div class="tab-content" id="rsl-licenses-tab">
+                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                            <h3>License Configurations</h3>
+                            <button class="btn-primary" onclick="showAddLicenseModal()">➕ Add License</button>
+                        </div>
+                        <div id="rslLicensesList" class="list-container">
+                            <div class="loading-spinner">Loading licenses...</div>
+                        </div>
+                    </div>
+                    
+                    <!-- RSL Clients Tab -->
+                    <div class="tab-content" id="rsl-clients-tab">
+                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                            <h3>Registered Clients</h3>
+                        </div>
+                        <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                            Clients are AI systems, crawlers, or applications that have registered to access your content under RSL licenses.
+                        </p>
+                        <div id="rslClientsList" class="list-container">
+                            <div class="loading-spinner">Loading clients...</div>
+                        </div>
+                    </div>
+                    
+                    <!-- RSL Tokens Tab -->
+                    <div class="tab-content" id="rsl-tokens-tab">
+                        <div class="card-header" style="margin-bottom: 1rem;">
+                            <h3>Issued License Tokens</h3>
+                        </div>
+                        <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                            License tokens are issued to approved clients and grant access to your content under specific terms.
+                        </p>
+                        <div id="rslTokensList" class="list-container">
+                            <div class="loading-spinner">Loading tokens...</div>
+                        </div>
+                    </div>
+                    
+                    <!-- RSL Settings Tab -->
+                    <div class="tab-content" id="rsl-settings-tab">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Global RSL Settings</h3>
+                            </div>
+                            <div class="card-body">
+                                <div class="form-group">
+                                    <label class="toggle-label">
+                                        <input type="checkbox" id="rslEnabled" onchange="saveRSLSettings()">
+                                        <span>Enable RSL Globally</span>
+                                    </label>
+                                    <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">
+                                        When enabled, RSL documents will be served for all sites
+                                    </small>
+                                </div>
+                                
+                                <div class="form-group" style="margin-top: 1.5rem;">
+                                    <label>License Server Mode</label>
+                                    <select id="rslServerMode" class="input-field" onchange="toggleServerModeUI()">
+                                        <option value="inject">Inject on Sites (use /cat-waf/rsl/olp/)</option>
+                                        <option value="external">External Server (custom URL)</option>
+                                    </select>
+                                    <small style="color: var(--text-muted);">
+                                        Choose how OLP endpoints are exposed to clients
+                                    </small>
+                                </div>
+                                
+                                <div class="form-group" style="margin-top: 1.5rem;" id="externalServerGroup" style="display: none;">
+                                    <label>External License Server URL</label>
+                                    <input type="url" id="rslLicenseServerUrl" class="input-field" placeholder="https://license.yourdomain.com">
+                                    <small style="color: var(--text-muted);">
+                                        URL for external OLP server (only if using external mode)
+                                    </small>
+                                </div>
+                                
+                                <div class="form-group" style="margin-top: 1.5rem;">
+                                    <label>Default Permitted Uses</label>
+                                    <div class="checkbox-grid" style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                                        <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;">
+                                            <input type="checkbox" name="rsl_permit" value="search" checked> Search
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;">
+                                            <input type="checkbox" name="rsl_permit" value="ai-index"> AI Index
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;">
+                                            <input type="checkbox" name="rsl_permit" value="ai-input"> AI Input
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;">
+                                            <input type="checkbox" name="rsl_permit" value="ai-train"> AI Train
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-group" style="margin-top: 1.5rem;">
+                                    <label>Default Prohibited Uses</label>
+                                    <div class="checkbox-grid" style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                                        <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;">
+                                            <input type="checkbox" name="rsl_prohibit" value="ai-train" checked> AI Training
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;">
+                                            <input type="checkbox" name="rsl_prohibit" value="ai-all"> All AI
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <button class="btn-primary" style="margin-top: 1.5rem;" onclick="saveRSLSettings()">
+                                    💾 Save Settings
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="card" style="margin-top: 1.5rem;">
+                            <div class="card-header">
+                                <h3>🔔 Webhooks</h3>
+                            </div>
+                            <div class="card-body">
+                                <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                                    Configure webhooks to receive notifications when RSL events occur (client registration, token issuance, etc.)
+                                </p>
+                                
+                                <div class="form-group">
+                                    <label>Webhook URL</label>
+                                    <input type="url" id="rslWebhookUrl" class="input-field" placeholder="https://your-server.com/webhook">
+                                    <small style="color: var(--text-muted);">
+                                        Endpoint to receive POST requests for RSL events
+                                    </small>
+                                </div>
+                                
+                                <div class="form-group" style="margin-top: 1rem;">
+                                    <label>Webhook Secret</label>
+                                    <div style="display: flex; gap: 0.5rem;">
+                                        <input type="password" id="rslWebhookSecret" class="input-field" placeholder="HMAC signing secret">
+                                        <button class="btn-secondary" onclick="generateWebhookSecret()">🔄 Generate</button>
+                                    </div>
+                                    <small style="color: var(--text-muted);">
+                                        Secret for HMAC-SHA256 signature verification
+                                    </small>
+                                </div>
+                                
+                                <div class="form-group" style="margin-top: 1rem;">
+                                    <label>Enabled Events</label>
+                                    <div class="checkbox-grid" style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                                        <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;">
+                                            <input type="checkbox" name="webhook_event" value="client.registered" checked> Client Registered
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;">
+                                            <input type="checkbox" name="webhook_event" value="client.approved" checked> Client Approved
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;">
+                                            <input type="checkbox" name="webhook_event" value="token.issued" checked> Token Issued
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;">
+                                            <input type="checkbox" name="webhook_event" value="token.revoked" checked> Token Revoked
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;">
+                                            <input type="checkbox" name="webhook_event" value="payment.required"> Payment Required
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <button class="btn-primary" style="margin-top: 1rem;" onclick="saveRSLWebhookSettings()">
+                                    💾 Save Webhook Settings
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="card" style="margin-top: 1.5rem;">
+                            <div class="card-header">
+                                <h3>OLP Server Endpoints</h3>
+                            </div>
+                            <div class="card-body">
+                                <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                                    When using "Inject on Sites" mode, these endpoints are available at each site with RSL enabled:
+                                </p>
+                                <div style="font-family: monospace; background: var(--bg-secondary); padding: 1rem; border-radius: 6px;">
+                                    <div style="margin-bottom: 0.5rem;"><strong>GET</strong> /rsl.xml - RSL license document</div>
+                                    <div style="margin-bottom: 0.5rem;"><strong>GET</strong> /.well-known/rsl - RSL document (well-known)</div>
+                                    <div style="margin-bottom: 0.5rem;"><strong>GET</strong> /.well-known/olp-configuration - OLP metadata</div>
+                                    <div style="margin-bottom: 0.5rem;"><strong>POST</strong> /cat-waf/rsl/olp/token - Request license token</div>
+                                    <div style="margin-bottom: 0.5rem;"><strong>POST</strong> /cat-waf/rsl/olp/introspect - Validate token</div>
+                                    <div style="margin-bottom: 0.5rem;"><strong>POST</strong> /cat-waf/rsl/olp/key - Get decryption key (EMS)</div>
+                                    <div><strong>POST</strong> /cat-waf/rsl/olp/register - Register new client</div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
