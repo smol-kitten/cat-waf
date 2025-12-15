@@ -3496,10 +3496,13 @@ async function loadSiteEditor(siteId) {
     // Navigate to editor page
     navigateToPage('site-editor');
     
-    // Load site data
+    // Load site data and RSL licenses in parallel
     try {
-        const response = await apiRequest(`/sites/${siteId}`);
-        currentSiteData = response.site;
+        const [siteResponse] = await Promise.all([
+            apiRequest(`/sites/${siteId}`),
+            loadRSLLicensesForEditor() // Load licenses for the RSL tab dropdown
+        ]);
+        currentSiteData = siteResponse.site;
         
         console.log('Site data loaded:', currentSiteData);
         
@@ -3614,6 +3617,9 @@ function loadEditorTab(tab) {
             break;
         case 'wellknown':
             html = renderWellKnownTab();
+            break;
+        case 'rsl':
+            html = renderRSLTab();
             break;
         case 'advanced':
             html = renderAdvancedTab();
@@ -4021,6 +4027,160 @@ function renderAccessTab() {
             </div>
         </div>
     `;
+}
+
+// Render RSL/Licensing Tab for Site Editor
+function renderRSLTab() {
+    const data = currentSiteData;
+    const enableRsl = data.enable_rsl === 1 || data.enable_rsl === '1';
+    const rslInjectOlp = data.rsl_inject_olp === 1 || data.rsl_inject_olp === '1';
+    const rslLicenseId = data.rsl_license_id || '';
+    
+    return `
+        <div class="editor-panel">
+            <h3>📄 RSL (Really Simple Licensing)</h3>
+            <p>Configure content licensing and OLP (Open License Protocol) endpoints for this site</p>
+            
+            <div class="form-group" style="background: var(--bg-secondary); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                <label style="display: flex; align-items: center; gap: 1rem; cursor: pointer; margin: 0;">
+                    <input type="checkbox" 
+                           id="edit_enable_rsl" 
+                           ${enableRsl ? 'checked' : ''} 
+                           data-field="enable_rsl"
+                           onchange="toggleRSLSiteOptions()"
+                           style="width: 20px; height: 20px; cursor: pointer;">
+                    <div>
+                        <strong style="color: var(--text-primary);">Enable RSL for this Site</strong>
+                        <div style="font-size: 0.9em; color: var(--text-muted); margin-top: 0.25rem;">
+                            Serve RSL licensing documents and enable OLP endpoints on this site
+                        </div>
+                    </div>
+                </label>
+            </div>
+        </div>
+        
+        <div id="rslSiteOptions" style="display: ${enableRsl ? 'block' : 'none'};">
+            <div class="editor-panel">
+                <h3>🔗 OLP Endpoint Injection</h3>
+                <p>Proxy OLP endpoints through this site's domain</p>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="edit_rsl_inject_olp" ${rslInjectOlp ? 'checked' : ''} data-field="rsl_inject_olp">
+                        <span>Inject OLP Endpoints</span>
+                    </label>
+                    <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">
+                        When enabled, the following endpoints will be available on this site:
+                    </small>
+                </div>
+                
+                <div class="alert" style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); padding: 1rem; border-radius: 8px; margin-top: 1rem;">
+                    <strong>📍 Available Endpoints (when enabled):</strong>
+                    <ul style="margin: 0.5rem 0 0 1.5rem; padding: 0;">
+                        <li><code>/rsl.xml</code> - RSL document for this site</li>
+                        <li><code>/.well-known/rsl</code> - RSL well-known endpoint</li>
+                        <li><code>/.well-known/olp-configuration</code> - OLP server metadata</li>
+                        <li><code>/cat-waf/rsl/olp/*</code> - OLP API endpoints (register, tokens, etc.)</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="editor-panel">
+                <h3>📋 License Configuration</h3>
+                <p>Select which RSL license to serve for this site</p>
+                
+                <div class="form-group">
+                    <label>Default License</label>
+                    <select id="edit_rsl_license_id" class="form-input" data-field="rsl_license_id">
+                        <option value="">Use Global Default</option>
+                        ${window.rslLicenses ? window.rslLicenses.map(l => 
+                            `<option value="${l.id}" ${rslLicenseId == l.id ? 'selected' : ''}>${escapeHtml(l.name)}</option>`
+                        ).join('') : ''}
+                    </select>
+                    <small style="color: var(--text-muted);">Select a license to serve, or use the global default</small>
+                </div>
+                
+                <div style="margin-top: 1rem;">
+                    <button class="btn-secondary" onclick="window.location.hash='rsl'">
+                        <span>⚙️</span>
+                        <span>Manage RSL Licenses</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="editor-panel">
+                <h3>🧪 Test RSL Endpoints</h3>
+                <p>Verify your RSL configuration is working</p>
+                
+                <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
+                    <button class="btn-secondary" onclick="testRSLEndpoint('rsl.xml')">
+                        <span>📄</span>
+                        <span>Test /rsl.xml</span>
+                    </button>
+                    <button class="btn-secondary" onclick="testRSLEndpoint('.well-known/rsl')">
+                        <span>🔗</span>
+                        <span>Test /.well-known/rsl</span>
+                    </button>
+                    <button class="btn-secondary" onclick="testRSLEndpoint('.well-known/olp-configuration')">
+                        <span>⚙️</span>
+                        <span>Test OLP Config</span>
+                    </button>
+                </div>
+                
+                <div class="alert" style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); padding: 1rem; border-radius: 8px; margin-top: 1rem;">
+                    <strong>⚠️ Note:</strong> After saving RSL settings, you must regenerate the site config for changes to take effect.
+                    <div style="margin-top: 0.5rem;">
+                        <button class="btn-primary" onclick="regenerateSiteConfig()">
+                            <span>🔄</span>
+                            <span>Regenerate Config Now</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// Toggle RSL site options visibility
+function toggleRSLSiteOptions() {
+    const enabled = document.getElementById('edit_enable_rsl')?.checked;
+    const optionsDiv = document.getElementById('rslSiteOptions');
+    if (optionsDiv) {
+        optionsDiv.style.display = enabled ? 'block' : 'none';
+    }
+}
+
+// Test RSL endpoint for current site
+function testRSLEndpoint(endpoint) {
+    if (!currentSiteData?.domain) {
+        showToast('Site domain not found', 'error');
+        return;
+    }
+    const url = `https://${currentSiteData.domain}/${endpoint}`;
+    window.open(url, '_blank');
+}
+
+// Regenerate site config
+async function regenerateSiteConfig() {
+    if (!currentSiteData?.id) {
+        showToast('Site ID not found', 'error');
+        return;
+    }
+    
+    try {
+        const response = await apiRequest(`/regenerate/${currentSiteData.id}`, {
+            method: 'POST'
+        });
+        
+        if (response?.success) {
+            showToast('Site config regenerated successfully', 'success');
+        } else {
+            throw new Error(response?.error || 'Unknown error');
+        }
+    } catch (error) {
+        console.error('Error regenerating config:', error);
+        showToast('Failed to regenerate config: ' + error.message, 'error');
+    }
 }
 
 function renderAdvancedTab() {
@@ -7124,11 +7284,25 @@ async function loadRSLLicenses() {
         const response = await apiRequest('/rsl/licenses');
         if (response && response.success) {
             rslLicenses = response.licenses || [];
+            window.rslLicenses = rslLicenses; // Make available globally for site editor
             renderRSLLicenses();
         }
     } catch (error) {
         console.error('Error loading RSL licenses:', error);
         showToast('Failed to load RSL licenses', 'error');
+    }
+}
+
+// Load RSL licenses for site editor (silent, no render)
+async function loadRSLLicensesForEditor() {
+    try {
+        const response = await apiRequest('/rsl/licenses');
+        if (response && response.success) {
+            rslLicenses = response.licenses || [];
+            window.rslLicenses = rslLicenses;
+        }
+    } catch (error) {
+        console.error('Error loading RSL licenses for editor:', error);
     }
 }
 
@@ -7688,10 +7862,199 @@ function copyRSLXml() {
     }
 }
 
-// Edit RSL license
+// Edit RSL license - show edit modal pre-populated with license data
 async function editRSLLicense(id) {
-    showToast('Edit functionality coming soon', 'info');
-    // TODO: Implement edit modal similar to add modal but pre-populated
+    // Find the license in our cached data
+    const license = rslLicenses.find(l => l.id === id);
+    if (!license) {
+        showToast('License not found', 'error');
+        return;
+    }
+    
+    // Parse permits and prohibits
+    let permits = { usage: [], user: [] };
+    let prohibits = { usage: [] };
+    
+    try {
+        permits = typeof license.permits === 'string' ? JSON.parse(license.permits) : (license.permits || { usage: [], user: [] });
+        prohibits = typeof license.prohibits === 'string' ? JSON.parse(license.prohibits) : (license.prohibits || { usage: [] });
+    } catch (e) {
+        console.error('Error parsing license permissions:', e);
+    }
+    
+    const modalHtml = `
+        <div id="edit-license-modal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; justify-content: center; align-items: center; z-index: 1000;">
+            <div class="card" style="width: 90%; max-width: 600px; max-height: 80vh; overflow-y: auto;">
+                <h2 style="margin-bottom: 1.5rem;">Edit RSL License</h2>
+                
+                <div class="form-group">
+                    <label>License Name *</label>
+                    <input type="text" id="edit-license-name" class="form-input" value="${escapeHtml(license.name || '')}" placeholder="e.g., AI Training Restriction">
+                </div>
+                
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="edit-license-description" class="form-input" rows="2" placeholder="Description of this license configuration">${escapeHtml(license.description || '')}</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Scope</label>
+                    <select id="edit-license-site" class="form-input">
+                        <option value="" ${!license.site_id ? 'selected' : ''}>Global (All Sites)</option>
+                        ${window.allSites ? window.allSites.map(s => `<option value="${s.id}" ${license.site_id == s.id ? 'selected' : ''}>${escapeHtml(s.domain)}</option>`).join('') : ''}
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Content URL Pattern</label>
+                    <input type="text" id="edit-license-url-pattern" class="form-input" value="${escapeHtml(license.content_url_pattern || '/*')}" placeholder="/* (matches all)">
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label>Permitted Usage</label>
+                        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                            <label><input type="checkbox" id="edit-permit-display" ${permits.usage?.includes('display') ? 'checked' : ''}> Display</label>
+                            <label><input type="checkbox" id="edit-permit-index" ${permits.usage?.includes('index') ? 'checked' : ''}> Search Index</label>
+                            <label><input type="checkbox" id="edit-permit-cache" ${permits.usage?.includes('cache') ? 'checked' : ''}> Cache</label>
+                            <label><input type="checkbox" id="edit-permit-train" ${permits.usage?.includes('train') ? 'checked' : ''}> AI Training</label>
+                            <label><input type="checkbox" id="edit-permit-derive" ${permits.usage?.includes('derive') ? 'checked' : ''}> Derivative Works</label>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Prohibited Usage</label>
+                        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                            <label><input type="checkbox" id="edit-prohibit-display" ${prohibits.usage?.includes('display') ? 'checked' : ''}> Display</label>
+                            <label><input type="checkbox" id="edit-prohibit-index" ${prohibits.usage?.includes('index') ? 'checked' : ''}> Search Index</label>
+                            <label><input type="checkbox" id="edit-prohibit-cache" ${prohibits.usage?.includes('cache') ? 'checked' : ''}> Cache</label>
+                            <label><input type="checkbox" id="edit-prohibit-train" ${prohibits.usage?.includes('train') ? 'checked' : ''}> AI Training</label>
+                            <label><input type="checkbox" id="edit-prohibit-derive" ${prohibits.usage?.includes('derive') ? 'checked' : ''}> Derivative Works</label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label>Permitted Users</label>
+                        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                            <label><input type="checkbox" id="edit-user-human" ${permits.user?.includes('human') ? 'checked' : ''}> Humans</label>
+                            <label><input type="checkbox" id="edit-user-search" ${permits.user?.includes('search') ? 'checked' : ''}> Search Engines</label>
+                            <label><input type="checkbox" id="edit-user-social" ${permits.user?.includes('social') ? 'checked' : ''}> Social Media</label>
+                            <label><input type="checkbox" id="edit-user-ai" ${permits.user?.includes('ai') ? 'checked' : ''}> AI Services</label>
+                            <label><input type="checkbox" id="edit-user-bot" ${permits.user?.includes('bot') ? 'checked' : ''}> Other Bots</label>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Payment Required</label>
+                        <select id="edit-license-payment-type" class="form-input" onchange="toggleEditPaymentFields()">
+                            <option value="" ${!license.payment_type ? 'selected' : ''}>No Payment</option>
+                            <option value="per-request" ${license.payment_type === 'per-request' ? 'selected' : ''}>Per Request</option>
+                            <option value="subscription" ${license.payment_type === 'subscription' ? 'selected' : ''}>Subscription</option>
+                            <option value="one-time" ${license.payment_type === 'one-time' ? 'selected' : ''}>One Time</option>
+                            <option value="negotiated" ${license.payment_type === 'negotiated' ? 'selected' : ''}>Negotiated</option>
+                        </select>
+                        <div id="edit-payment-fields" style="display: ${license.payment_type && license.payment_type !== 'negotiated' ? 'block' : 'none'}; margin-top: 0.5rem;">
+                            <input type="number" id="edit-license-payment-amount" class="form-input" placeholder="Amount" value="${license.payment_amount || ''}" style="margin-bottom: 0.5rem;">
+                            <select id="edit-license-payment-currency" class="form-input">
+                                <option value="USD" ${license.payment_currency === 'USD' || !license.payment_currency ? 'selected' : ''}>USD</option>
+                                <option value="EUR" ${license.payment_currency === 'EUR' ? 'selected' : ''}>EUR</option>
+                                <option value="GBP" ${license.payment_currency === 'GBP' ? 'selected' : ''}>GBP</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem;">
+                    <button onclick="closeEditLicenseModal()" class="btn-secondary">Cancel</button>
+                    <button onclick="saveRSLLicense(${id})" class="btn-primary">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+function toggleEditPaymentFields() {
+    const type = document.getElementById('edit-license-payment-type').value;
+    const fields = document.getElementById('edit-payment-fields');
+    if (fields) {
+        fields.style.display = type && type !== 'negotiated' ? 'block' : 'none';
+    }
+}
+
+function closeEditLicenseModal() {
+    const modal = document.getElementById('edit-license-modal');
+    if (modal) modal.remove();
+}
+
+// Save edited RSL license
+async function saveRSLLicense(id) {
+    try {
+        const name = document.getElementById('edit-license-name')?.value;
+        if (!name) {
+            showToast('License name is required', 'error');
+            return;
+        }
+        
+        // Build permits array
+        const permits = { usage: [], user: [] };
+        if (document.getElementById('edit-permit-display')?.checked) permits.usage.push('display');
+        if (document.getElementById('edit-permit-index')?.checked) permits.usage.push('index');
+        if (document.getElementById('edit-permit-cache')?.checked) permits.usage.push('cache');
+        if (document.getElementById('edit-permit-train')?.checked) permits.usage.push('train');
+        if (document.getElementById('edit-permit-derive')?.checked) permits.usage.push('derive');
+        
+        if (document.getElementById('edit-user-human')?.checked) permits.user.push('human');
+        if (document.getElementById('edit-user-search')?.checked) permits.user.push('search');
+        if (document.getElementById('edit-user-social')?.checked) permits.user.push('social');
+        if (document.getElementById('edit-user-ai')?.checked) permits.user.push('ai');
+        if (document.getElementById('edit-user-bot')?.checked) permits.user.push('bot');
+        
+        // Build prohibits array
+        const prohibits = { usage: [] };
+        if (document.getElementById('edit-prohibit-display')?.checked) prohibits.usage.push('display');
+        if (document.getElementById('edit-prohibit-index')?.checked) prohibits.usage.push('index');
+        if (document.getElementById('edit-prohibit-cache')?.checked) prohibits.usage.push('cache');
+        if (document.getElementById('edit-prohibit-train')?.checked) prohibits.usage.push('train');
+        if (document.getElementById('edit-prohibit-derive')?.checked) prohibits.usage.push('derive');
+        
+        const payload = {
+            name: name,
+            description: document.getElementById('edit-license-description')?.value || '',
+            site_id: document.getElementById('edit-license-site')?.value || null,
+            content_url_pattern: document.getElementById('edit-license-url-pattern')?.value || '/*',
+            permits: permits,
+            prohibits: prohibits
+        };
+        
+        // Add payment info if specified
+        const paymentType = document.getElementById('edit-license-payment-type')?.value;
+        if (paymentType) {
+            payload.payment_type = paymentType;
+            payload.payment_amount = document.getElementById('edit-license-payment-amount')?.value || null;
+            payload.payment_currency = document.getElementById('edit-license-payment-currency')?.value || 'USD';
+        } else {
+            payload.payment_type = null;
+            payload.payment_amount = null;
+            payload.payment_currency = null;
+        }
+        
+        const response = await apiRequest(`/rsl/licenses/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload)
+        });
+        
+        if (response && response.success) {
+            showToast('License updated successfully', 'success');
+            closeEditLicenseModal();
+            await loadRSLLicenses();
+            await loadRSLStats();
+        }
+    } catch (error) {
+        console.error('Error updating license:', error);
+        showToast('Failed to update license', 'error');
+    }
 }
 
 // Toggle RSL license enabled state
@@ -7842,6 +8205,7 @@ function openRSLBuilder() {
 window.loadRSLData = loadRSLData;
 window.loadRSLStats = loadRSLStats;
 window.loadRSLLicenses = loadRSLLicenses;
+window.loadRSLLicensesForEditor = loadRSLLicensesForEditor;
 window.loadRSLClients = loadRSLClients;
 window.loadRSLTokens = loadRSLTokens;
 window.loadRSLSettings = loadRSLSettings;
@@ -7853,6 +8217,9 @@ window.createRSLLicense = createRSLLicense;
 window.viewRSLLicense = viewRSLLicense;
 window.copyRSLXml = copyRSLXml;
 window.editRSLLicense = editRSLLicense;
+window.closeEditLicenseModal = closeEditLicenseModal;
+window.toggleEditPaymentFields = toggleEditPaymentFields;
+window.saveRSLLicense = saveRSLLicense;
 window.toggleRSLLicense = toggleRSLLicense;
 window.deleteRSLLicense = deleteRSLLicense;
 window.approveRSLClient = approveRSLClient;
@@ -7861,4 +8228,7 @@ window.revokeRSLToken = revokeRSLToken;
 window.deleteRSLToken = deleteRSLToken;
 window.switchRSLTab = switchRSLTab;
 window.openRSLBuilder = openRSLBuilder;
+window.toggleRSLSiteOptions = toggleRSLSiteOptions;
+window.testRSLEndpoint = testRSLEndpoint;
+window.regenerateSiteConfig = regenerateSiteConfig;
 

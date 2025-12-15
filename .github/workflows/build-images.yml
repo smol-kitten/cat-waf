@@ -382,10 +382,25 @@ jobs:
 
   cleanup:
     runs-on: self-hosted
+    needs: [build-nginx, build-migration-runner, build-dashboard, build-web-dashboard, build-fail2ban, build-log-parser, build-updater]
     permissions:
       contents: read
       packages: write
+    strategy:
+      matrix:
+        package:
+          - cat-waf-nginx
+          - cat-waf-dashboard
+          - cat-waf-web-dashboard
+          - cat-waf-fail2ban
+          - cat-waf-log-parser
+          - cat-waf-migration-runner
+          - cat-waf-updater
     steps:
       - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
+          package: ${{ matrix.package }}
           delete-untagged: true
+          older-than: 7 days
+          keep-n-tagged: 5
+        continue-on-error: true

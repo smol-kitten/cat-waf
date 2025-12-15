@@ -263,7 +263,8 @@ function handleSites($method, $params, $db) {
                 'websocket_enabled', 'websocket_protocol', 'websocket_port', 'websocket_path',
                 'custom_error_pages_enabled', 'custom_403_html', 'custom_404_html', 'custom_429_html',
                 'custom_500_html', 'custom_502_html', 'custom_503_html',
-                'robots_txt', 'security_txt', 'humans_txt', 'ads_txt', 'wellknown_enabled'
+                'robots_txt', 'security_txt', 'humans_txt', 'ads_txt', 'wellknown_enabled',
+                'enable_rsl', 'rsl_inject_olp', 'rsl_license_id'
             ];
             
             foreach ($updatableFields as $field) {
@@ -334,7 +335,8 @@ function handleSites($method, $params, $db) {
                 'challenge_enabled', 'challenge_difficulty', 'challenge_duration', 
                 'challenge_bypass_cf', 'ssl_challenge_type', 'cf_api_token', 'cf_zone_id',
                 'disable_http_redirect', 'cf_bypass_ratelimit', 'cf_custom_rate_limit', 'cf_rate_limit_burst',
-                'websocket_enabled', 'websocket_protocol', 'websocket_port', 'websocket_path'
+                'websocket_enabled', 'websocket_protocol', 'websocket_port', 'websocket_path',
+                'enable_rsl', 'rsl_inject_olp', 'rsl_license_id'
             ];
             
             foreach ($updatableFields as $field) {
