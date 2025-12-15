@@ -1252,6 +1252,8 @@ function generateRSLLocation($siteData, $dashboardHost = 'dashboard:80') {
     $block .= "        proxy_set_header X-Real-IP \$remote_addr;\n";
     $block .= "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;\n";
     $block .= "        proxy_set_header X-Forwarded-Proto \$scheme;\n";
+    $block .= "        proxy_set_header X-RSL-Site-ID \"{$siteId}\";\n";
+    $block .= "        proxy_set_header X-RSL-Domain \"{$domain}\";\n";
     $block .= "        add_header Content-Type \"application/xml; charset=utf-8\";\n";
     $block .= "        add_header Cache-Control \"public, max-age=3600\";\n";
     $block .= "    }\n\n";
@@ -1261,6 +1263,9 @@ function generateRSLLocation($siteData, $dashboardHost = 'dashboard:80') {
     $block .= "        proxy_pass http://{$dashboardHost}/rsl/generate?site_id={$siteId};\n";
     $block .= "        proxy_set_header Host \$host;\n";
     $block .= "        proxy_set_header X-Real-IP \$remote_addr;\n";
+    $block .= "        proxy_set_header X-Forwarded-Proto \$scheme;\n";
+    $block .= "        proxy_set_header X-RSL-Site-ID \"{$siteId}\";\n";
+    $block .= "        proxy_set_header X-RSL-Domain \"{$domain}\";\n";
     $block .= "        add_header Content-Type \"application/xml; charset=utf-8\";\n";
     $block .= "    }\n\n";
     
@@ -1293,6 +1298,8 @@ function generateRSLLocation($siteData, $dashboardHost = 'dashboard:80') {
     $block .= "        proxy_pass http://{$dashboardHost}/rsl/olp/well-known;\n";
     $block .= "        proxy_set_header Host \$host;\n";
     $block .= "        proxy_set_header X-Forwarded-Proto \$scheme;\n";
+    $block .= "        proxy_set_header X-RSL-Site-ID \"{$siteId}\";\n";
+    $block .= "        proxy_set_header X-RSL-Domain \"{$domain}\";\n";
     $block .= "        add_header Content-Type \"application/json\";\n";
     $block .= "    }\n\n";
     

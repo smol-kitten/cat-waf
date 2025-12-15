@@ -17,10 +17,25 @@ function handleRSL($method, $params, $db) {
     $subAction = $params[1] ?? null;
     $extraAction = $params[2] ?? null;
     
-    // Get server URL from settings or construct it
+    // Determine the protocol (check X-Forwarded-Proto first for proxied requests)
+    $protocol = $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http');
+    
+    // Determine the host (check X-RSL-Domain for per-site proxied requests)
+    $host = $_SERVER['HTTP_X_RSL_DOMAIN'] ?? $_SERVER['HTTP_HOST'] ?? 'localhost';
+    
+    // Get server URL - for injected mode use site's cat-waf path, otherwise use settings
+    $serverMode = getSetting($db, 'rsl_server_mode') ?? 'inject';
     $serverUrl = getSetting($db, 'rsl_license_server');
-    if (!$serverUrl) {
-        $serverUrl = (isset($_SERVER['HTTPS']) ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . '/api/rsl/olp';
+    
+    if (!$serverUrl || $serverMode === 'inject') {
+        // When in inject mode, use the site's OLP path
+        if (!empty($_SERVER['HTTP_X_RSL_DOMAIN'])) {
+            // Request is coming through a site proxy - use site's OLP path
+            $serverUrl = "{$protocol}://{$host}/cat-waf/rsl/olp";
+        } else {
+            // Direct API access
+            $serverUrl = "{$protocol}://{$host}/rsl/olp";
+        }
     }
     
     $licenseServer = new RSLLicenseServer($db, $serverUrl);
@@ -674,6 +689,101 @@ function handleDiscovery($method, $siteId, $db) {
  * Generate RSL document from parameters (public tool)
  */
 function handleGenerate($method, $db) {
+    // GET request with site_id - serve RSL document for that site
+    if ($method === 'GET') {
+        $siteId = $_GET['site_id'] ?? null;
+        
+        if (!$siteId) {
+            sendResponse(['error' => 'site_id parameter required for GET requests'], 400);
+        }
+        
+        // Get site info
+        $stmt = $db->prepare("SELECT * FROM sites WHERE id = ?");
+        $stmt->execute([$siteId]);
+        $site = $stmt->fetch(\PDO::FETCH_ASSOC);
+        
+        if (!$site) {
+            sendResponse(['error' => 'Site not found'], 404);
+        }
+        
+        // Get default license for this site, or global default
+        $licenseId = $site['rsl_license_id'] ?? null;
+        
+        if ($licenseId) {
+            $stmt = $db->prepare("SELECT * FROM rsl_licenses WHERE id = ? AND enabled = 1");
+            $stmt->execute([$licenseId]);
+        } else {
+            // Get global default license
+            $stmt = $db->prepare("SELECT * FROM rsl_licenses WHERE (site_id IS NULL OR site_id = ?) AND enabled = 1 ORDER BY is_default DESC, priority ASC LIMIT 1");
+            $stmt->execute([$siteId]);
+        }
+        
+        $license = $stmt->fetch(\PDO::FETCH_ASSOC);
+        
+        if (!$license) {
+            // Return a basic RSL document with no special permissions
+            $rsl = new RSLDocument('/*');
+            header('Content-Type: application/rsl+xml; charset=utf-8');
+            echo $rsl->toXML();
+            exit;
+        }
+        
+        // Build RSL from license
+        $rsl = new RSLDocument($license['content_url_pattern'] ?? '/*');
+        
+        // Set license server URL based on mode
+        $protocol = $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http');
+        $host = $_SERVER['HTTP_X_RSL_DOMAIN'] ?? $site['domain'] ?? $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $serverUrl = "{$protocol}://{$host}/cat-waf/rsl/olp";
+        $rsl->setLicenseServer($serverUrl);
+        
+        // Add permits
+        $permits = json_decode($license['permits'] ?? '{}', true);
+        if (!empty($permits)) {
+            foreach ($permits as $type => $values) {
+                $rsl->addPermit($type, (array)$values);
+            }
+        }
+        
+        // Add prohibits
+        $prohibits = json_decode($license['prohibits'] ?? '{}', true);
+        if (!empty($prohibits)) {
+            foreach ($prohibits as $type => $values) {
+                $rsl->addProhibit($type, (array)$values);
+            }
+        }
+        
+        // Set payment
+        if (!empty($license['payment_type'])) {
+            $rsl->setPayment(
+                $license['payment_type'],
+                $license['payment_amount'] ?? null,
+                $license['payment_currency'] ?? 'USD'
+            );
+            if (!empty($license['payment_standard'])) {
+                $rsl->setPaymentStandard($license['payment_standard']);
+            }
+            if (!empty($license['payment_custom'])) {
+                $rsl->setPaymentCustom($license['payment_custom']);
+            }
+        }
+        
+        // Set copyright
+        if (!empty($license['copyright_holder'])) {
+            $rsl->setCopyright(
+                $license['copyright_holder'],
+                $license['copyright_year'] ?? null,
+                $license['copyright_license'] ?? null
+            );
+        }
+        
+        header('Content-Type: application/rsl+xml; charset=utf-8');
+        header('Cache-Control: public, max-age=3600');
+        echo $rsl->toXML();
+        exit;
+    }
+    
+    // POST request - generate custom RSL from input
     if ($method !== 'POST') {
         sendResponse(['error' => 'Method not allowed'], 405);
     }
