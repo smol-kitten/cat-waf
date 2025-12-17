@@ -43,14 +43,14 @@ jobs:
         with:
           registry: ${{ env.GITEA_REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITEA_TOKEN }}
+          password: ${{ secrets.GT_TOKEN }}
       
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.GITHUB_REGISTRY }}
-          username: ${{ secrets.GITHUB_USER }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.GH_USER }}
+          password: ${{ secrets.GT_TOKEN }}
       
       - name: Extract metadata
         id: meta
@@ -106,14 +106,14 @@ jobs:
         with:
           registry: ${{ env.GITEA_REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITEA_TOKEN }}
+          password: ${{ secrets.GT_TOKEN }}
       
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.GITHUB_REGISTRY }}
-          username: ${{ secrets.GITHUB_USER }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.GH_USER }}
+          password: ${{ secrets.GT_TOKEN }}
       
       - name: Extract metadata
         id: meta
@@ -165,14 +165,14 @@ jobs:
         with:
           registry: ${{ env.GITEA_REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITEA_TOKEN }}
+          password: ${{ secrets.GT_TOKEN }}
       
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.GITHUB_REGISTRY }}
-          username: ${{ secrets.GITHUB_USER }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.GH_USER }}
+          password: ${{ secrets.GT_TOKEN }}
       
       - name: Extract metadata
         id: meta
@@ -223,14 +223,14 @@ jobs:
         with:
           registry: ${{ env.GITEA_REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITEA_TOKEN }}
+          password: ${{ secrets.GT_TOKEN }}
       
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.GITHUB_REGISTRY }}
-          username: ${{ secrets.GITHUB_USER }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.GH_USER }}
+          password: ${{ secrets.GT_TOKEN }}
       
       - name: Extract metadata
         id: meta
@@ -281,14 +281,14 @@ jobs:
         with:
           registry: ${{ env.GITEA_REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITEA_TOKEN }}
+          password: ${{ secrets.GT_TOKEN }}
       
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.GITHUB_REGISTRY }}
-          username: ${{ secrets.GITHUB_USER }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.GH_USER }}
+          password: ${{ secrets.GT_TOKEN }}
       
       - name: Extract metadata
         id: meta
@@ -339,14 +339,14 @@ jobs:
         with:
           registry: ${{ env.GITEA_REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITEA_TOKEN }}
+          password: ${{ secrets.GT_TOKEN }}
       
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.GITHUB_REGISTRY }}
-          username: ${{ secrets.GITHUB_USER }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.GH_USER }}
+          password: ${{ secrets.GT_TOKEN }}
       
       - name: Extract metadata
         id: meta
@@ -404,14 +404,14 @@ jobs:
         with:
           registry: ${{ env.GITEA_REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITEA_TOKEN }}
+          password: ${{ secrets.GT_TOKEN }}
       
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.GITHUB_REGISTRY }}
-          username: ${{ secrets.GITHUB_USER }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.GH_USER }}
+          password: ${{ secrets.GT_TOKEN }}
       
       - name: Extract metadata
         id: meta
@@ -469,7 +469,7 @@ jobs:
           delete-untagged: true
           older-than: 7 days
           keep-n-tagged: 5
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GT_TOKEN }}
         continue-on-error: true
       
       - name: Cleanup Gitea Container Registry
