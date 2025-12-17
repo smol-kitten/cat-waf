@@ -15,12 +15,14 @@ on:
       - 'log-parser/**'
       - 'mariadb/**'
       - 'updater/**'
-      - '.github/workflows/build-images.yml'
+      - '.gitea/workflows/build-images.yml'
   workflow_dispatch:
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/cat-waf
+  GITEA_REGISTRY: git.catboy.systems
+  GITHUB_REGISTRY: ghcr.io
+  GITEA_IMAGE_PREFIX: git.catboy.systems/${{ github.repository_owner }}/cat-waf
+  GITHUB_IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/cat-waf
 
 jobs:
   build-nginx:
@@ -29,24 +31,39 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'npm'
+
       - name: Checkout
         uses: actions/checkout@v4
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       
+      - name: Log in to Gitea Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.GITEA_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITEA_TOKEN }}
+      
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
+          registry: ${{ env.GITHUB_REGISTRY }}
+          username: ${{ secrets.GITHUB_USER }}
           password: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_PREFIX }}-nginx
+          images: |
+            ${{ env.GITEA_IMAGE_PREFIX }}-nginx
+            ${{ env.GITHUB_IMAGE_PREFIX }}-nginx
           tags: |
             type=ref,event=branch
             type=sha,prefix={{branch}}-
@@ -54,7 +71,6 @@ jobs:
             type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/dev' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-          # Automatically delete untagged images after 7 days and keep only 5 recent SHA tags
           flavor: |
             latest=auto
           labels: |
@@ -84,24 +100,39 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'npm'
+
       - name: Checkout
         uses: actions/checkout@v4
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       
+      - name: Log in to Gitea Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.GITEA_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITEA_TOKEN }}
+      
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
+          registry: ${{ env.GITHUB_REGISTRY }}
+          username: ${{ secrets.GITHUB_USER }}
           password: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_PREFIX }}-migration-runner
+          images: |
+            ${{ env.GITEA_IMAGE_PREFIX }}-migration-runner
+            ${{ env.GITHUB_IMAGE_PREFIX }}-migration-runner
           tags: |
             type=ref,event=branch
             type=sha,prefix={{branch}}-
@@ -134,24 +165,39 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'npm'
+
       - name: Checkout
         uses: actions/checkout@v4
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       
+      - name: Log in to Gitea Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.GITEA_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITEA_TOKEN }}
+      
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
+          registry: ${{ env.GITHUB_REGISTRY }}
+          username: ${{ secrets.GITHUB_USER }}
           password: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_PREFIX }}-dashboard
+          images: |
+            ${{ env.GITEA_IMAGE_PREFIX }}-dashboard
+            ${{ env.GITHUB_IMAGE_PREFIX }}-dashboard
           tags: |
             type=ref,event=branch
             type=sha,prefix={{branch}}-
@@ -183,24 +229,39 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'npm'
+
       - name: Checkout
         uses: actions/checkout@v4
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       
+      - name: Log in to Gitea Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.GITEA_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITEA_TOKEN }}
+      
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
+          registry: ${{ env.GITHUB_REGISTRY }}
+          username: ${{ secrets.GITHUB_USER }}
           password: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_PREFIX }}-web-dashboard
+          images: |
+            ${{ env.GITEA_IMAGE_PREFIX }}-web-dashboard
+            ${{ env.GITHUB_IMAGE_PREFIX }}-web-dashboard
           tags: |
             type=ref,event=branch
             type=sha,prefix={{branch}}-
@@ -232,24 +293,39 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'npm'
+
       - name: Checkout
         uses: actions/checkout@v4
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       
+      - name: Log in to Gitea Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.GITEA_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITEA_TOKEN }}
+      
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
+          registry: ${{ env.GITHUB_REGISTRY }}
+          username: ${{ secrets.GITHUB_USER }}
           password: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_PREFIX }}-fail2ban
+          images: |
+            ${{ env.GITEA_IMAGE_PREFIX }}-fail2ban
+            ${{ env.GITHUB_IMAGE_PREFIX }}-fail2ban
           tags: |
             type=ref,event=branch
             type=sha,prefix={{branch}}-
@@ -281,24 +357,39 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'npm'
+
       - name: Checkout
         uses: actions/checkout@v4
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       
+      - name: Log in to Gitea Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.GITEA_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITEA_TOKEN }}
+      
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
+          registry: ${{ env.GITHUB_REGISTRY }}
+          username: ${{ secrets.GITHUB_USER }}
           password: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_PREFIX }}-log-parser
+          images: |
+            ${{ env.GITEA_IMAGE_PREFIX }}-log-parser
+            ${{ env.GITHUB_IMAGE_PREFIX }}-log-parser
           tags: |
             type=ref,event=branch
             type=sha,prefix={{branch}}-
@@ -337,24 +428,39 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'npm'
+
       - name: Checkout
         uses: actions/checkout@v4
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       
+      - name: Log in to Gitea Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.GITEA_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITEA_TOKEN }}
+      
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
+          registry: ${{ env.GITHUB_REGISTRY }}
+          username: ${{ secrets.GITHUB_USER }}
           password: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_PREFIX }}-updater
+          images: |
+            ${{ env.GITEA_IMAGE_PREFIX }}-updater
+            ${{ env.GITHUB_IMAGE_PREFIX }}-updater
           tags: |
             type=ref,event=branch
             type=sha,prefix={{branch}}-
@@ -397,10 +503,24 @@ jobs:
           - cat-waf-migration-runner
           - cat-waf-updater
     steps:
-      - uses: dataaxiom/ghcr-cleanup-action@v1
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'npm'
+
+      - name: Cleanup GitHub Container Registry
+        uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           package: ${{ matrix.package }}
           delete-untagged: true
           older-than: 7 days
           keep-n-tagged: 5
+          token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+      
+      - name: Cleanup Gitea Container Registry
+        run: |
+          # Add Gitea-specific cleanup logic here if needed
+          echo "Gitea registry cleanup for ${{ matrix.package }} would go here"
         continue-on-error: true
