@@ -31,7 +31,6 @@ jobs:
       contents: read
       packages: write
     steps:
-
       - name: Checkout
         uses: actions/checkout@v4
       
@@ -50,7 +49,7 @@ jobs:
         with:
           registry: ${{ env.GITHUB_REGISTRY }}
           username: ${{ secrets.GH_USER }}
-          password: ${{ secrets.GT_TOKEN }}
+          password: ${{ secrets.GH_TOKEN }}
       
       - name: Extract metadata
         id: meta
@@ -72,22 +71,35 @@ jobs:
             org.opencontainers.image.description=CatWAF NGINX with ModSecurity
             maintainer=${{ github.repository_owner }}
       
-      - name: Build and push
+      - name: Build image locally
         uses: docker/build-push-action@v5
         with:
           context: ./nginx
+          push: false
+          load: true
+          tags: cat-waf-nginx:build
+          labels: ${{ steps.meta.outputs.labels }}
+      
+      - name: Slim the image
+        uses: kitabisa/docker-slim-action@v1
+        env:
+          DSLIM_HTTP_PROBE: false
+        with:
+          target: cat-waf-nginx:build
+          tag: "slim"
+      
+      - name: Create Dockerfile for slimmed image push
+        run: |
+          echo "FROM cat-waf-nginx:slim" > Dockerfile.slim
+      
+      - name: Push slimmed image to both registries
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.slim
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: |
-            type=local,src=/tmp/.buildx-cache
-            type=gha
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
-      
-      - name: Rotate cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
   build-migration-runner:
     runs-on: self-hosted
@@ -113,7 +125,7 @@ jobs:
         with:
           registry: ${{ env.GITHUB_REGISTRY }}
           username: ${{ secrets.GH_USER }}
-          password: ${{ secrets.GT_TOKEN }}
+          password: ${{ secrets.GH_TOKEN }}
       
       - name: Extract metadata
         id: meta
@@ -130,23 +142,36 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
       
-      - name: Build and push
+      - name: Build image locally
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./mariadb/Dockerfile
+          push: false
+          load: true
+          tags: cat-waf-migration-runner:build
+          labels: ${{ steps.meta.outputs.labels }}
+      
+      - name: Slim the image
+        uses: kitabisa/docker-slim-action@v1
+        env:
+          DSLIM_HTTP_PROBE: false
+        with:
+          target: cat-waf-migration-runner:build
+          tag: "slim"
+      
+      - name: Create Dockerfile for slimmed image push
+        run: |
+          echo "FROM cat-waf-migration-runner:slim" > Dockerfile.slim
+      
+      - name: Push slimmed image to both registries
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.slim
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: |
-            type=local,src=/tmp/.buildx-cache
-            type=gha
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
-      
-      - name: Rotate cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
   build-dashboard:
     runs-on: self-hosted
@@ -172,7 +197,7 @@ jobs:
         with:
           registry: ${{ env.GITHUB_REGISTRY }}
           username: ${{ secrets.GH_USER }}
-          password: ${{ secrets.GT_TOKEN }}
+          password: ${{ secrets.GH_TOKEN }}
       
       - name: Extract metadata
         id: meta
@@ -189,22 +214,35 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
       
-      - name: Build and push
+      - name: Build image locally
         uses: docker/build-push-action@v5
         with:
           context: ./dashboard
+          push: false
+          load: true
+          tags: cat-waf-dashboard:build
+          labels: ${{ steps.meta.outputs.labels }}
+      
+      - name: Slim the image
+        uses: kitabisa/docker-slim-action@v1
+        env:
+          DSLIM_HTTP_PROBE: false
+        with:
+          target: cat-waf-dashboard:build
+          tag: "slim"
+      
+      - name: Create Dockerfile for slimmed image push
+        run: |
+          echo "FROM cat-waf-dashboard:slim" > Dockerfile.slim
+      
+      - name: Push slimmed image to both registries
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.slim
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: |
-            type=local,src=/tmp/.buildx-cache
-            type=gha
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
-      
-      - name: Rotate cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
   build-web-dashboard:
     runs-on: self-hosted
@@ -230,7 +268,7 @@ jobs:
         with:
           registry: ${{ env.GITHUB_REGISTRY }}
           username: ${{ secrets.GH_USER }}
-          password: ${{ secrets.GT_TOKEN }}
+          password: ${{ secrets.GH_TOKEN }}
       
       - name: Extract metadata
         id: meta
@@ -247,22 +285,35 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
       
-      - name: Build and push
+      - name: Build image locally
         uses: docker/build-push-action@v5
         with:
           context: ./web-dashboard
+          push: false
+          load: true
+          tags: cat-waf-web-dashboard:build
+          labels: ${{ steps.meta.outputs.labels }}
+      
+      - name: Slim the image
+        uses: kitabisa/docker-slim-action@v1
+        env:
+          DSLIM_HTTP_PROBE: false
+        with:
+          target: cat-waf-web-dashboard:build
+          tag: "slim"
+      
+      - name: Create Dockerfile for slimmed image push
+        run: |
+          echo "FROM cat-waf-web-dashboard:slim" > Dockerfile.slim
+      
+      - name: Push slimmed image to both registries
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.slim
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: |
-            type=local,src=/tmp/.buildx-cache
-            type=gha
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
-      
-      - name: Rotate cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
   build-fail2ban:
     runs-on: self-hosted
@@ -288,7 +339,7 @@ jobs:
         with:
           registry: ${{ env.GITHUB_REGISTRY }}
           username: ${{ secrets.GH_USER }}
-          password: ${{ secrets.GT_TOKEN }}
+          password: ${{ secrets.GH_TOKEN }}
       
       - name: Extract metadata
         id: meta
@@ -305,22 +356,35 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
       
-      - name: Build and push
+      - name: Build image locally
         uses: docker/build-push-action@v5
         with:
           context: ./fail2ban
+          push: false
+          load: true
+          tags: cat-waf-fail2ban:build
+          labels: ${{ steps.meta.outputs.labels }}
+      
+      - name: Slim the image
+        uses: kitabisa/docker-slim-action@v1
+        env:
+          DSLIM_HTTP_PROBE: false
+        with:
+          target: cat-waf-fail2ban:build
+          tag: "slim"
+      
+      - name: Create Dockerfile for slimmed image push
+        run: |
+          echo "FROM cat-waf-fail2ban:slim" > Dockerfile.slim
+      
+      - name: Push slimmed image to both registries
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.slim
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: |
-            type=local,src=/tmp/.buildx-cache
-            type=gha
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
-      
-      - name: Rotate cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
   build-log-parser:
     runs-on: self-hosted
@@ -346,7 +410,7 @@ jobs:
         with:
           registry: ${{ env.GITHUB_REGISTRY }}
           username: ${{ secrets.GH_USER }}
-          password: ${{ secrets.GT_TOKEN }}
+          password: ${{ secrets.GH_TOKEN }}
       
       - name: Extract metadata
         id: meta
@@ -363,29 +427,35 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
       
-      - name: Build and push
+      - name: Build image locally
         uses: docker/build-push-action@v5
         with:
           context: ./log-parser
+          push: false
+          load: true
+          tags: cat-waf-log-parser:build
+          labels: ${{ steps.meta.outputs.labels }}
+      
+      - name: Slim the image
+        uses: kitabisa/docker-slim-action@v1
+        env:
+          DSLIM_HTTP_PROBE: false
+        with:
+          target: cat-waf-log-parser:build
+          tag: "slim"
+      
+      - name: Create Dockerfile for slimmed image push
+        run: |
+          echo "FROM cat-waf-log-parser:slim" > Dockerfile.slim
+      
+      - name: Push slimmed image to both registries
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.slim
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: |
-            type=local,src=/tmp/.buildx-cache
-            type=gha
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
-      
-      - name: Rotate cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
-      
-      - name: Cleanup untagged images
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'
-        run: |
-          # Keep latest 3 untagged images, delete older ones
-          # Only delete untagged (none:none) images, keep all tagged images
-          docker images --filter "dangling=true" -q | tail -n +4 | xargs -r docker rmi || true
 
   build-updater:
     runs-on: self-hosted
@@ -411,7 +481,7 @@ jobs:
         with:
           registry: ${{ env.GITHUB_REGISTRY }}
           username: ${{ secrets.GH_USER }}
-          password: ${{ secrets.GT_TOKEN }}
+          password: ${{ secrets.GH_TOKEN }}
       
       - name: Extract metadata
         id: meta
@@ -428,22 +498,35 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
       
-      - name: Build and push
+      - name: Build image locally
         uses: docker/build-push-action@v5
         with:
           context: ./updater
+          push: false
+          load: true
+          tags: cat-waf-updater:build
+          labels: ${{ steps.meta.outputs.labels }}
+      
+      - name: Slim the image
+        uses: kitabisa/docker-slim-action@v1
+        env:
+          DSLIM_HTTP_PROBE: false
+        with:
+          target: cat-waf-updater:build
+          tag: "slim"
+      
+      - name: Create Dockerfile for slimmed image push
+        run: |
+          echo "FROM cat-waf-updater:slim" > Dockerfile.slim
+      
+      - name: Push slimmed image to both registries
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.slim
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: |
-            type=local,src=/tmp/.buildx-cache
-            type=gha
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
-      
-      - name: Rotate cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
   cleanup:
     runs-on: self-hosted
@@ -469,11 +552,15 @@ jobs:
           delete-untagged: true
           older-than: 7 days
           keep-n-tagged: 5
-          token: ${{ secrets.GT_TOKEN }}
+          token: ${{ secrets.GH_TOKEN }}
         continue-on-error: true
       
       - name: Cleanup Gitea Container Registry
         run: |
-          # Add Gitea-specific cleanup logic here if needed
           echo "Gitea registry cleanup for ${{ matrix.package }} would go here"
+        continue-on-error: true
+      
+      - name: Cleanup local Docker images
+        run: |
+          docker images --filter "dangling=true" -q | tail -n +4 | xargs -r docker rmi || true
         continue-on-error: true
