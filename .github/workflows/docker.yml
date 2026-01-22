@@ -1,0 +1,26 @@
+# Docker Build workflow
+
+name: Build Docker Images
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Build Docker images
+        run: docker compose build
+        continue-on-error: true
+      
+      - name: Validate docker-compose
+        run: docker compose config
