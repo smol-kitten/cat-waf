@@ -140,7 +140,8 @@ function getCertificateInfo($domain) {
     foreach ($certPaths as $path) {
         // Use double quotes for sh -c and escape the path properly
         $escapedPath = str_replace("'", "'\\''", $path);
-        $checkCmd = sprintf("docker exec waf-nginx sh -c 'test -f \"%s\" && echo exists || echo not_found'", $escapedPath);
+        // Use test -s to check file exists AND has content (catches broken symlinks)
+        $checkCmd = sprintf("docker exec waf-nginx sh -c 'test -s \"%s\" && echo exists || echo not_found'", $escapedPath);
         $result = shell_exec($checkCmd);
         if ($result !== null && trim($result) === 'exists') {
             $certPath = $path;
@@ -153,18 +154,26 @@ function getCertificateInfo($domain) {
     
     if (!$certPath) {
         // No cert in nginx - check if one exists in acme.sh that needs syncing
+        // Check multiple path patterns including _ecc directories
         $acmeCheckPaths = [
+            // Base domain paths
             "/acme.sh/{$baseDomain}/fullchain.pem",
+            "/acme.sh/{$baseDomain}_ecc/fullchain.cer",      // ECC directory (acme.sh default)
+            "/acme.sh/{$baseDomain}_ecc/fullchain.pem",
             "/acme.sh/{$baseDomain}/{$baseDomain}.cer",
-            "/acme.sh/{$baseDomain}/{$baseDomain}_ecc/fullchain.cer",
+            "/acme.sh/{$baseDomain}/fullchain.cer",
+            // Domain-specific paths (for subdomains)
             "/acme.sh/{$domain}/fullchain.pem",
+            "/acme.sh/{$domain}_ecc/fullchain.cer",
+            "/acme.sh/{$domain}_ecc/fullchain.pem",
             "/acme.sh/{$domain}/{$domain}.cer",
-            "/acme.sh/{$domain}/{$domain}_ecc/fullchain.cer"
+            "/acme.sh/{$domain}/fullchain.cer"
         ];
         
         foreach ($acmeCheckPaths as $acmePath) {
             $escapedPath = str_replace("'", "'\\''", $acmePath);
-            $checkAcmeCmd = sprintf("docker exec waf-acme sh -c 'test -f \"%s\" && echo exists || echo missing' 2>&1", $escapedPath);
+            // Use test -s to check file exists AND has content (catches broken symlinks)
+            $checkAcmeCmd = sprintf("docker exec waf-acme sh -c 'test -s \"%s\" && echo exists || echo missing' 2>&1", $escapedPath);
             $result = shell_exec($checkAcmeCmd);
             if ($result !== null && trim($result) === 'exists') {
                 http_response_code(200);
@@ -863,61 +872,39 @@ function rescanCertificate($domain) {
         // Extract base domain (for wildcard cert lookup)
         $baseDomain = extractRootDomain($domain);
         
-        // Check if cert exists for base domain in acme.sh container
-        // Try both RSA and ECC variants
-        $checkPaths = [
-            "/acme.sh/{$baseDomain}/fullchain.pem",          // Main cert location
-            "/acme.sh/{$baseDomain}/{$baseDomain}.cer",      // RSA variant
-            "/acme.sh/{$baseDomain}/{$baseDomain}_ecc/fullchain.cer",  // ECC variant
-            "/acme.sh/{$domain}/fullchain.pem",              // Subdomain-specific (legacy)
-            "/acme.sh/{$domain}/{$domain}.cer",
-            "/acme.sh/{$domain}/{$domain}_ecc/fullchain.cer"
-        ];
+        // Use findAcmeCertificate to locate the cert (handles all path variations)
+        $certInfo = findAcmeCertificate($baseDomain, $domain);
         
-        $acmeExists = false;
-        foreach ($checkPaths as $path) {
-            $checkCmd = sprintf("docker exec waf-acme test -f %s && echo 'exists' || echo 'missing' 2>&1", escapeshellarg($path));
-            if (trim(shell_exec($checkCmd)) === 'exists') {
-                $acmeExists = true;
-                $result['found_cert_at'] = $path;
-                break;
-            }
-        }
-        
-        if ($acmeExists) {
-            // Certificate exists! Just create the symlink from domain to base domain cert
-            $result['action'] = 'linked_to_base_domain';
+        if ($certInfo) {
+            // Certificate exists! Create symlink using the actual found path
+            $result['action'] = 'linked';
             $result['base_domain'] = $baseDomain;
+            $result['found_cert_at'] = $certInfo['cert_path'];
+            $result['key_path'] = $certInfo['key_path'];
             
-            if ($domain !== $baseDomain) {
-                // Create symlink from subdomain to base domain certificate
-                $linkCmd = sprintf(
-                    "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/certs/%s && ln -sf /acme.sh/%s/fullchain.pem /etc/nginx/certs/%s/fullchain.pem && ln -sf /acme.sh/%s/key.pem /etc/nginx/certs/%s/key.pem' 2>&1",
-                    escapeshellarg($domain),
-                    escapeshellarg($baseDomain),
-                    escapeshellarg($domain),
-                    escapeshellarg($baseDomain),
-                    escapeshellarg($domain)
-                );
-            } else {
-                // This IS the base domain, create normal symlink
-                $linkCmd = sprintf(
-                    "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/certs/%s && ln -sf /acme.sh/%s/fullchain.pem /etc/nginx/certs/%s/fullchain.pem && ln -sf /acme.sh/%s/key.pem /etc/nginx/certs/%s/key.pem' 2>&1",
-                    escapeshellarg($domain),
-                    escapeshellarg($baseDomain),
-                    escapeshellarg($domain),
-                    escapeshellarg($baseDomain),
-                    escapeshellarg($domain)
-                );
-            }
-            exec($linkCmd, $linkOutput);
+            // Create symlink from domain cert dir to actual acme.sh cert path
+            $linkCmd = sprintf(
+                "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/certs/%s && rm -f /etc/nginx/certs/%s/fullchain.pem /etc/nginx/certs/%s/key.pem && ln -sf %s /etc/nginx/certs/%s/fullchain.pem && ln -sf %s /etc/nginx/certs/%s/key.pem' 2>&1",
+                escapeshellarg($domain),
+                escapeshellarg($domain),
+                escapeshellarg($domain),
+                escapeshellarg($certInfo['cert_path']),
+                escapeshellarg($domain),
+                escapeshellarg($certInfo['key_path']),
+                escapeshellarg($domain)
+            );
+            exec($linkCmd, $linkOutput, $linkReturn);
             $result['link_output'] = implode("\n", $linkOutput);
+            
+            if ($linkReturn !== 0) {
+                $result['action'] = 'link_failed';
+                $result['error'] = implode("\n", $linkOutput);
+            }
         } else {
-            // No existing certificate found - issue new one
-            $result['action'] = 'reissued';
+            // No existing certificate found - needs issuance
+            $result['action'] = 'needs_issuance';
             $result['base_domain'] = $baseDomain;
-            issueCertificate($domain);
-            return; // issueCertificate handles the response
+            $result['note'] = 'No certificate found in acme.sh - issue new certificate via SSL settings';
         }
     }
     
@@ -928,6 +915,7 @@ function rescanCertificate($domain) {
     // Reload nginx
     exec("docker exec waf-nginx nginx -s reload 2>&1");
     
+    header('Content-Type: application/json');
     echo json_encode([
         'success' => true,
         'result' => $result
@@ -940,6 +928,11 @@ function rescanCertificate($domain) {
 function rescanAllCertificates() {
     // Increase execution time for bulk operations
     set_time_limit(300); // 5 minutes
+    
+    // Disable output buffering to ensure response is sent
+    while (ob_get_level()) {
+        ob_end_clean();
+    }
     
     $db = getDB();
     
@@ -966,53 +959,34 @@ function rescanAllCertificates() {
             // Extract base domain for wildcard cert lookup
             $baseDomain = extractRootDomain($domain);
             
-            // Check if cert exists for base domain in acme.sh container
-            $checkPaths = [
-                "/acme.sh/{$baseDomain}/fullchain.pem",
-                "/acme.sh/{$baseDomain}/{$baseDomain}.cer",
-                "/acme.sh/{$baseDomain}/{$baseDomain}_ecc/fullchain.cer",
-                "/acme.sh/{$domain}/fullchain.pem",
-                "/acme.sh/{$domain}/{$domain}.cer",
-                "/acme.sh/{$domain}/{$domain}_ecc/fullchain.cer"
-            ];
+            // Find certificate in acme.sh - check all possible paths
+            $certInfo = findAcmeCertificate($baseDomain, $domain);
             
-            $acmeExists = false;
-            foreach ($checkPaths as $path) {
-                $escapedPath = str_replace("'", "'\\''", $path);
-                $checkCmd = sprintf("docker exec waf-acme sh -c 'test -f \"%s\" && echo exists || echo missing' 2>&1", $escapedPath);
-                $result = shell_exec($checkCmd);
-                if ($result !== null && trim($result) === 'exists') {
-                    $acmeExists = true;
-                    $siteResult['found_cert_at'] = $path;
-                    break;
-                }
-            }
-            
-            if ($acmeExists) {
-                // Create symlink from domain to base domain certificate
-                if ($domain !== $baseDomain) {
-                    $linkCmd = sprintf(
-                        "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/certs/%s && ln -sf /acme.sh/%s/fullchain.pem /etc/nginx/certs/%s/fullchain.pem && ln -sf /acme.sh/%s/key.pem /etc/nginx/certs/%s/key.pem' 2>&1",
-                        escapeshellarg($domain),
-                        escapeshellarg($baseDomain),
-                        escapeshellarg($domain),
-                        escapeshellarg($baseDomain),
-                        escapeshellarg($domain)
-                    );
+            if ($certInfo) {
+                $siteResult['found_cert_at'] = $certInfo['cert_path'];
+                $siteResult['key_path'] = $certInfo['key_path'];
+                
+                // Create symlink from domain cert dir to actual acme.sh cert
+                $linkCmd = sprintf(
+                    "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/certs/%s && rm -f /etc/nginx/certs/%s/fullchain.pem /etc/nginx/certs/%s/key.pem && ln -sf %s /etc/nginx/certs/%s/fullchain.pem && ln -sf %s /etc/nginx/certs/%s/key.pem' 2>&1",
+                    escapeshellarg($domain),
+                    escapeshellarg($domain),
+                    escapeshellarg($domain),
+                    escapeshellarg($certInfo['cert_path']),
+                    escapeshellarg($domain),
+                    escapeshellarg($certInfo['key_path']),
+                    escapeshellarg($domain)
+                );
+                exec($linkCmd, $linkOutput, $linkReturn);
+                
+                if ($linkReturn === 0) {
+                    $siteResult['action'] = 'linked';
+                    $siteResult['base_domain'] = $baseDomain;
+                    $fixedCount++;
                 } else {
-                    $linkCmd = sprintf(
-                        "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/certs/%s && ln -sf /acme.sh/%s/fullchain.pem /etc/nginx/certs/%s/fullchain.pem && ln -sf /acme.sh/%s/key.pem /etc/nginx/certs/%s/key.pem' 2>&1",
-                        escapeshellarg($domain),
-                        escapeshellarg($baseDomain),
-                        escapeshellarg($domain),
-                        escapeshellarg($baseDomain),
-                        escapeshellarg($domain)
-                    );
+                    $siteResult['action'] = 'link_failed';
+                    $siteResult['error'] = implode("\n", $linkOutput);
                 }
-                exec($linkCmd);
-                $siteResult['action'] = 'linked_to_base_domain';
-                $siteResult['base_domain'] = $baseDomain;
-                $fixedCount++;
             } else {
                 $siteResult['action'] = 'needs_issuance';
                 $siteResult['note'] = 'Certificate needs to be issued manually';
@@ -1020,23 +994,99 @@ function rescanAllCertificates() {
             }
         }
         
-        // Don't regenerate configs during rescan - they're already valid
-        // Just create symlinks and let existing configs use them
-        
         $results[] = $siteResult;
-        //add some time to execution time
-        set_time_limit(300);
     }
     
     // Touch reload marker to trigger config watcher (safer than direct reload during bulk operations)
     exec("docker exec waf-nginx touch /etc/nginx/sites-enabled/.reload_needed 2>&1");
     
+    // Reload nginx directly too for immediate effect
+    exec("docker exec waf-nginx nginx -s reload 2>&1");
+    
+    header('Content-Type: application/json');
     echo json_encode([
         'success' => true,
         'total' => count($sites),
         'fixed' => $fixedCount,
         'results' => $results
     ]);
+}
+
+/**
+ * Find certificate in acme.sh container - checks all possible paths
+ * If cert is found but not in standard format, copies to standard location
+ * Returns array with cert_path and key_path (always normalized to /acme.sh/{domain}/), or null if not found
+ */
+function findAcmeCertificate($baseDomain, $domain = null) {
+    $targetDomain = $domain ?: $baseDomain;
+    
+    // All possible certificate path patterns acme.sh might use
+    // Listed in order of preference
+    $pathPatterns = [];
+    
+    // Check base domain first (for wildcard certs)
+    // Standard .pem format (our format)
+    $pathPatterns[] = ['cert' => "/acme.sh/{$baseDomain}/fullchain.pem", 'key' => "/acme.sh/{$baseDomain}/key.pem", 'source' => $baseDomain];
+    // ECC directory with .pem
+    $pathPatterns[] = ['cert' => "/acme.sh/{$baseDomain}_ecc/fullchain.pem", 'key' => "/acme.sh/{$baseDomain}_ecc/key.pem", 'source' => "{$baseDomain}_ecc"];
+    // ECC directory with .cer format
+    $pathPatterns[] = ['cert' => "/acme.sh/{$baseDomain}_ecc/fullchain.cer", 'key' => "/acme.sh/{$baseDomain}_ecc/{$baseDomain}.key", 'source' => "{$baseDomain}_ecc"];
+    // Standard acme.sh format .cer
+    $pathPatterns[] = ['cert' => "/acme.sh/{$baseDomain}/{$baseDomain}.cer", 'key' => "/acme.sh/{$baseDomain}/{$baseDomain}.key", 'source' => $baseDomain];
+    $pathPatterns[] = ['cert' => "/acme.sh/{$baseDomain}/fullchain.cer", 'key' => "/acme.sh/{$baseDomain}/{$baseDomain}.key", 'source' => $baseDomain];
+    
+    // If domain is different from base domain, also check domain-specific paths
+    if ($domain && $domain !== $baseDomain) {
+        $pathPatterns[] = ['cert' => "/acme.sh/{$domain}/fullchain.pem", 'key' => "/acme.sh/{$domain}/key.pem", 'source' => $domain];
+        $pathPatterns[] = ['cert' => "/acme.sh/{$domain}_ecc/fullchain.pem", 'key' => "/acme.sh/{$domain}_ecc/key.pem", 'source' => "{$domain}_ecc"];
+        $pathPatterns[] = ['cert' => "/acme.sh/{$domain}_ecc/fullchain.cer", 'key' => "/acme.sh/{$domain}_ecc/{$domain}.key", 'source' => "{$domain}_ecc"];
+        $pathPatterns[] = ['cert' => "/acme.sh/{$domain}/{$domain}.cer", 'key' => "/acme.sh/{$domain}/{$domain}.key", 'source' => $domain];
+    }
+    
+    foreach ($pathPatterns as $paths) {
+        $certPath = $paths['cert'];
+        $keyPath = $paths['key'];
+        
+        // Check if both cert and key exist (and are not broken symlinks)
+        $checkCmd = sprintf(
+            "docker exec waf-acme sh -c 'test -f %s && test -s %s && test -f %s && test -s %s && echo found || echo missing' 2>&1",
+            escapeshellarg($certPath),
+            escapeshellarg($certPath),
+            escapeshellarg($keyPath),
+            escapeshellarg($keyPath)
+        );
+        $result = trim(shell_exec($checkCmd) ?? '');
+        
+        if ($result === 'found') {
+            // Found! Now normalize to standard location if needed
+            $standardCert = "/acme.sh/{$baseDomain}/fullchain.pem";
+            $standardKey = "/acme.sh/{$baseDomain}/key.pem";
+            
+            // If not already in standard format, copy to standard location
+            if ($certPath !== $standardCert || $keyPath !== $standardKey) {
+                $copyCmd = sprintf(
+                    "docker exec waf-acme sh -c 'mkdir -p /acme.sh/%s && cp %s %s && cp %s %s' 2>&1",
+                    escapeshellarg($baseDomain),
+                    escapeshellarg($certPath),
+                    escapeshellarg($standardCert),
+                    escapeshellarg($keyPath),
+                    escapeshellarg($standardKey)
+                );
+                exec($copyCmd, $copyOutput, $copyReturn);
+                error_log("Normalized cert from {$certPath} to {$standardCert}: " . ($copyReturn === 0 ? 'OK' : implode("\n", $copyOutput)));
+            }
+            
+            return [
+                'cert_path' => $standardCert,
+                'key_path' => $standardKey,
+                'base_domain' => $baseDomain,
+                'original_cert' => $certPath,
+                'original_key' => $keyPath
+            ];
+        }
+    }
+    
+    return null;
 }
 
 /**
