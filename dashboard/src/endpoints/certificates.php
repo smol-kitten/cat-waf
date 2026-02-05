@@ -277,7 +277,8 @@ function issueCertificate($domain) {
         $domains = sprintf("-d %s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
 
         // Build the inner acme.sh command and safely quote it for sh -c
-        $innerCmd = sprintf("/root/.acme.sh/acme.sh --issue --dns dns_cf %s --server letsencrypt --cert-home /acme.sh/%s", $domains, escapeshellarg($baseDomain));
+        // NOTE: acme.sh home is /acme.sh (mounted from waf-certs volume), NOT /root/.acme.sh
+        $innerCmd = sprintf("acme.sh --issue --dns dns_cf %s --server letsencrypt --home /acme.sh --force", $domains);
         $command = sprintf(
             "docker exec %s waf-acme sh -c %s 2>&1",
             $envOptions,
@@ -324,8 +325,9 @@ function issueCertificate($domain) {
         // This covers both example.com and *.example.com
         
         // Use acme.sh --install-cert to properly copy files without creating loops
+        // NOTE: acme.sh home is /acme.sh (mounted from waf-certs volume)
         $installCommand = sprintf(
-            "docker exec waf-acme sh -c '/root/.acme.sh/acme.sh --install-cert -d %s --key-file /acme.sh/%s/key.pem --fullchain-file /acme.sh/%s/fullchain.pem' 2>&1",
+            "docker exec waf-acme sh -c 'acme.sh --install-cert -d %s --home /acme.sh --key-file /acme.sh/%s/key.pem --fullchain-file /acme.sh/%s/fullchain.pem' 2>&1",
             escapeshellarg($baseDomain),
             escapeshellarg($baseDomain),
             escapeshellarg($baseDomain)
@@ -435,8 +437,9 @@ function renewCertificate($domain) {
         // ALWAYS renew with base domain + wildcard (same as issuance)
         $domains = sprintf("%s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
         
+        // NOTE: acme.sh home is /acme.sh (mounted from waf-certs volume)
         $command = sprintf(
-            "docker exec waf-acme sh -c '%s/root/.acme.sh/acme.sh --renew --dns dns_cf -d %s --force' 2>&1",
+            "docker exec waf-acme sh -c '%sacme.sh --renew --dns dns_cf -d %s --home /acme.sh --force' 2>&1",
             $envVars,
             $domains
         );
@@ -483,8 +486,9 @@ function renewCertificate($domain) {
                     }
 
                     // Issue with base domain + wildcard
+                    // NOTE: acme.sh home is /acme.sh (mounted from waf-certs volume)
                     $domains = sprintf("-d %s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
-                    $innerIssue = sprintf("/root/.acme.sh/acme.sh --issue --dns dns_cf %s --server letsencrypt --cert-home /acme.sh/%s --force", $domains, escapeshellarg($baseDomain));
+                    $innerIssue = sprintf("acme.sh --issue --dns dns_cf %s --server letsencrypt --home /acme.sh --force", $domains);
                     $issueCommand = sprintf(
                         "docker exec %s waf-acme sh -c %s 2>&1",
                         $envOptions,
@@ -701,17 +705,17 @@ function renewAllCertificates() {
             $domains = sprintf("%s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
             
             // Try renew first, if fails try issue
+            // NOTE: acme.sh home is /acme.sh (mounted from waf-certs volume)
             $renewCommand = sprintf(
-                "docker exec waf-acme sh -c '%s/root/.acme.sh/acme.sh --renew --dns dns_cf -d %s --force' 2>&1",
+                "docker exec waf-acme sh -c '%sacme.sh --renew --dns dns_cf -d %s --home /acme.sh --force' 2>&1",
                 $envVars,
                 $domains
             );
             
             $issueCommand = sprintf(
-                "docker exec waf-acme sh -c '%s/root/.acme.sh/acme.sh --issue --dns dns_cf -d %s --server letsencrypt --cert-home /acme.sh/%s' 2>&1",
+                "docker exec waf-acme sh -c '%sacme.sh --issue --dns dns_cf -d %s --server letsencrypt --home /acme.sh --force' 2>&1",
                 $envVars,
-                $domains,
-                escapeshellarg($baseDomain)
+                $domains
             );
         } else {
             // HTTP-01 Challenge NOT SUPPORTED for wildcard certificates

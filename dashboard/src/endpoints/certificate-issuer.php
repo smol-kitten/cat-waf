@@ -63,12 +63,12 @@ if ($challengeType === 'dns-01') {
     // ALWAYS issue with base domain + wildcard to prevent certificate proliferation
     $domains = sprintf("%s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
     
+    // NOTE: acme.sh home is /acme.sh (mounted from waf-certs volume), NOT /root/.acme.sh
     $command = sprintf(
-        "docker exec waf-acme sh -c 'export CF_Token=%s CF_Zone_ID=%s; /root/.acme.sh/acme.sh --issue --dns dns_cf -d %s --server letsencrypt --cert-home /acme.sh/%s --key-file /acme.sh/%s/key.pem --fullchain-file /acme.sh/%s/fullchain.pem' 2>&1",
+        "docker exec waf-acme sh -c 'export CF_Token=%s CF_Zone_ID=%s; acme.sh --issue --dns dns_cf -d %s --server letsencrypt --home /acme.sh --key-file /acme.sh/%s/key.pem --fullchain-file /acme.sh/%s/fullchain.pem --force' 2>&1",
         escapeshellarg($cfApiToken),
         escapeshellarg($cfZoneId),
         $domains,
-        escapeshellarg($baseDomain),
         escapeshellarg($baseDomain),
         escapeshellarg($baseDomain)
     );

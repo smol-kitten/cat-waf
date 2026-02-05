@@ -32,6 +32,15 @@ function handleRegenerate($method, $params, $db) {
 }
 
 function regenerateAllConfigs($db) {
+    // Clean up orphaned configs first (sites deleted but config still exists)
+    $orphansRemoved = 0;
+    if (function_exists('cleanupOrphanedConfigs')) {
+        $orphansRemoved = cleanupOrphanedConfigs($db);
+        if ($orphansRemoved > 0) {
+            error_log("Cleaned up {$orphansRemoved} orphaned config(s)");
+        }
+    }
+    
     // Get all enabled sites
     $stmt = $db->query("SELECT * FROM sites WHERE enabled = 1 ORDER BY domain");
     $sites = $stmt->fetchAll();

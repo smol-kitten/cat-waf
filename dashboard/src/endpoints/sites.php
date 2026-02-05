@@ -387,11 +387,26 @@ function handleSites($method, $params, $db) {
                 sendResponse(['error' => 'Site ID required'], 400);
             }
             
+            // Get domain BEFORE deleting from database (removeSiteConfig needs it)
+            $stmt = $db->prepare("SELECT domain FROM sites WHERE id = ?");
+            $stmt->execute([$params[0]]);
+            $siteToDelete = $stmt->fetch();
+            
+            if (!$siteToDelete) {
+                sendResponse(['error' => 'Site not found'], 404);
+            }
+            
+            $domainToDelete = $siteToDelete['domain'];
+            
+            // Delete from database
             $stmt = $db->prepare("DELETE FROM sites WHERE id = ?");
             $stmt->execute([$params[0]]);
             
-            // Remove NGINX config
-            removeSiteConfig($params[0]);
+            // Remove NGINX config (pass domain directly since DB record is gone)
+            removeSiteConfig($params[0], $domainToDelete);
+            
+            // Remove acme.sh certificate for this domain
+            removeAcmeCertificate($domainToDelete);
             
             // Trigger reload
             touch("/etc/nginx/sites-enabled/.reload_needed");
@@ -441,6 +456,12 @@ function handleSites($method, $params, $db) {
             foreach ($columns as $col) {
                 if ($col === 'domain') {
                     $values[] = $newDomain;
+                } elseif ($col === 'ssl_enabled') {
+                    // Disable SSL for copied sites - .copy domains can't get real certs
+                    $values[] = 0;
+                } elseif ($col === 'ssl_challenge_type') {
+                    // Set to snakeoil for testing
+                    $values[] = 'snakeoil';
                 } else {
                     $values[] = $originalSite[$col];
                 }
@@ -1306,36 +1327,71 @@ function generateRSLLocation($siteData, $dashboardHost = 'dashboard:80') {
     return $block;
 }
 
-function removeSiteConfig($siteId) {
+function removeSiteConfig($siteId, $domain = null) {
     global $db;
     
-    // Get domain name
-    $stmt = $db->prepare("SELECT domain FROM sites WHERE id = ?");
-    $stmt->execute([$siteId]);
-    $site = $stmt->fetch();
-    
-    if ($site) {
-        $domain = $site['domain'];
-        $config_path = "/etc/nginx/sites-enabled/{$domain}.conf";
+    // If domain not provided, try to get from database
+    if ($domain === null) {
+        $stmt = $db->prepare("SELECT domain FROM sites WHERE id = ?");
+        $stmt->execute([$siteId]);
+        $site = $stmt->fetch();
         
-        // Remove config from nginx container using docker exec
-        $removeCmd = "docker exec waf-nginx rm -f {$config_path} 2>&1";
-        exec($removeCmd, $removeOutput, $removeReturn);
-        
-        if ($removeReturn === 0) {
-            error_log("Removed config for {$domain}");
+        if ($site) {
+            $domain = $site['domain'];
         } else {
-            error_log("Failed to remove config for {$domain}: " . implode("\n", $removeOutput));
+            error_log("Cannot remove config for site {$siteId}: domain not found in DB and not provided");
+            return false;
         }
-        
-        // Reload NGINX
-        exec("docker exec waf-nginx nginx -s reload 2>&1");
-        
-        // Remove htpasswd if exists
-        $htpasswd_path = "/etc/nginx/htpasswd/{$domain}";
-        $htpasswdCmd = "docker exec waf-nginx rm -f {$htpasswd_path} 2>&1";
-        exec($htpasswdCmd);
     }
+    
+    $config_path = "/etc/nginx/sites-enabled/{$domain}.conf";
+    
+    // Remove config from nginx container using docker exec
+    $removeCmd = "docker exec waf-nginx rm -f {$config_path} 2>&1";
+    exec($removeCmd, $removeOutput, $removeReturn);
+    
+    if ($removeReturn === 0) {
+        error_log("Removed config for {$domain}");
+    } else {
+        error_log("Failed to remove config for {$domain}: " . implode("\n", $removeOutput));
+    }
+    
+    // Reload NGINX
+    exec("docker exec waf-nginx nginx -s reload 2>&1");
+    
+    // Remove htpasswd if exists
+    $htpasswd_path = "/etc/nginx/htpasswd/{$domain}";
+    $htpasswdCmd = "docker exec waf-nginx rm -f {$htpasswd_path} 2>&1";
+    exec($htpasswdCmd);
+    
+    return true;
+}
+
+/**
+ * Remove acme.sh certificate for a domain
+ * Handles both regular and _ecc certificate directories
+ */
+function removeAcmeCertificate($domain) {
+    // Skip .copy domains - they shouldn't have certs
+    if (strpos($domain, '.copy') !== false) {
+        return true;
+    }
+    
+    // Remove from acme.sh registration
+    $removeCmd = "docker exec waf-acme acme.sh --remove -d " . escapeshellarg($domain) . " --home /acme.sh 2>&1";
+    exec($removeCmd, $output, $returnCode);
+    error_log("acme.sh --remove for {$domain}: " . implode("\n", $output));
+    
+    // Remove certificate directories (both regular and _ecc)
+    $rmCmd = "docker exec waf-acme rm -rf /acme.sh/" . escapeshellarg($domain) . " /acme.sh/" . escapeshellarg($domain) . "_ecc 2>&1";
+    exec($rmCmd, $rmOutput);
+    error_log("Removed cert directories for {$domain}");
+    
+    // Also remove from nginx certs directory
+    $nginxRmCmd = "docker exec waf-nginx rm -rf /etc/nginx/certs/" . escapeshellarg($domain) . " 2>&1";
+    exec($nginxRmCmd);
+    
+    return true;
 }
 
 /**
@@ -1348,6 +1404,13 @@ function cleanupOrphanedConfigs($db) {
     // Get all domains from database
     $stmt = $db->query("SELECT domain FROM sites");
     $dbDomains = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'domain');
+    
+    // Also get base domains for wildcard cert matching
+    $baseDomains = [];
+    foreach ($dbDomains as $domain) {
+        $baseDomains[] = extractRootDomain($domain);
+    }
+    $baseDomains = array_unique($baseDomains);
     
     // Get all config files from nginx container
     $listCmd = "docker exec waf-nginx find /etc/nginx/sites-enabled -name '*.conf' -type f 2>&1";
@@ -1390,9 +1453,80 @@ function cleanupOrphanedConfigs($db) {
         }
     }
     
+    // Clean up orphaned acme.sh certificates
+    $certRemoved = cleanupOrphanedCertificates($dbDomains, $baseDomains);
+    error_log("Cleaned up {$certRemoved} orphaned certificate(s)");
+    
     if ($removed > 0) {
         // Trigger reload if we removed any configs
         touch("/etc/nginx/sites-enabled/.reload_needed");
+    }
+    
+    return $removed;
+}
+
+/**
+ * Clean up orphaned acme.sh certificates that don't have a corresponding site in database
+ * Returns number of certificates removed
+ */
+function cleanupOrphanedCertificates($dbDomains, $baseDomains) {
+    $removed = 0;
+    
+    // List all certificate directories in acme.sh
+    $listCmd = "docker exec waf-acme ls -1 /acme.sh/ 2>&1";
+    exec($listCmd, $certDirs, $returnCode);
+    
+    if ($returnCode !== 0) {
+        error_log("Failed to list acme.sh directories: " . implode("\n", $certDirs));
+        return 0;
+    }
+    
+    foreach ($certDirs as $certDir) {
+        // Skip acme.sh internal files/directories
+        if (in_array($certDir, ['acme.sh', 'account.conf', 'http.header', 'ca', 'deploy']) || 
+            strpos($certDir, '.') === 0 ||
+            empty($certDir)) {
+            continue;
+        }
+        
+        // Remove _ecc suffix for domain matching
+        $domain = preg_replace('/_ecc$/', '', $certDir);
+        
+        // Skip if domain or its base domain exists in database
+        $domainBase = extractRootDomain($domain);
+        
+        // Check if this domain or its base is in our database
+        $isValid = in_array($domain, $dbDomains) || 
+                   in_array($domainBase, $dbDomains) ||
+                   in_array($domainBase, $baseDomains);
+        
+        // Also check if it's a subdomain covered by a wildcard cert
+        // e.g., auth.catboy.systems is covered by *.catboy.systems
+        foreach ($baseDomains as $base) {
+            if (str_ends_with($domain, '.' . $base)) {
+                $isValid = true;
+                break;
+            }
+        }
+        
+        if (!$isValid) {
+            error_log("Found orphaned certificate: {$certDir}");
+            
+            // Remove from acme.sh registration first
+            $removeCmd = "docker exec waf-acme acme.sh --remove -d " . escapeshellarg($domain) . " --home /acme.sh 2>&1";
+            exec($removeCmd, $removeOutput);
+            
+            // Remove the certificate directory
+            $rmCmd = "docker exec waf-acme rm -rf /acme.sh/" . escapeshellarg($certDir) . " 2>&1";
+            exec($rmCmd, $rmOutput, $rmReturn);
+            
+            if ($rmReturn === 0) {
+                error_log("Removed orphaned certificate: {$certDir}");
+                $removed++;
+            } else {
+                error_log("Failed to remove orphaned certificate {$certDir}: " . implode("\n", $rmOutput));
+            }
+        }
     }
     
     return $removed;
