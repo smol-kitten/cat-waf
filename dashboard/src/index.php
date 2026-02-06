@@ -46,7 +46,7 @@ try {
                 'status' => 'ok',
                 'timestamp' => time(),
                 'database' => $dbStatus,
-                'version' => '1.5.0'
+                'version' => '2.0.0'
             ]);
             break;
             
@@ -67,8 +67,8 @@ try {
             
             sendResponse([
                 'name' => 'CatWAF Dashboard API',
-                'version' => '1.5.0',
-                'completion' => '89%',
+                'version' => '2.0.0',
+                'completion' => '95%',
                 'tagline' => 'Purr-tecting your sites since 2025',
                 'features' => [
                     'sites_management' => true,
@@ -77,10 +77,13 @@ try {
                     'bot_protection' => true,
                     'rate_limiting' => true,
                     'ban_management' => true,
-                    'telemetry' => true,
+                    'insights_portal' => true,
+                    'alert_rules' => true,
+                    'webhook_notifications' => true,
                     'geoip_lookup' => true,
                     'access_logs' => true,
                     'security_events' => true,
+                    'zerossl_support' => true,
                     'user_management' => false,
                 ],
                 'stats' => [
@@ -244,6 +247,16 @@ try {
         case 'security-checks':
             require_once 'endpoints/security-checks.php';
             handleSecurityChecks($method, array_slice($uri, 1), $db);
+            break;
+            
+        case 'alerts':
+            require_once 'endpoints/alerts.php';
+            handleAlerts($method, array_slice($uri, 1), $db);
+            break;
+            
+        case 'insights':
+            require_once 'endpoints/insights.php';
+            handleInsights($method, array_slice($uri, 1), $db);
             break;
 
         default:

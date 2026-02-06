@@ -32,10 +32,9 @@
                     <span class="nav-icon">✏️</span>
                     <span class="nav-text">Edit Site</span>
                 </a>
-                <a href="#" class="nav-item" data-page="bans">
-                    <span class="nav-icon">🚫</span>
-                    <span class="nav-text">Bans</span>
-                </a>
+                
+                <!-- Security Section -->
+                <div class="nav-section-title">Security</div>
                 <a href="#" class="nav-item" data-page="security">
                     <span class="nav-icon">🛡️</span>
                     <span class="nav-text">Security Events</span>
@@ -52,23 +51,28 @@
                     <span class="nav-icon">🤖</span>
                     <span class="nav-text">Bot Protection</span>
                 </a>
-                <a href="#" class="nav-item" data-page="bot-whitelist">
-                    <span class="nav-icon">🎯</span>
-                    <span class="nav-text">Bot Whitelist</span>
+                <a href="#" class="nav-item" data-page="bans">
+                    <span class="nav-icon">🚫</span>
+                    <span class="nav-text">IP Bans</span>
                 </a>
-                <a href="#" class="nav-item" data-page="telemetry">
-                    <span class="nav-icon">⚡</span>
-                    <span class="nav-text">Performance</span>
+                
+                <!-- Monitoring Section -->
+                <div class="nav-section-title">Monitoring</div>
+                <a href="#" class="nav-item" data-page="insights">
+                    <span class="nav-icon">💡</span>
+                    <span class="nav-text">Insights</span>
                 </a>
-                <a href="#" class="nav-item" data-page="rsl">
-                    <span class="nav-icon">🔐</span>
-                    <span class="nav-text">RSL Licensing</span>
+                <a href="#" class="nav-item" data-page="alerts">
+                    <span class="nav-icon">🔔</span>
+                    <span class="nav-text">Alerts</span>
                 </a>
-
                 <a href="#" class="nav-item" data-page="logs">
                     <span class="nav-icon">📝</span>
                     <span class="nav-text">Logs</span>
                 </a>
+                
+                <!-- System Section -->
+                <div class="nav-section-title">System</div>
                 <a href="#" class="nav-item" data-page="settings">
                     <span class="nav-icon">⚙️</span>
                     <span class="nav-text">Settings</span>
@@ -79,7 +83,7 @@
                 <div class="cat-status">
                     <div class="cat-text">All systems purring!</div>
                     <div class="version-text" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; text-align: center;">
-                        v1.5.0 | Nya~
+                        v2.0.0 | Nya~
                     </div>
                 </div>
             </div>
@@ -693,7 +697,7 @@
                     <div class="tabs">
                         <button class="tab active" data-tab="waf-settings">⚙️ WAF Config</button>
                         <button class="tab" data-tab="telemetry-settings">📊 Telemetry</button>
-                        <button class="tab" data-tab="email-settings">📧 Email</button>
+                        <button class="tab" data-tab="notifications-settings">🔔 Notifications</button>
                         <button class="tab" data-tab="ssl-settings">🔐 SSL/TLS</button>
                         <button class="tab" data-tab="block-rules">🚫 Block Rules</button>
                         <button class="tab" data-tab="wellknown-settings">🌐 Well-Known Files</button>
@@ -890,7 +894,115 @@
                         </div>
                     </div>
                     
-                    <!-- Email Settings Tab -->
+                    <!-- Notifications Settings Tab -->
+                    <div class="tab-content" id="notifications-settings">
+                        <div class="settings-card">
+                            <h3>🔔 Notification Configuration</h3>
+                            <p style="color: var(--text-muted); margin-bottom: 1.5rem;">
+                                Configure how you receive alerts for critical events. Supports both email and webhooks (Discord, Slack, etc.)
+                            </p>
+
+                            <!-- Email Notifications -->
+                            <div style="border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.5rem; margin-bottom: 1.5rem;">
+                                <h4 style="margin-bottom: 1rem;">📧 Email Notifications</h4>
+                                <div class="setting-item">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="setting-email_enabled" onchange="toggleEmailOptions()">
+                                        <span>Enable Email Alerts</span>
+                                    </label>
+                                </div>
+                                <div id="emailOptions" style="opacity: 0.5; pointer-events: none;">
+                                    <div class="setting-item">
+                                        <label>SMTP Server</label>
+                                        <input type="text" id="setting-email_smtp_host" class="setting-input" placeholder="smtp.gmail.com">
+                                    </div>
+                                    <div class="setting-item">
+                                        <label>SMTP Port</label>
+                                        <input type="number" id="setting-email_smtp_port" class="setting-input" placeholder="587" value="587">
+                                    </div>
+                                    <div class="setting-item">
+                                        <label>SMTP Username</label>
+                                        <input type="text" id="setting-email_smtp_user" class="setting-input" placeholder="alerts@example.com">
+                                    </div>
+                                    <div class="setting-item">
+                                        <label>SMTP Password</label>
+                                        <input type="password" id="setting-email_smtp_pass" class="setting-input">
+                                    </div>
+                                    <div class="setting-item">
+                                        <label>From Address</label>
+                                        <input type="email" id="setting-email_from" class="setting-input" placeholder="waf@catboy.systems" value="waf@catboy.systems">
+                                    </div>
+                                    <div class="setting-item">
+                                        <label>To Address(es)</label>
+                                        <input type="text" id="setting-email_to" class="setting-input" placeholder="admin@example.com">
+                                        <small style="color: var(--text-muted); margin-top: 0.5rem; display: block;">Comma-separated for multiple recipients</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Webhook Notifications -->
+                            <div style="border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.5rem; margin-bottom: 1.5rem;">
+                                <h4 style="margin-bottom: 1rem;">🌐 Webhook Notifications (Discord, Slack)</h4>
+                                <div class="setting-item">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="setting-webhook_enabled" onchange="toggleWebhookOptions()">
+                                        <span>Enable Webhook Alerts</span>
+                                    </label>
+                                </div>
+                                <div id="webhookOptions" style="opacity: 0.5; pointer-events: none;">
+                                    <div class="setting-item">
+                                        <label>Discord Webhook URL</label>
+                                        <input type="url" id="setting-discord_webhook_url" class="setting-input" placeholder="https://discord.com/api/webhooks/...">
+                                        <small style="color: var(--text-muted); margin-top: 0.5rem; display: block;">
+                                            Create webhook in Discord: Server Settings → Integrations → Webhooks
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Notification Types -->
+                            <div style="border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.5rem;">
+                                <h4 style="margin-bottom: 1rem;">📋 Alert Types</h4>
+                                <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 1rem;">
+                                    Select which events should trigger notifications
+                                </p>
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="setting-notifications_critical" checked>
+                                        <span>Critical Security Events</span>
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="setting-notifications_autoban" checked>
+                                        <span>IP Auto-Bans</span>
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="setting-notifications_cert_expiry" checked>
+                                        <span>Certificate Expiring Soon</span>
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="setting-notifications_server_down" checked>
+                                        <span>Backend Server Down</span>
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="setting-notifications_high_delay" checked>
+                                        <span>High Response Time</span>
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="setting-notifications_rate_limit">
+                                        <span>Rate Limit Breaches</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <button class="btn-primary" onclick="saveNotificationSettings()" style="margin-top: 1.5rem;">
+                                Save Notification Settings
+                            </button>
+                            <button class="btn-secondary" onclick="testNotifications()" style="margin-top: 1.5rem; margin-left: 1rem;">
+                                🧪 Test Notifications
+                            </button>
+                        </div>
+                    </div>
+                    
                     <div class="tab-content" id="email-settings">
                         <div class="settings-card">
                             <h3>📧 Email Notifications</h3>
@@ -1820,6 +1932,255 @@ Sitemap: https://example.com/sitemap.xml"></textarea>
                                 </thead>
                                 <tbody id="recentRequestsBody">
                                     <tr><td colspan="6" style="text-align: center; color: #9ca3af;">Select a site to view recent requests</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Insights Page -->
+                <div class="page" id="insights-page">
+                    <div class="page-header">
+                        <h2>💡 Insights Portal</h2>
+                        <p style="color: var(--text-muted); margin-top: 0.5rem;">Modern analytics with basic and extended metrics</p>
+                    </div>
+
+                    <!-- Insights Configuration -->
+                    <div class="chart-card" style="margin-bottom: 20px;">
+                        <div class="chart-header">
+                            <h3>⚙️ Configuration</h3>
+                        </div>
+                        <div style="padding: 20px;">
+                            <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 15px;">
+                                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                    <input type="checkbox" id="insightsEnabled" onchange="updateInsightsConfig()" checked>
+                                    <span>Enable Insights Collection</span>
+                                </label>
+                            </div>
+                            <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 15px;">
+                                <label style="font-weight: 600;">Insight Level:</label>
+                                <select id="insightsLevel" onchange="updateInsightsConfig()" class="time-range">
+                                    <option value="basic" selected>Basic (Request counts, response times)</option>
+                                    <option value="extended">Extended (Web Vitals: LCP, FCP, TTFB)</option>
+                                </select>
+                            </div>
+                            <div id="extendedOptions" style="display: none; padding: 15px; background: var(--bg-tertiary); border-radius: var(--radius-md); margin-top: 15px;">
+                                <p style="color: var(--text-muted); margin-bottom: 10px;">
+                                    Extended insights collect Core Web Vitals metrics including LCP (Largest Contentful Paint), 
+                                    FCP (First Contentful Paint), and TTFB (Time to First Byte). This provides deeper performance insights 
+                                    but requires JavaScript integration on your sites.
+                                </p>
+                                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                    <input type="checkbox" id="collectWebVitals" onchange="updateInsightsConfig()">
+                                    <span>Collect Web Vitals (LCP, FCP, TTFB, CLS, FID)</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Basic Insights -->
+                    <div class="stats-grid" style="margin-bottom: 30px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">📊</span>
+                                <span class="stat-label">Total Requests</span>
+                            </div>
+                            <div class="stat-value" id="insightsTotalRequests">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">👥</span>
+                                <span class="stat-label">Unique Visitors</span>
+                            </div>
+                            <div class="stat-value" id="insightsUniqueVisitors">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">⚡</span>
+                                <span class="stat-label">Avg Response Time</span>
+                            </div>
+                            <div class="stat-value" id="insightsAvgResponseTime">0ms</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">✅</span>
+                                <span class="stat-label">Success Rate</span>
+                            </div>
+                            <div class="stat-value" id="insightsSuccessRate">0%</div>
+                        </div>
+                    </div>
+
+                    <!-- Status Code Distribution -->
+                    <div class="chart-card" style="margin-bottom: 20px;">
+                        <div class="chart-header">
+                            <h3>HTTP Status Codes</h3>
+                            <select class="time-range" id="insightsTimeRange" onchange="loadInsightsData()">
+                                <option value="1h">Last Hour</option>
+                                <option value="24h" selected>Last 24 Hours</option>
+                                <option value="7d">Last 7 Days</option>
+                                <option value="30d">Last 30 Days</option>
+                            </select>
+                        </div>
+                        <div id="insightsStatusCodes" class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Status Range</th>
+                                        <th>Count</th>
+                                        <th>Percentage</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="insightsStatusCodesBody">
+                                    <tr><td colspan="3" style="text-align: center;">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Top Paths -->
+                    <div class="chart-card" style="margin-bottom: 20px;">
+                        <div class="chart-header">
+                            <h3>🔥 Top Accessed Paths</h3>
+                        </div>
+                        <div id="insightsTopPaths" class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Path</th>
+                                        <th>Requests</th>
+                                        <th>Avg Response Time</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="insightsTopPathsBody">
+                                    <tr><td colspan="3" style="text-align: center;">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Extended Insights (Web Vitals) -->
+                    <div id="extendedInsightsSection" style="display: none;">
+                        <div class="chart-card" style="margin-bottom: 20px;">
+                            <div class="chart-header">
+                                <h3>🚀 Core Web Vitals</h3>
+                                <p style="color: var(--text-muted); font-size: 0.875rem; margin: 0;">Performance metrics from real user experiences</p>
+                            </div>
+                            <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); padding: 20px;">
+                                <div class="stat-card">
+                                    <div class="stat-header">
+                                        <span class="stat-label">LCP (Largest Contentful Paint)</span>
+                                    </div>
+                                    <div class="stat-value" id="insightsLCP">0ms</div>
+                                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;" id="insightsLCPStatus">Good: < 2.5s</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-header">
+                                        <span class="stat-label">FCP (First Contentful Paint)</span>
+                                    </div>
+                                    <div class="stat-value" id="insightsFCP">0ms</div>
+                                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Good: < 1.8s</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-header">
+                                        <span class="stat-label">TTFB (Time to First Byte)</span>
+                                    </div>
+                                    <div class="stat-value" id="insightsTTFB">0ms</div>
+                                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Good: < 800ms</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-header">
+                                        <span class="stat-label">CLS (Cumulative Layout Shift)</span>
+                                    </div>
+                                    <div class="stat-value" id="insightsCLS">0</div>
+                                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Good: < 0.1</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Slowest Pages by LCP -->
+                        <div class="chart-card" style="margin-bottom: 20px;">
+                            <div class="chart-header">
+                                <h3>🐌 Slowest Pages (by LCP)</h3>
+                            </div>
+                            <div id="insightsSlowestPages" class="table-container">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Domain</th>
+                                            <th>Path</th>
+                                            <th>Avg LCP</th>
+                                            <th>Samples</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="insightsSlowestPagesBody">
+                                        <tr><td colspan="4" style="text-align: center;">Loading...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Alerts Page -->
+                <div class="page" id="alerts-page">
+                    <div class="page-header">
+                        <h2>🔔 Alert Rules</h2>
+                        <p style="color: var(--text-muted); margin-top: 0.5rem;">Configure automated alerts for critical events</p>
+                    </div>
+
+                    <div style="display: flex; gap: 15px; margin-bottom: 20px;">
+                        <button class="btn-primary" onclick="showAddAlertModal()">
+                            <span>➕</span>
+                            <span>Add Alert Rule</span>
+                        </button>
+                    </div>
+
+                    <!-- Alert Rules List -->
+                    <div class="chart-card" style="margin-bottom: 20px;">
+                        <div class="chart-header">
+                            <h3>⚙️ Configured Alerts</h3>
+                        </div>
+                        <div id="alertRulesList" class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Rule Name</th>
+                                        <th>Type</th>
+                                        <th>Status</th>
+                                        <th>Configuration</th>
+                                        <th>Site</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="alertRulesBody">
+                                    <tr><td colspan="6" style="text-align: center;">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Alert History -->
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3>📜 Alert History</h3>
+                            <div style="display: flex; gap: 10px;">
+                                <button class="btn-secondary" onclick="loadAlertHistory()">🔄 Refresh</button>
+                            </div>
+                        </div>
+                        <div id="alertHistory" class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Time</th>
+                                        <th>Rule</th>
+                                        <th>Type</th>
+                                        <th>Details</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="alertHistoryBody">
+                                    <tr><td colspan="6" style="text-align: center;">Loading...</td></tr>
                                 </tbody>
                             </table>
                         </div>
