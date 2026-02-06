@@ -27,8 +27,10 @@ CREATE TABLE IF NOT EXISTS `path_routes` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Add max body size settings to sites table
-ALTER TABLE `sites` ADD COLUMN IF NOT EXISTS `max_body_size` varchar(20) DEFAULT '100M' COMMENT 'Maximum request body size (e.g., 10M, 100M, 1G)';
-ALTER TABLE `sites` ADD COLUMN IF NOT EXISTS `max_body_size_enabled` tinyint(1) DEFAULT 1 COMMENT 'Enable max body size limit';
+-- Check if columns don't exist before adding them
+ALTER TABLE `sites` 
+ADD COLUMN IF NOT EXISTS `max_body_size` varchar(20) DEFAULT '100M' COMMENT 'Maximum request body size (e.g., 10M, 100M, 1G)',
+ADD COLUMN IF NOT EXISTS `max_body_size_enabled` tinyint(1) DEFAULT 1 COMMENT 'Enable max body size limit';
 
 -- Add path-based max body size to path_routes
 ALTER TABLE `path_routes` ADD COLUMN IF NOT EXISTS `max_body_size` varchar(20) DEFAULT NULL COMMENT 'Override max body size for this path';

@@ -309,7 +309,10 @@ function checkModSecurityStatus() {
 }
 
 function checkFail2banStatus() {
-    exec('docker exec cat-waf-nginx-1 sh -c "command -v fail2ban-client" 2>&1', $output, $returnVar);
+    // Try to detect the NGINX container name dynamically
+    $nginxContainer = getenv('NGINX_CONTAINER_NAME') ?: 'cat-waf-nginx-1';
+    
+    exec("docker exec {$nginxContainer} sh -c \"command -v fail2ban-client\" 2>&1", $output, $returnVar);
     
     if ($returnVar === 0) {
         return ['healthy', 'Fail2ban available', []];

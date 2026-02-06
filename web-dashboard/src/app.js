@@ -1299,6 +1299,8 @@ async function loadSecuritySummary() {
 }
 
 // Security Checks Center
+const SECURITY_CHECK_RELOAD_DELAY = 1500; // milliseconds to wait before reloading checks
+
 async function loadSecurityChecks() {
     try {
         const response = await apiRequest('/security-checks');
@@ -1365,7 +1367,7 @@ async function runSecurityCheck(checkId) {
         showToast('Security check completed', 'success');
         
         // Reload checks after a short delay to get updated results
-        setTimeout(() => loadSecurityChecks(), 1000);
+        setTimeout(() => loadSecurityChecks(), SECURITY_CHECK_RELOAD_DELAY);
     } catch (error) {
         console.error('Error running security check:', error);
         showToast('Failed to run security check', 'error');
@@ -1379,7 +1381,7 @@ async function runAllSecurityChecks() {
         showToast('All security checks completed', 'success');
         
         // Reload checks after a short delay to get updated results
-        setTimeout(() => loadSecurityChecks(), 2000);
+        setTimeout(() => loadSecurityChecks(), SECURITY_CHECK_RELOAD_DELAY * 2); // Longer delay for all checks
     } catch (error) {
         console.error('Error running all security checks:', error);
         showToast('Failed to run security checks', 'error');

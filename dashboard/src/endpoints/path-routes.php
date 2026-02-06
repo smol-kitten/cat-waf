@@ -68,10 +68,27 @@ function handlePathRoutes($method, $params, $db) {
                 sendResponse(['error' => 'Path must start with /'], 400);
             }
             
-            // Validate backend URL format
+            // Validate backend URL format (hostname:port or IP:port)
             $backend = preg_replace('#^https?://#', '', $data['backend_url']);
-            if (!preg_match('/^[a-zA-Z0-9.-]+:[0-9]+$/', $backend) && !preg_match('/^[0-9.]+:[0-9]+$/', $backend)) {
-                sendResponse(['error' => 'Invalid backend URL format. Use: hostname:port or IP:port'], 400);
+            
+            // More strict validation for hostname:port or IP:port
+            $parts = explode(':', $backend);
+            if (count($parts) !== 2) {
+                sendResponse(['error' => 'Invalid backend URL format. Must be hostname:port or IP:port'], 400);
+            }
+            
+            $host = $parts[0];
+            $port = $parts[1];
+            
+            // Validate port is numeric and in valid range
+            if (!is_numeric($port) || $port < 1 || $port > 65535) {
+                sendResponse(['error' => 'Invalid port number. Must be 1-65535'], 400);
+            }
+            
+            // Validate hostname (alphanumeric, dots, hyphens) or IP address
+            if (!preg_match('/^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$/', $host) && 
+                !filter_var($host, FILTER_VALIDATE_IP)) {
+                sendResponse(['error' => 'Invalid hostname or IP address'], 400);
             }
             
             $stmt = $db->prepare("

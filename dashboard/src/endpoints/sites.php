@@ -894,7 +894,7 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
         if ($max_body_size_enabled) {
             $config .= "    client_max_body_size {$max_body_size};\n";
         } else {
-            $config .= "    client_max_body_size 256M;\n"; // Default fallback
+            $config .= "    client_max_body_size 100M;\n"; // Default consistent with DB
         }
         $config .= "    client_body_buffer_size 128k;\n\n";
         
@@ -1799,7 +1799,11 @@ function generatePathBasedRouting($siteId, $db, $enable_waf_headers = true, $ena
             $headers = json_decode($custom_headers, true);
             if (is_array($headers)) {
                 foreach ($headers as $header => $value) {
-                    $config .= "        add_header " . escapeshellarg($header) . " " . escapeshellarg($value) . " always;\n";
+                    // Sanitize header name and value for NGINX
+                    $header_safe = preg_replace('/[^a-zA-Z0-9_-]/', '', $header);
+                    // Escape quotes and backslashes in value
+                    $value_safe = str_replace(['"', '\\'], ['\"', '\\\\'], $value);
+                    $config .= "        add_header \"{$header_safe}\" \"{$value_safe}\" always;\n";
                 }
             }
         }
