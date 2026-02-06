@@ -235,6 +235,16 @@ try {
             require_once 'endpoints/cat-waf-tools.php';
             handleCatWafTools($method, array_slice($uri, 1), $db);
             break;
+            
+        case 'path-routes':
+            require_once 'endpoints/path-routes.php';
+            handlePathRoutes($method, array_slice($uri, 1), $db);
+            break;
+            
+        case 'security-checks':
+            require_once 'endpoints/security-checks.php';
+            handleSecurityChecks($method, array_slice($uri, 1), $db);
+            break;
 
         default:
             http_response_code(404);

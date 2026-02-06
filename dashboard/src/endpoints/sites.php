@@ -264,7 +264,8 @@ function handleSites($method, $params, $db) {
                 'custom_error_pages_enabled', 'custom_403_html', 'custom_404_html', 'custom_429_html',
                 'custom_500_html', 'custom_502_html', 'custom_503_html',
                 'robots_txt', 'security_txt', 'humans_txt', 'ads_txt', 'wellknown_enabled',
-                'enable_rsl', 'rsl_inject_olp', 'rsl_license_id'
+                'enable_rsl', 'rsl_inject_olp', 'rsl_license_id',
+                'max_body_size', 'max_body_size_enabled'
             ];
             
             foreach ($updatableFields as $field) {
@@ -714,6 +715,8 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
     // Add RSL/OLP location blocks to HTTP (for non-SSL or when redirect disabled)
     if (!$ssl_enabled || $disable_http_redirect) {
         $config .= generateRSLLocation($siteData);
+        // Add path-based routing for HTTP
+        $config .= generatePathBasedRouting($siteId, $db, $enable_waf_headers, $enable_telemetry);
     }
     
     if ($ssl_enabled) {
@@ -886,7 +889,13 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
         
         // Client body size (support for large file uploads like Bitwarden attachments)
         $config .= "    # Client settings\n";
-        $config .= "    client_max_body_size 256M;\n";
+        $max_body_size = $siteData['max_body_size'] ?? '100M';
+        $max_body_size_enabled = $siteData['max_body_size_enabled'] ?? 1;
+        if ($max_body_size_enabled) {
+            $config .= "    client_max_body_size {$max_body_size};\n";
+        } else {
+            $config .= "    client_max_body_size 100M;\n"; // Default consistent with DB
+        }
         $config .= "    client_body_buffer_size 128k;\n\n";
         
         // Compression
@@ -913,6 +922,9 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
         
         // Add RSL/OLP location blocks if enabled for this site
         $config .= generateRSLLocation($siteData);
+        
+        // Add path-based routing location blocks (sub-page routing)
+        $config .= generatePathBasedRouting($siteId, $db, $enable_waf_headers, $enable_telemetry);
         
         $config .= generateLocationBlock($upstream_name, $domain, $modsec_enabled, $geoip_enabled,
                                            $blocked_countries, $rate_limit_zone, $custom_config,
@@ -1706,6 +1718,131 @@ function generateCustomErrorPages($siteData) {
         $config .= "    location ^~ /errors/ {\n";
         $config .= "        alias /usr/share/nginx/error-pages/;\n";
         $config .= "        internal;\n";
+        $config .= "    }\n\n";
+    }
+    
+    return $config;
+}
+
+/**
+ * Generate path-based routing location blocks for sub-page routing
+ * Enables routing different paths to different backend servers
+ */
+function generatePathBasedRouting($siteId, $db, $enable_waf_headers = true, $enable_telemetry = true) {
+    $config = "";
+    
+    // Fetch path routes for this site, ordered by priority (higher first) then by path length (longer/more specific first)
+    $stmt = $db->prepare("
+        SELECT * FROM path_routes 
+        WHERE site_id = ? AND enabled = 1 
+        ORDER BY priority DESC, CHAR_LENGTH(path) DESC
+    ");
+    $stmt->execute([$siteId]);
+    $routes = $stmt->fetchAll();
+    
+    if (empty($routes)) {
+        return $config;
+    }
+    
+    $config .= "    # Path-based routing (sub-page routing)\n";
+    
+    foreach ($routes as $route) {
+        $path = $route['path'];
+        $backend_url = $route['backend_url'];
+        $backend_protocol = $route['backend_protocol'] ?? 'http';
+        $strip_path = $route['strip_path'] ?? 0;
+        $enable_modsecurity = $route['enable_modsecurity'] ?? 1;
+        $enable_rate_limit = $route['enable_rate_limit'] ?? 1;
+        $custom_rate_limit = $route['custom_rate_limit'] ?? null;
+        $rate_limit_burst = $route['rate_limit_burst'] ?? 20;
+        $custom_headers = $route['custom_headers'] ?? '';
+        $custom_config = $route['custom_config'] ?? '';
+        $max_body_size = $route['max_body_size'] ?? null;
+        
+        // Strip http:// or https:// from backend URL
+        $backend = preg_replace('#^https?://#', '', $backend_url);
+        $backend = rtrim($backend, '/');
+        
+        // Create unique upstream name for this path
+        $route_id = $route['id'];
+        $upstream_name = "path_route_{$route_id}_backend";
+        
+        // Generate location block
+        $config .= "    location {$path} {\n";
+        
+        // ModSecurity
+        if ($enable_modsecurity) {
+            $config .= "        modsecurity on;\n";
+            $config .= "        modsecurity_rules_file /etc/nginx/modsec/main.conf;\n";
+        } else {
+            $config .= "        modsecurity off;\n";
+        }
+        
+        // Rate limiting
+        if ($enable_rate_limit) {
+            if ($custom_rate_limit) {
+                $config .= "        limit_req_zone \$binary_remote_addr zone=path_{$route_id}:10m rate={$custom_rate_limit}r/s;\n";
+                $config .= "        limit_req zone=path_{$route_id} burst={$rate_limit_burst} nodelay;\n";
+            } else {
+                $config .= "        limit_req zone=general burst={$rate_limit_burst} nodelay;\n";
+            }
+            $config .= "        limit_conn addr 10;\n";
+        }
+        
+        // Max body size
+        if ($max_body_size) {
+            $config .= "        client_max_body_size {$max_body_size};\n";
+        }
+        
+        // Custom headers
+        if (!empty($custom_headers)) {
+            $headers = json_decode($custom_headers, true);
+            if (is_array($headers)) {
+                foreach ($headers as $header => $value) {
+                    // Sanitize header name and value for NGINX
+                    $header_safe = preg_replace('/[^a-zA-Z0-9_-]/', '', $header);
+                    // Escape quotes and backslashes in value
+                    $value_safe = str_replace(['"', '\\'], ['\"', '\\\\'], $value);
+                    $config .= "        add_header \"{$header_safe}\" \"{$value_safe}\" always;\n";
+                }
+            }
+        }
+        
+        // Proxy settings
+        $proxy_protocol = ($backend_protocol === 'https') ? 'https' : 'http';
+        $proxy_url = "{$proxy_protocol}://{$backend}";
+        
+        if ($strip_path) {
+            // Strip the path prefix when proxying
+            $config .= "        rewrite ^{$path}(/.*)? \$1 break;\n";
+        }
+        
+        $config .= "        proxy_pass {$proxy_url};\n";
+        $config .= "        proxy_http_version 1.1;\n";
+        $config .= "        proxy_set_header Host \$host;\n";
+        $config .= "        proxy_set_header X-Real-IP \$remote_addr;\n";
+        $config .= "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;\n";
+        $config .= "        proxy_set_header X-Forwarded-Proto \$scheme;\n";
+        $config .= "        proxy_set_header X-Forwarded-Host \$server_name;\n";
+        
+        // WAF headers
+        if ($enable_waf_headers) {
+            $config .= "        add_header X-WAF-Status \"protected\" always;\n";
+            $config .= "        add_header X-Content-Type-Options \"nosniff\" always;\n";
+            $config .= "        add_header X-Frame-Options \"SAMEORIGIN\" always;\n";
+        }
+        
+        // Telemetry
+        if ($enable_telemetry) {
+            $config .= "        add_header X-Response-Time \$request_time always;\n";
+        }
+        
+        // Custom NGINX config for this path
+        if (!empty($custom_config)) {
+            $config .= "        # Custom configuration\n";
+            $config .= "        " . str_replace("\n", "\n        ", trim($custom_config)) . "\n";
+        }
+        
         $config .= "    }\n\n";
     }
     
