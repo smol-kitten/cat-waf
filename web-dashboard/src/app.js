@@ -3712,6 +3712,9 @@ function loadEditorTab(tab) {
         case 'backends':
             html = renderBackendsTab();
             break;
+        case 'path-routing':
+            html = renderPathRoutingTab();
+            break;
         case 'ssl':
             html = renderSSLTab();
             break;
@@ -3757,6 +3760,11 @@ function loadEditorTab(tab) {
     // Load well-known files for wellknown tab
     if (tab === 'wellknown') {
         loadWellKnownFiles();
+    }
+    
+    // Load path routes for path-routing tab
+    if (tab === 'path-routing') {
+        loadPathRoutes();
     }
 }
 
@@ -3986,6 +3994,49 @@ function renderBackendsTab() {
                         <input type="text" id="edit_health_check_path" class="form-input" placeholder="/health">
                     </div>
                 </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderPathRoutingTab() {
+    const data = currentSiteData;
+    return `
+        <div class="editor-panel">
+            <h3>🔀 Path-Based Routing</h3>
+            <p style="color: var(--text-muted); margin-bottom: 1.5rem;">
+                Configure different backend servers for specific URL paths. This allows routing /api to one backend and /static to another.
+            </p>
+            
+            <div id="pathRoutesContainer" style="margin-bottom: 1.5rem;">
+                <p style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                    Loading path routes...
+                </p>
+            </div>
+            
+            <button onclick="showAddPathRouteModal()" class="btn btn-primary">
+                <span>➕</span>
+                <span>Add Path Route</span>
+            </button>
+        </div>
+        
+        <div class="editor-panel">
+            <h3>ℹ️ Path Routing Information</h3>
+            <div style="padding: 1rem; background: var(--bg-tertiary); border-radius: var(--radius-md);">
+                <p style="margin: 0 0 1rem 0;"><strong>How it works:</strong></p>
+                <ul style="margin: 0; padding-left: 1.5rem; color: var(--text-muted);">
+                    <li>Routes are evaluated in priority order (highest first)</li>
+                    <li>Path matching supports exact matches and wildcards</li>
+                    <li>Each path can have its own backend, security settings, and rate limits</li>
+                    <li>Requests that don't match any path route use the default backend</li>
+                </ul>
+                
+                <p style="margin: 1.5rem 0 0.5rem 0;"><strong>Example use cases:</strong></p>
+                <ul style="margin: 0; padding-left: 1.5rem; color: var(--text-muted);">
+                    <li><code>/api/*</code> → API backend server</li>
+                    <li><code>/static/*</code> → Static file server</li>
+                    <li><code>/admin/*</code> → Admin backend with enhanced security</li>
+                </ul>
             </div>
         </div>
     `;
@@ -6802,6 +6853,129 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ============================================================
+// PATH ROUTING MANAGEMENT  
+// ============================================================
+
+// Load path routes for current site
+async function loadPathRoutes() {
+    if (!currentSiteData?.id) {
+        console.error('No site selected for path routes');
+        return;
+    }
+    
+    const container = document.getElementById('pathRoutesContainer');
+    if (!container) return;
+    
+    try {
+        const data = await apiRequest(`/path-routes/site/${currentSiteData.id}`);
+        const routes = data?.routes || [];
+        
+        if (routes.length === 0) {
+            container.innerHTML = `
+                <div style="text-align: center; padding: 2rem; background: var(--bg-tertiary); border-radius: var(--radius-md);">
+                    <p style="color: var(--text-muted); margin: 0;">No path routes configured for this site.</p>
+                    <p style="color: var(--text-muted); margin: 0.5rem 0 0 0; font-size: 0.9rem;">Click "Add Path Route" to create your first route.</p>
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = `
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Enabled</th>
+                        <th>Path</th>
+                        <th>Backend</th>
+                        <th>Protocol</th>
+                        <th>Priority</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${routes.map(route => `
+                        <tr>
+                            <td style="text-align: center;">
+                                <label class="toggle" style="margin: 0;">
+                                    <input type="checkbox" ${route.enabled ? 'checked' : ''} 
+                                           onchange="togglePathRoute(${route.id}, this.checked)">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </td>
+                            <td><code>${escapeHtml(route.path)}</code></td>
+                            <td><code>${escapeHtml(route.backend_url)}</code></td>
+                            <td><span style="text-transform: uppercase;">${escapeHtml(route.backend_protocol || 'http')}</span></td>
+                            <td style="text-align: center;">${route.priority || 0}</td>
+                            <td>
+                                <button class="btn-icon" onclick="editPathRoute(${route.id})" title="Edit">✏️</button>
+                                <button class="btn-icon btn-danger" onclick="deletePathRoute(${route.id})" title="Delete">🗑️</button>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+        
+    } catch (error) {
+        console.error('Error loading path routes:', error);
+        container.innerHTML = `
+            <div style="text-align: center; padding: 2rem; background: var(--bg-tertiary); border-radius: var(--radius-md);">
+                <p style="color: var(--danger); margin: 0;">Failed to load path routes</p>
+                <p style="color: var(--text-muted); margin: 0.5rem 0 0 0; font-size: 0.9rem;">${escapeHtml(error.message)}</p>
+            </div>
+        `;
+    }
+}
+
+// Toggle path route enabled/disabled
+async function togglePathRoute(id, enabled) {
+    try {
+        await apiRequest(`/path-routes/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify({ enabled: enabled ? 1 : 0 })
+        });
+        showToast(`Path route ${enabled ? 'enabled' : 'disabled'}`, 'success');
+    } catch (error) {
+        console.error('Error toggling path route:', error);
+        showToast('Failed to toggle path route', 'error');
+        loadPathRoutes(); // Reload to revert checkbox
+    }
+}
+
+// Delete path route
+async function deletePathRoute(id) {
+    if (!confirm('Delete this path route?')) return;
+    
+    try {
+        await apiRequest(`/path-routes/${id}`, { method: 'DELETE' });
+        showToast('Path route deleted', 'success');
+        loadPathRoutes(); // Reload list
+    } catch (error) {
+        console.error('Error deleting path route:', error);
+        showToast('Failed to delete path route', 'error');
+    }
+}
+
+// Edit path route (placeholder for future implementation)
+function editPathRoute(id) {
+    showToast('Edit path route feature coming soon', 'info');
+    console.log('Edit path route:', id);
+}
+
+// Show add path route modal (placeholder for future implementation)
+function showAddPathRouteModal() {
+    showToast('Add path route feature coming soon', 'info');
+    console.log('Add path route modal');
+}
+
+// Export functions
+window.loadPathRoutes = loadPathRoutes;
+window.togglePathRoute = togglePathRoute;
+window.deletePathRoute = deletePathRoute;
+window.editPathRoute = editPathRoute;
+window.showAddPathRouteModal = showAddPathRouteModal;
+
+// ============================================================
 // BOT WHITELIST MANAGEMENT
 // ============================================================
 
@@ -8535,6 +8709,12 @@ async function loadAlertRules() {
         
         const data = await response.json();
         const tbody = document.getElementById('alertRulesBody');
+        
+        if (!tbody) {
+            console.error('Alert rules tbody element not found');
+            return;
+        }
+        
         tbody.innerHTML = '';
         
         if (data.rules && data.rules.length > 0) {
@@ -8566,6 +8746,10 @@ async function loadAlertRules() {
         
     } catch (error) {
         console.error('Error loading alert rules:', error);
+        const tbody = document.getElementById('alertRulesBody');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--danger);">Failed to load alert rules. Check console for details.</td></tr>';
+        }
         showToast('Failed to load alert rules', 'error');
     }
 }
