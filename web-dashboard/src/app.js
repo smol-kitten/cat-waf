@@ -8697,3 +8697,104 @@ window.toggleAlertRule = toggleAlertRule;
 window.deleteAlertRule = deleteAlertRule;
 window.acknowledgeAlert = acknowledgeAlert;
 window.showAddAlertModal = showAddAlertModal;
+
+// ============================================================================
+// NOTIFICATION SETTINGS FUNCTIONS
+// ============================================================================
+
+function toggleEmailOptions() {
+    const enabled = document.getElementById('setting-email_enabled')?.checked;
+    const options = document.getElementById('emailOptions');
+    if (options) {
+        options.style.opacity = enabled ? '1' : '0.5';
+        options.style.pointerEvents = enabled ? 'auto' : 'none';
+    }
+}
+
+function toggleWebhookOptions() {
+    const enabled = document.getElementById('setting-webhook_enabled')?.checked;
+    const options = document.getElementById('webhookOptions');
+    if (options) {
+        options.style.opacity = enabled ? '1' : '0.5';
+        options.style.pointerEvents = enabled ? 'auto' : 'none';
+    }
+}
+
+async function saveNotificationSettings() {
+    try {
+        const settings = {
+            // Email settings
+            email_enabled: document.getElementById('setting-email_enabled')?.checked ? '1' : '0',
+            email_smtp_host: document.getElementById('setting-email_smtp_host')?.value || '',
+            email_smtp_port: document.getElementById('setting-email_smtp_port')?.value || '587',
+            email_smtp_user: document.getElementById('setting-email_smtp_user')?.value || '',
+            email_smtp_pass: document.getElementById('setting-email_smtp_pass')?.value || '',
+            email_from: document.getElementById('setting-email_from')?.value || 'waf@catboy.systems',
+            email_to: document.getElementById('setting-email_to')?.value || '',
+            
+            // Webhook settings
+            webhook_enabled: document.getElementById('setting-webhook_enabled')?.checked ? '1' : '0',
+            discord_webhook_url: document.getElementById('setting-discord_webhook_url')?.value || '',
+            
+            // Notification types
+            notifications_critical: document.getElementById('setting-notifications_critical')?.checked ? '1' : '0',
+            notifications_autoban: document.getElementById('setting-notifications_autoban')?.checked ? '1' : '0',
+            notifications_cert_expiry: document.getElementById('setting-notifications_cert_expiry')?.checked ? '1' : '0',
+            notifications_server_down: document.getElementById('setting-notifications_server_down')?.checked ? '1' : '0',
+            notifications_high_delay: document.getElementById('setting-notifications_high_delay')?.checked ? '1' : '0',
+            notifications_rate_limit: document.getElementById('setting-notifications_rate_limit')?.checked ? '1' : '0'
+        };
+        
+        const response = await fetch(`${API_BASE_URL}/settings`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${API_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(settings)
+        });
+        
+        if (!response.ok) throw new Error('Failed to save notification settings');
+        
+        showToast('Notification settings saved successfully', 'success');
+        
+    } catch (error) {
+        console.error('Error saving notification settings:', error);
+        showToast('Failed to save notification settings', 'error');
+    }
+}
+
+async function testNotifications() {
+    try {
+        showToast('Sending test notifications...', 'info');
+        
+        // Send test notification via API
+        const response = await fetch(`${API_BASE_URL}/notifications/test`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${API_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                message: 'Test notification from CatWAF Dashboard',
+                type: 'test'
+            })
+        });
+        
+        if (response.ok) {
+            showToast('Test notifications sent! Check your email/Discord.', 'success');
+        } else {
+            showToast('Test notifications sent (check configuration if not received)', 'warning');
+        }
+        
+    } catch (error) {
+        console.error('Error sending test notifications:', error);
+        showToast('Note: Test endpoint may not be implemented yet', 'info');
+    }
+}
+
+// Export functions
+window.toggleEmailOptions = toggleEmailOptions;
+window.toggleWebhookOptions = toggleWebhookOptions;
+window.saveNotificationSettings = saveNotificationSettings;
+window.testNotifications = testNotifications;
