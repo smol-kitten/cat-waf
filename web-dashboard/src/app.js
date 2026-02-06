@@ -1611,9 +1611,12 @@ async function loadSettings() {
         loadCertificateStatus();
         
         // Toggle ZeroSSL field visibility based on loaded setting
-        if (window.toggleZeroSSLField) {
-            setTimeout(() => window.toggleZeroSSLField(), 100);
-        }
+        // Use requestAnimationFrame to ensure DOM is ready
+        requestAnimationFrame(() => {
+            if (window.toggleZeroSSLField) {
+                window.toggleZeroSSLField();
+            }
+        });
         
         // Load custom block rules
         loadBlockRules();
@@ -1772,8 +1775,8 @@ window.saveAcmeSettings = async () => {
     // Add ZeroSSL API key if ZeroSSL is selected
     const zerosslApiKey = document.getElementById('setting-zerossl_api_key')?.value.trim();
     if (settings.acme_server === 'zerossl') {
-        if (!zerosslApiKey) {
-            showToast('Please enter ZeroSSL API key', 'error');
+        if (!zerosslApiKey || zerosslApiKey.length < 10) {
+            showToast('Please enter a valid ZeroSSL API key', 'error');
             return;
         }
         settings.zerossl_api_key = zerosslApiKey;
@@ -4090,8 +4093,8 @@ function renderSSLTab() {
             <div class="form-group">
                 <label>Certificate Provider</label>
                 <select id="edit_acme_provider" class="form-input" onchange="toggleACMEProvider()">
-                    <option value="letsencrypt" ${!data.acme_provider || data.acme_provider === 'letsencrypt' ? 'selected' : ''}>Let's Encrypt</option>
-                    <option value="zerossl" ${data.acme_provider === 'zerossl' ? 'selected' : ''}>ZeroSSL</option>
+                    <option value="letsencrypt" ${(!data.acme_provider || data.acme_provider === 'letsencrypt') ? 'selected' : ''}>Let's Encrypt</option>
+                    <option value="zerossl" ${(data.acme_provider === 'zerossl') ? 'selected' : ''}>ZeroSSL</option>
                 </select>
                 <small style="color: var(--text-muted);">Choose your preferred ACME certificate provider</small>
             </div>
