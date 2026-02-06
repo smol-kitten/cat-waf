@@ -49,6 +49,60 @@ else
     echo "✅ Snakeoil certificate already exists"
 fi
 
+# Sync certificates from ACME to nginx if needed
+echo "🔄 Checking certificate sync from ACME to nginx..."
+SYNC_COUNT=0
+# Check if acme container is running and accessible
+if docker ps 2>/dev/null | grep -q waf-acme; then
+    # Find all certificate directories in ACME volume
+    for acme_cert_dir in /acme.sh/*/; do
+        if [ -d "$acme_cert_dir" ]; then
+            domain=$(basename "$acme_cert_dir")
+            
+            # Skip special directories
+            if [ "$domain" = "ca" ] || [ "$domain" = "http.header" ]; then
+                continue
+            fi
+            
+            acme_cert="/acme.sh/$domain/fullchain.pem"
+            nginx_cert="/etc/nginx/certs/$domain/fullchain.pem"
+            
+            # Check if ACME cert exists and is valid
+            if [ -f "$acme_cert" ]; then
+                # Check if nginx cert is missing or different
+                if [ ! -f "$nginx_cert" ] || ! cmp -s "$acme_cert" "$nginx_cert"; then
+                    echo "  🔄 Syncing certificate for $domain from ACME..."
+                    mkdir -p "/etc/nginx/certs/$domain"
+                    
+                    # Check if ACME cert is about to expire (less than 30 days)
+                    expiry=$(openssl x509 -enddate -noout -in "$acme_cert" 2>/dev/null | cut -d= -f2)
+                    if [ -n "$expiry" ]; then
+                        expiry_epoch=$(date -d "$expiry" +%s 2>/dev/null || echo 0)
+                        now_epoch=$(date +%s)
+                        days_until_expiry=$(( ($expiry_epoch - $now_epoch) / 86400 ))
+                        
+                        if [ $days_until_expiry -gt 0 ] && [ $days_until_expiry -gt 30 ]; then
+                            # Certificate is valid and not expiring soon, sync it
+                            ln -sf "$acme_cert" "$nginx_cert"
+                            ln -sf "/acme.sh/$domain/key.pem" "/etc/nginx/certs/$domain/key.pem"
+                            SYNC_COUNT=$((SYNC_COUNT + 1))
+                            echo "    ✅ Synced $domain (valid for $days_until_expiry days)"
+                        else
+                            echo "    ⚠️  Certificate for $domain expires in $days_until_expiry days, skipping sync"
+                        fi
+                    fi
+                fi
+            fi
+        fi
+    done
+fi
+
+if [ $SYNC_COUNT -gt 0 ]; then
+    echo "  ✅ Synced $SYNC_COUNT certificate(s) from ACME"
+else
+    echo "  ✅ All certificates are in sync"
+fi
+
 # Function to fix broken certificate symlinks
 fix_broken_symlinks() {
     echo "🔍 Checking for broken certificate symlinks..."
