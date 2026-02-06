@@ -8519,6 +8519,7 @@ async function updateInsightsConfig() {
         showToast('Failed to update insights configuration', 'error');
     }
 }
+window.updateInsightsConfig = updateInsightsConfig;
 
 // ============================================================================
 // ALERTS FUNCTIONS
@@ -8710,6 +8711,7 @@ function toggleEmailOptions() {
         options.style.pointerEvents = enabled ? 'auto' : 'none';
     }
 }
+window.toggleEmailOptions = toggleEmailOptions;
 
 function toggleWebhookOptions() {
     const enabled = document.getElementById('setting-webhook_enabled')?.checked;
@@ -8719,6 +8721,7 @@ function toggleWebhookOptions() {
         options.style.pointerEvents = enabled ? 'auto' : 'none';
     }
 }
+window.toggleWebhookOptions = toggleWebhookOptions;
 
 async function saveNotificationSettings() {
     try {
