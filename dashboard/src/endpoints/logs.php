@@ -8,6 +8,7 @@ function handleLogs($method, $params, $db) {
     $type = $params[0] ?? 'access';
     $limit = min((int)($_GET['limit'] ?? 100), 1000);
     $offset = (int)($_GET['offset'] ?? 0);
+    $domain = $_GET['domain'] ?? null;
     
     switch ($type) {
         case 'access':
@@ -15,6 +16,23 @@ function handleLogs($method, $params, $db) {
             $logFile = NGINX_LOG_PATH . '/access.log';
             $lines = tailLog($logFile, $limit);
             $parsed = array_map('parseAccessLog', array_filter($lines));
+            
+            // Filter by domain if specified
+            if ($domain) {
+                $parsed = array_filter($parsed, function($log) use ($domain) {
+                    // Check if log has a domain field (from structured logs)
+                    if (isset($log['domain']) && $log['domain'] === $domain) {
+                        return true;
+                    }
+                    // Check in raw log string if present
+                    if (isset($log['raw']) && strpos($log['raw'], $domain) !== false) {
+                        return true;
+                    }
+                    return false;
+                });
+                $parsed = array_values($parsed); // Re-index array
+            }
+            
             sendResponse(['logs' => $parsed, 'count' => count($parsed)]);
             break;
             
@@ -34,12 +52,21 @@ function handleLogs($method, $params, $db) {
             
         case 'database':
             // Get from database
-            $stmt = $db->prepare("
-                SELECT * FROM access_logs 
-                ORDER BY timestamp DESC 
-                LIMIT ? OFFSET ?
-            ");
-            $stmt->execute([$limit, $offset]);
+            $sql = "SELECT * FROM access_logs ";
+            $params_array = [];
+            
+            if ($domain) {
+                $sql .= "WHERE domain = ? OR host = ? ";
+                $params_array[] = $domain;
+                $params_array[] = $domain;
+            }
+            
+            $sql .= "ORDER BY timestamp DESC LIMIT ? OFFSET ?";
+            $params_array[] = $limit;
+            $params_array[] = $offset;
+            
+            $stmt = $db->prepare($sql);
+            $stmt->execute($params_array);
             sendResponse(['logs' => $stmt->fetchAll()]);
             break;
             
@@ -59,19 +86,22 @@ function tailLog($file, $lines = 100) {
 }
 
 function parseAccessLog($line) {
-    // Simple parser for NGINX access log
-    // Format: IP - - [timestamp] "request" status size "referer" "user-agent"
-    $pattern = '/^(\S+) \S+ \S+ \[([^\]]+)\] "([^"]*)" (\d+) (\d+) "([^"]*)" "([^"]*)"/';
+    // Parser for CatWAF NGINX access log
+    // Format: $host $http_x_real_ip $remote_addr - [$time_local] "$request" ...
+    $pattern = '/^(\S+) (\S+) (\S+) - \[([^\]]+)\] "([^"]*)" (\d+) (\d+) "([^"]*)" "([^"]*)"/';
     
     if (preg_match($pattern, $line, $matches)) {
         return [
-            'ip' => $matches[1],
-            'timestamp' => $matches[2],
-            'request' => $matches[3],
-            'status' => (int)$matches[4],
-            'size' => (int)$matches[5],
-            'referer' => $matches[6],
-            'user_agent' => $matches[7]
+            'domain' => $matches[1],
+            'x_real_ip' => $matches[2] !== '-' ? $matches[2] : null,
+            'ip' => $matches[3],
+            'timestamp' => $matches[4],
+            'request' => $matches[5],
+            'status' => (int)$matches[6],
+            'size' => (int)$matches[7],
+            'referer' => $matches[8],
+            'user_agent' => $matches[9],
+            'raw' => $line
         ];
     }
     
