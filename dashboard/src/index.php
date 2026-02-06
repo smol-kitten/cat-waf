@@ -46,7 +46,7 @@ try {
                 'status' => 'ok',
                 'timestamp' => time(),
                 'database' => $dbStatus,
-                'version' => '1.5.0'
+                'version' => '2.0.0'
             ]);
             break;
             
@@ -67,8 +67,8 @@ try {
             
             sendResponse([
                 'name' => 'CatWAF Dashboard API',
-                'version' => '1.5.0',
-                'completion' => '89%',
+                'version' => '2.0.0',
+                'completion' => '95%',
                 'tagline' => 'Purr-tecting your sites since 2025',
                 'features' => [
                     'sites_management' => true,
@@ -76,6 +76,16 @@ try {
                     'modsecurity_waf' => true,
                     'bot_protection' => true,
                     'rate_limiting' => true,
+                    'ban_management' => true,
+                    'insights_portal' => true,
+                    'alert_rules' => true,
+                    'webhook_notifications' => true,
+                    'geoip_lookup' => true,
+                    'access_logs' => true,
+                    'security_events' => true,
+                    'zerossl_support' => true,
+                    'user_management' => false,
+                ],
                     'ban_management' => true,
                     'telemetry' => true,
                     'geoip_lookup' => true,
