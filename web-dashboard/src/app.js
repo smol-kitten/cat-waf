@@ -6893,25 +6893,27 @@ async function loadPathRoutes() {
                     </tr>
                 </thead>
                 <tbody>
-                    ${routes.map(route => `
+                    ${routes.map(route => {
+                        const routeId = parseInt(route.id) || 0;
+                        return `
                         <tr>
                             <td style="text-align: center;">
                                 <label class="toggle" style="margin: 0;">
                                     <input type="checkbox" ${route.enabled ? 'checked' : ''} 
-                                           onchange="togglePathRoute(${route.id}, this.checked)">
+                                           onchange="togglePathRoute(${routeId}, this.checked)">
                                     <span class="toggle-slider"></span>
                                 </label>
                             </td>
                             <td><code>${escapeHtml(route.path)}</code></td>
                             <td><code>${escapeHtml(route.backend_url)}</code></td>
                             <td><span style="text-transform: uppercase;">${escapeHtml(route.backend_protocol || 'http')}</span></td>
-                            <td style="text-align: center;">${route.priority || 0}</td>
+                            <td style="text-align: center;">${parseInt(route.priority) || 0}</td>
                             <td>
-                                <button class="btn-icon" onclick="editPathRoute(${route.id})" title="Edit">✏️</button>
-                                <button class="btn-icon btn-danger" onclick="deletePathRoute(${route.id})" title="Delete">🗑️</button>
+                                <button class="btn-icon" onclick="editPathRoute(${routeId})" title="Edit">✏️</button>
+                                <button class="btn-icon btn-danger" onclick="deletePathRoute(${routeId})" title="Delete">🗑️</button>
                             </td>
                         </tr>
-                    `).join('')}
+                    `;}).join('')}
                 </tbody>
             </table>
         `;

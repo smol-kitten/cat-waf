@@ -24,10 +24,6 @@ function handleLogs($method, $params, $db) {
                     if (isset($log['domain']) && $log['domain'] === $domain) {
                         return true;
                     }
-                    // Check in raw log string if present
-                    if (isset($log['raw']) && strpos($log['raw'], $domain) !== false) {
-                        return true;
-                    }
                     return false;
                 });
                 $parsed = array_values($parsed); // Re-index array
