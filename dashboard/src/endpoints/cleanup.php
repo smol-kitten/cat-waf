@@ -139,5 +139,91 @@ if (preg_match('#/cleanup/stats$#', $requestUri)) {
     exit;
 }
 
+// Cleanup orphaned site configs
+// POST /api/cleanup/orphan-configs - Find and optionally remove orphaned configs
+if (preg_match('#/cleanup/orphan-configs$#', $requestUri)) {
+    if ($method !== 'POST') {
+        http_response_code(405);
+        echo json_encode(['error' => 'Method not allowed']);
+        exit;
+    }
+    
+    try {
+        // Get all site domains from database
+        $stmt = $db->query("SELECT domain FROM sites");
+        $dbDomains = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        
+        // Get all nginx config files
+        $configDir = '/etc/nginx/sites-enabled';
+        $nginxConfigs = [];
+        
+        // Use docker exec to list config files in nginx container
+        $listCmd = "docker exec waf-nginx sh -c 'ls -1 /etc/nginx/sites-enabled/*.conf 2>/dev/null || true'";
+        exec($listCmd, $configFiles);
+        
+        foreach ($configFiles as $configPath) {
+            $filename = basename($configPath, '.conf');
+            // Skip special configs
+            if ($filename !== 'default' && $filename !== '_' && 
+                $filename !== 'emergency-fallback' && !empty($filename)) {
+                $nginxConfigs[] = $filename;
+            }
+        }
+        
+        // Find orphans (configs without database entry)
+        $orphans = array_diff($nginxConfigs, $dbDomains);
+        $orphansList = array_values($orphans);
+        
+        // Check if we should remove them
+        $remove = isset($_GET['remove']) && $_GET['remove'] === 'true';
+        $removed = [];
+        
+        if ($remove && count($orphansList) > 0) {
+            foreach ($orphansList as $orphan) {
+                // Move to quarantine instead of deleting
+                $quarantineCmd = sprintf(
+                    "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/sites-quarantine && mv /etc/nginx/sites-enabled/%s.conf /etc/nginx/sites-quarantine/%s.conf 2>&1'",
+                    escapeshellarg($orphan),
+                    escapeshellarg($orphan)
+                );
+                exec($quarantineCmd, $output, $returnCode);
+                
+                if ($returnCode === 0) {
+                    $removed[] = $orphan;
+                    error_log("Quarantined orphan config: {$orphan}.conf");
+                }
+            }
+            
+            // Reload nginx after cleanup
+            if (count($removed) > 0) {
+                exec("docker exec waf-nginx nginx -t 2>&1", $testOutput, $testReturn);
+                if ($testReturn === 0) {
+                    exec("docker exec waf-nginx nginx -s reload 2>&1");
+                }
+            }
+        }
+        
+        echo json_encode([
+            'success' => true,
+            'orphans_found' => count($orphansList),
+            'orphans' => $orphansList,
+            'removed' => $removed,
+            'message' => $remove 
+                ? sprintf('Quarantined %d orphaned config(s)', count($removed))
+                : sprintf('Found %d orphaned config(s). Add ?remove=true to quarantine them.', count($orphansList))
+        ]);
+        
+    } catch (Exception $e) {
+        error_log("Orphan config cleanup error: " . $e->getMessage());
+        http_response_code(500);
+        echo json_encode([
+            'error' => 'Failed to clean up orphan configs',
+            'details' => $e->getMessage()
+        ]);
+    }
+    
+    exit;
+}
+
 http_response_code(404);
 echo json_encode(['error' => 'Endpoint not found']);
