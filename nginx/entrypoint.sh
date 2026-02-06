@@ -52,8 +52,8 @@ fi
 # Sync certificates from ACME to nginx if needed
 echo "🔄 Checking certificate sync from ACME to nginx..."
 SYNC_COUNT=0
-# Check if acme container is running and accessible
-if docker ps 2>/dev/null | grep -q waf-acme; then
+# Check if /acme.sh directory exists and is accessible
+if [ -d "/acme.sh" ]; then
     # Find all certificate directories in ACME volume
     for acme_cert_dir in /acme.sh/*/; do
         if [ -d "$acme_cert_dir" ]; then
@@ -77,7 +77,8 @@ if docker ps 2>/dev/null | grep -q waf-acme; then
                     # Check if ACME cert is about to expire (less than 30 days)
                     expiry=$(openssl x509 -enddate -noout -in "$acme_cert" 2>/dev/null | cut -d= -f2)
                     if [ -n "$expiry" ]; then
-                        expiry_epoch=$(date -d "$expiry" +%s 2>/dev/null || echo 0)
+                        # Use portable date parsing (works in both GNU and BusyBox)
+                        expiry_epoch=$(date -j -f "%b %d %H:%M:%S %Y %Z" "$expiry" +%s 2>/dev/null || date -d "$expiry" +%s 2>/dev/null || echo 0)
                         now_epoch=$(date +%s)
                         days_until_expiry=$(( ($expiry_epoch - $now_epoch) / 86400 ))
                         

@@ -34,9 +34,9 @@ ALTER TABLE `sites` ADD COLUMN IF NOT EXISTS `hsts_include_subdomains` TINYINT(1
 ALTER TABLE `sites` ADD COLUMN IF NOT EXISTS `custom_nginx_directives` TEXT DEFAULT NULL 
     COMMENT 'Custom nginx directives to inject into server block';
 
--- Add proxy buffering control
-ALTER TABLE `sites` ADD COLUMN IF NOT EXISTS `proxy_buffering` VARCHAR(10) DEFAULT 'on' 
-    COMMENT 'Enable/disable proxy buffering (on/off)';
+-- Add proxy buffering control (use ENUM for type safety)
+ALTER TABLE `sites` ADD COLUMN IF NOT EXISTS `proxy_buffering` ENUM('on', 'off') DEFAULT 'on' 
+    COMMENT 'Enable/disable proxy buffering';
 
 -- Add keepalive settings
 ALTER TABLE `sites` ADD COLUMN IF NOT EXISTS `keepalive_timeout` INT DEFAULT 75 

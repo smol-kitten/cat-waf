@@ -254,15 +254,16 @@ function checkExistingCertificate($domain) {
     
     // Check ACME certificate first (preferred source)
     $acmeCertPath = "/acme.sh/" . $baseDomain . "/fullchain.pem";
-    $checkCmd = sprintf("docker exec waf-acme sh -c 'test -s %s && cat %s 2>/dev/null || echo not_found'", 
-        escapeshellarg($acmeCertPath), escapeshellarg($acmeCertPath));
+    // Build command with proper escaping for sh -c
+    $escapedPath = str_replace("'", "'\\''", $acmeCertPath);
+    $checkCmd = "docker exec waf-acme sh -c 'test -s \"" . $escapedPath . "\" && cat \"" . $escapedPath . "\" 2>/dev/null || echo not_found'";
     $certData = shell_exec($checkCmd);
     
     // If not found in ACME, check nginx location
     if (!$certData || trim($certData) === 'not_found') {
         $nginxCertPath = "/etc/nginx/certs/" . $baseDomain . "/fullchain.pem";
-        $checkCmd = sprintf("docker exec waf-nginx sh -c 'test -s %s && cat %s 2>/dev/null || echo not_found'", 
-            escapeshellarg($nginxCertPath), escapeshellarg($nginxCertPath));
+        $escapedPath = str_replace("'", "'\\''", $nginxCertPath);
+        $checkCmd = "docker exec waf-nginx sh -c 'test -s \"" . $escapedPath . "\" && cat \"" . $escapedPath . "\" 2>/dev/null || echo not_found'";
         $certData = shell_exec($checkCmd);
     }
     

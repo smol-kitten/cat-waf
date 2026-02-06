@@ -187,11 +187,9 @@ if (preg_match('#/cleanup/orphan-configs$#', $requestUri)) {
                 }
                 
                 // Move to quarantine instead of deleting
-                $quarantineCmd = sprintf(
-                    "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/sites-quarantine && mv /etc/nginx/sites-enabled/%s.conf /etc/nginx/sites-quarantine/%s.conf 2>&1'",
-                    escapeshellarg($orphan),
-                    escapeshellarg($orphan)
-                );
+                // Escape for sh -c context
+                $escapedOrphan = str_replace("'", "'\\''", $orphan);
+                $quarantineCmd = "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/sites-quarantine && mv /etc/nginx/sites-enabled/" . $escapedOrphan . ".conf /etc/nginx/sites-quarantine/" . $escapedOrphan . ".conf 2>&1'";
                 exec($quarantineCmd, $output, $returnCode);
                 
                 if ($returnCode === 0) {
