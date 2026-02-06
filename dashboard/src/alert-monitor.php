@@ -7,7 +7,6 @@
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/lib/WebhookNotifier.php';
-require_once __DIR__ . '/lib/EmailNotifier.php';
 
 $db = getDB();
 
@@ -121,7 +120,11 @@ function checkCertExpiryAlert($db, $rule, $config, &$alertData) {
         $domain = preg_replace('/[^a-z0-9.-]/i', '', $site['domain']);
         $certPath = "/etc/nginx/certs/{$domain}/fullchain.pem";
         
-        $cmd = "docker exec waf-nginx sh -c 'test -f {$certPath} && openssl x509 -in {$certPath} -noout -enddate 2>/dev/null || echo not_found'";
+        $cmd = sprintf(
+            "docker exec waf-nginx sh -c 'test -f %s && openssl x509 -in %s -noout -enddate 2>/dev/null || echo not_found'",
+            escapeshellarg($certPath),
+            escapeshellarg($certPath)
+        );
         $output = shell_exec($cmd);
         
         if ($output && $output !== 'not_found' && strpos($output, 'notAfter=') !== false) {
@@ -326,7 +329,6 @@ function fireAlert($db, $rule, $alertData) {
     
     // Send notifications
     $webhookNotifier = new WebhookNotifier($db);
-    $emailNotifier = new EmailNotifier($db);
     
     switch ($rule['rule_type']) {
         case 'delay':
@@ -343,10 +345,6 @@ function fireAlert($db, $rule, $alertData) {
         case 'cert_expiry':
             foreach ($alertData['expiring_certificates'] as $cert) {
                 $webhookNotifier->sendCertExpiryAlert(
-                    $cert['domain'],
-                    $cert['days_remaining']
-                );
-                $emailNotifier->sendCertExpiryAlert(
                     $cert['domain'],
                     $cert['days_remaining']
                 );

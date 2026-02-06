@@ -63,26 +63,37 @@ if ($challengeType === 'dns-01') {
     }
     
     // ALWAYS issue with base domain + wildcard to prevent certificate proliferation
-    $domains = sprintf("%s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
+    $domains = sprintf("-d %s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
     
     // Determine ACME server based on provider
     $serverOption = '--server letsencrypt';
-    $extraEnv = '';
+    $envVars = [];
+    $envVars['CF_Token'] = $cfApiToken;
+    $envVars['CF_Zone_ID'] = $cfZoneId;
+    
     if ($acmeProvider === 'zerossl') {
         if (empty($zerosslApiKey)) {
             error_log("ERROR: ZeroSSL API key not configured for {$domain}");
             exit(1);
         }
         $serverOption = '--server zerossl';
-        $extraEnv = sprintf('export ZEROSSL_API_KEY=%s; ', escapeshellarg($zerosslApiKey));
+        $envVars['ZEROSSL_API_KEY'] = $zerosslApiKey;
+    }
+    
+    // Build docker exec command with -e flags for environment variables
+    $envFlags = '';
+    foreach ($envVars as $key => $value) {
+        if (!empty($value)) {
+            $envFlags .= sprintf(' -e %s=%s', escapeshellarg($key), escapeshellarg($value));
+        }
     }
     
     // NOTE: acme.sh home is /acme.sh (mounted from waf-certs volume), NOT /root/.acme.sh
     $command = sprintf(
-        "docker exec waf-acme sh -c '%sexport CF_Token=%s CF_Zone_ID=%s; acme.sh --issue --dns dns_cf -d %s %s --home /acme.sh --key-file /acme.sh/%s/key.pem --fullchain-file /acme.sh/%s/fullchain.pem --force' 2>&1",
-        $extraEnv,
-        escapeshellarg($cfApiToken),
-        escapeshellarg($cfZoneId),
+        "docker exec%s waf-acme sh -c 'acme.sh --issue --dns dns_cf %s %s --home /acme.sh --key-file /acme.sh/%s/key.pem --fullchain-file /acme.sh/%s/fullchain.pem --force' 2>&1",
+        $envFlags,
+        $domains,
+        $serverOption,
         $domains,
         $serverOption,
         escapeshellarg($baseDomain),

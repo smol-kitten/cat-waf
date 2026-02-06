@@ -86,13 +86,6 @@ try {
                     'zerossl_support' => true,
                     'user_management' => false,
                 ],
-                    'ban_management' => true,
-                    'telemetry' => true,
-                    'geoip_lookup' => true,
-                    'access_logs' => true,
-                    'security_events' => true,
-                    'user_management' => false,
-                ],
                 'stats' => [
                     'sites' => $sites,
                     'security_events' => $events,

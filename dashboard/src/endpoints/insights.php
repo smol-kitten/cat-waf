@@ -167,13 +167,15 @@ function getBasicInsights($db) {
         elseif ($range === '7d') $hours = 168;
         elseif ($range === '30d') $hours = 720;
         
-        $whereClause = "WHERE timestamp > DATE_SUB(NOW(), INTERVAL $hours HOUR)";
+        $params = [$hours];
+        $whereClause = "WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)";
         if ($siteId) {
-            $whereClause .= " AND site_id = " . (int)$siteId;
+            $whereClause .= " AND site_id = ?";
+            $params[] = (int)$siteId;
         }
         
         // Basic metrics: request count, avg response time, status codes
-        $stmt = $db->query("
+        $stmt = $db->prepare("
             SELECT 
                 COUNT(*) as total_requests,
                 AVG(response_time) as avg_response_time,
@@ -182,10 +184,11 @@ function getBasicInsights($db) {
             FROM request_telemetry
             $whereClause
         ");
+        $stmt->execute($params);
         $basicStats = $stmt->fetch(PDO::FETCH_ASSOC);
         
         // Status code distribution
-        $stmt = $db->query("
+        $stmt = $db->prepare("
             SELECT
                 SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as status_2xx,
                 SUM(CASE WHEN status_code >= 300 AND status_code < 400 THEN 1 ELSE 0 END) as status_3xx,
@@ -194,10 +197,11 @@ function getBasicInsights($db) {
             FROM request_telemetry
             $whereClause
         ");
+        $stmt->execute($params);
         $statusCodes = $stmt->fetch(PDO::FETCH_ASSOC);
         
         // Top paths
-        $stmt = $db->query("
+        $stmt = $db->prepare("
             SELECT 
                 request_uri,
                 COUNT(*) as count,
@@ -208,6 +212,7 @@ function getBasicInsights($db) {
             ORDER BY count DESC
             LIMIT 10
         ");
+        $stmt->execute($params);
         $topPaths = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         sendResponse([
@@ -232,13 +237,15 @@ function getExtendedInsights($db) {
         elseif ($range === '7d') $hours = 168;
         elseif ($range === '30d') $hours = 720;
         
-        $whereClause = "WHERE timestamp > DATE_SUB(NOW(), INTERVAL $hours HOUR)";
+        $params = [$hours];
+        $whereClause = "WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)";
         if ($siteId) {
-            $whereClause .= " AND site_id = " . (int)$siteId;
+            $whereClause .= " AND site_id = ?";
+            $params[] = (int)$siteId;
         }
         
         // Web Vitals metrics
-        $stmt = $db->query("
+        $stmt = $db->prepare("
             SELECT 
                 AVG(lcp) as avg_lcp,
                 AVG(fcp) as avg_fcp,
@@ -249,10 +256,11 @@ function getExtendedInsights($db) {
             FROM web_vitals
             $whereClause
         ");
+        $stmt->execute($params);
         $vitals = $stmt->fetch(PDO::FETCH_ASSOC);
         
         // Device type breakdown
-        $stmt = $db->query("
+        $stmt = $db->prepare("
             SELECT 
                 device_type,
                 COUNT(*) as count,
@@ -261,10 +269,11 @@ function getExtendedInsights($db) {
             $whereClause
             GROUP BY device_type
         ");
+        $stmt->execute($params);
         $deviceBreakdown = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         // Top slowest pages by LCP
-        $stmt = $db->query("
+        $stmt = $db->prepare("
             SELECT 
                 domain,
                 path,
@@ -277,6 +286,7 @@ function getExtendedInsights($db) {
             ORDER BY avg_lcp DESC
             LIMIT 10
         ");
+        $stmt->execute($params);
         $slowestPages = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         sendResponse([
