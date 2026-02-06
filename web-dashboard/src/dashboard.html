@@ -1057,10 +1057,19 @@
                             </div>
                             <div class="setting-item">
                                 <label>ACME Server</label>
-                                <select id="setting-acme_server" class="setting-input">
-                                    <option value="https://acme-v02.api.letsencrypt.org/directory">Let's Encrypt (Production)</option>
-                                    <option value="https://acme-staging-v02.api.letsencrypt.org/directory">Let's Encrypt (Staging)</option>
+                                <select id="setting-acme_server" class="setting-input" onchange="toggleZeroSSLField()">
+                                    <option value="letsencrypt">Let's Encrypt (Production)</option>
+                                    <option value="letsencrypt-staging">Let's Encrypt (Staging)</option>
+                                    <option value="zerossl">ZeroSSL</option>
                                 </select>
+                                <small style="color: #666; margin-top: 0.5rem; display: block;">Choose your preferred ACME certificate provider</small>
+                            </div>
+                            <div class="setting-item" id="zerossl-api-key-group" style="display: none;">
+                                <label>ZeroSSL API Key</label>
+                                <input type="password" id="setting-zerossl_api_key" class="setting-input" placeholder="Your ZeroSSL API Key">
+                                <small style="color: #666; margin-top: 0.5rem; display: block;">
+                                    Required for ZeroSSL. Get your API key from <a href="https://app.zerossl.com/developer" target="_blank" style="color: var(--primary);">ZeroSSL Dashboard</a>
+                                </small>
                             </div>
                             <button class="btn-primary" onclick="saveAcmeSettings()">Save Certificate Settings</button>
                             
@@ -2848,6 +2857,6 @@ Sitemap: https://example.com/sitemap.xml"></textarea>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="toast.js?v=2"></script>
-    <script src="app.js?v=5"></script>
+    <script src="app.js?v=6"></script>
 </body>
 </html>
