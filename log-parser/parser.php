@@ -148,7 +148,15 @@ while (true) {
         // Format: $host $http_x_real_ip $remote_addr - [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" rt=$request_time uct="$upstream_connect_time" uht="$upstream_header_time" urt="$upstream_response_time" cs=$upstream_cache_status ua="$upstream_addr"
         $pattern = '/^(\S+) (\S+) (\S+) - \[([^\]]+)\] "([^"]*)" (\d+) (\d+) "([^"]*)" "([^"]*)"(?:\s+rt=([\d.]+))?(?:\s+uct="([^"]*)")?(?:\s+uht="([^"]*)")?(?:\s+urt="([^"]*)")?(?:\s+cs=(\S+))?(?:\s+ua="([^"]*)")?.*/s';
         
-        if (preg_match($pattern, $line, $matches)) {
+        $matchResult = @preg_match($pattern, $line, $matches);
+        
+        if ($matchResult === false) {
+            // Regex error - log and skip this line
+            error_log("Regex error parsing log line: " . substr($line, 0, 100));
+            continue;
+        }
+        
+        if ($matchResult === 1) {
             $host = $matches[1];
             $xRealIp = $matches[2];
             $remoteAddr = $matches[3];
@@ -314,6 +322,13 @@ while (true) {
                     error_log("Failed to insert log entry: " . $e->getMessage());
                 }
             }
+        } else {
+            // Line didn't match expected format - log once per 100 failures to avoid spam
+            static $unmatchedCount = 0;
+            $unmatchedCount++;
+            if ($unmatchedCount % 100 === 1) {
+                error_log("Log line format mismatch (occurrence #$unmatchedCount): " . substr($line, 0, 150));
+            }
         }  // Close if (preg_match)
         }  // Close while (($line = fgets))
 
@@ -336,60 +351,85 @@ while (true) {
  * @return string Sanitized URI
  */
 function sanitizeUri($uri) {
-    // Parse URI into components
-    $parts = parse_url($uri);
-    if (!$parts) {
-        return substr($uri, 0, 255); // Fallback truncation
-    }
-    
-    $path = $parts['path'] ?? '/';
-    $query = $parts['query'] ?? '';
-    
-    // Truncate path if too long (keep first 200 chars)
-    if (strlen($path) > 200) {
-        $path = substr($path, 0, 200) . '...[truncated]';
-    }
-    
-    // Redact sensitive query parameters
-    if (!empty($query)) {
-        parse_str($query, $params);
-        $redacted = [];
+    try {
+        // Parse URI into components - wrap in try-catch to handle malformed URIs
+        $parts = @parse_url($uri);
+        if (!$parts) {
+            // If parse_url fails, just truncate the raw URI
+            return substr($uri, 0, 255);
+        }
         
-        foreach ($params as $key => $value) {
-            // Check if parameter name contains sensitive keywords
-            $keyLower = strtolower($key);
-            if (preg_match('/(token|key|password|secret|auth|api[_-]?key|access[_-]?token|jwt|bearer)/i', $keyLower)) {
-                // Redact the value but keep first/last 4 chars if long enough
-                if (strlen($value) > 12) {
-                    $redacted[$key] = substr($value, 0, 4) . '...[REDACTED]...' . substr($value, -4);
-                } else {
-                    $redacted[$key] = '[REDACTED]';
+        $path = $parts['path'] ?? '/';
+        $query = $parts['query'] ?? '';
+        
+        // Truncate path if too long (keep first 200 chars)
+        if (strlen($path) > 200) {
+            $path = substr($path, 0, 200) . '...[truncated]';
+        }
+        
+        // Redact sensitive query parameters
+        if (!empty($query)) {
+            $params = [];
+            // Suppress warnings from parse_str for malformed query strings
+            @parse_str($query, $params);
+            
+            if (empty($params)) {
+                // If parse_str failed, just truncate the query string
+                if (strlen($query) > 200) {
+                    $query = substr($query, 0, 200) . '...[truncated]';
                 }
             } else {
-                // Keep parameter but truncate if too long
-                if (strlen($value) > 100) {
-                    $redacted[$key] = substr($value, 0, 100) . '...[truncated]';
-                } else {
-                    $redacted[$key] = $value;
+                $redacted = [];
+                
+                foreach ($params as $key => $value) {
+                    // Skip non-string values
+                    if (!is_string($value)) {
+                        if (is_array($value) || is_object($value)) {
+                            error_log("URI sanitization: Non-string query param value for key '{$key}' - type: " . gettype($value));
+                        }
+                        $value = '';
+                    }
+                    
+                    // Check if parameter name contains sensitive keywords
+                    $keyLower = strtolower($key);
+                    if (preg_match('/(token|key|password|secret|auth|api[_-]?key|access[_-]?token|jwt|bearer)/i', $keyLower)) {
+                        // Redact the value but keep first/last 4 chars if long enough
+                        if (strlen($value) > 12) {
+                            $redacted[$key] = substr($value, 0, 4) . '...[REDACTED]...' . substr($value, -4);
+                        } else {
+                            $redacted[$key] = '[REDACTED]';
+                        }
+                    } else {
+                        // Keep parameter but truncate if too long
+                        if (strlen($value) > 100) {
+                            $redacted[$key] = substr($value, 0, 100) . '...[truncated]';
+                        } else {
+                            $redacted[$key] = $value;
+                        }
+                    }
                 }
+                
+                $query = http_build_query($redacted);
             }
         }
         
-        $query = http_build_query($redacted);
+        // Reconstruct URI
+        $sanitized = $path;
+        if (!empty($query)) {
+            $sanitized .= '?' . $query;
+        }
+        
+        // Final length check (database column limit)
+        if (strlen($sanitized) > 500) {
+            $sanitized = substr($sanitized, 0, 500) . '...[truncated]';
+        }
+        
+        return $sanitized;
+    } catch (Exception $e) {
+        // If anything goes wrong, just return a truncated version of the original URI
+        error_log("URI sanitization error: " . $e->getMessage());
+        return substr($uri, 0, 255);
     }
-    
-    // Reconstruct URI
-    $sanitized = $path;
-    if (!empty($query)) {
-        $sanitized .= '?' . $query;
-    }
-    
-    // Final length check (database column limit)
-    if (strlen($sanitized) > 500) {
-        $sanitized = substr($sanitized, 0, 500) . '...[truncated]';
-    }
-    
-    return $sanitized;
 }
 
 // Parse ModSecurity audit log

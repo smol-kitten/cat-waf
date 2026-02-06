@@ -238,8 +238,80 @@ function getCertificateInfo($domain) {
     ]);
 }
 
+/**
+ * Check if a valid certificate exists for the domain
+ * Returns array with 'valid', 'daysUntilExpiry', 'expiryDate' or null if no cert
+ */
+function checkExistingCertificate($domain) {
+    // Extract base domain for wildcard cert lookup
+    $baseDomain = extractRootDomain($domain);
+    
+    // Sanitize domain to prevent command injection
+    $baseDomain = preg_replace('/[^a-z0-9.-]/i', '', $baseDomain);
+    if (empty($baseDomain)) {
+        return null;
+    }
+    
+    // Check ACME certificate first (preferred source)
+    $acmeCertPath = "/acme.sh/" . $baseDomain . "/fullchain.pem";
+    // Build command with proper escaping for sh -c
+    $escapedPath = str_replace("'", "'\\''", $acmeCertPath);
+    $checkCmd = "docker exec waf-acme sh -c 'test -s \"" . $escapedPath . "\" && cat \"" . $escapedPath . "\" 2>/dev/null || echo not_found'";
+    $certData = shell_exec($checkCmd);
+    
+    // If not found in ACME, check nginx location
+    if (!$certData || trim($certData) === 'not_found') {
+        $nginxCertPath = "/etc/nginx/certs/" . $baseDomain . "/fullchain.pem";
+        $escapedPath = str_replace("'", "'\\''", $nginxCertPath);
+        $checkCmd = "docker exec waf-nginx sh -c 'test -s \"" . $escapedPath . "\" && cat \"" . $escapedPath . "\" 2>/dev/null || echo not_found'";
+        $certData = shell_exec($checkCmd);
+    }
+    
+    if (!$certData || trim($certData) === 'not_found') {
+        return null;
+    }
+    
+    $cert = @openssl_x509_parse($certData);
+    if (!$cert) {
+        return null;
+    }
+    
+    $validTo = $cert['validTo_time_t'];
+    $now = time();
+    $daysUntilExpiry = floor(($validTo - $now) / 86400);
+    
+    return [
+        'valid' => $daysUntilExpiry > 0,
+        'daysUntilExpiry' => $daysUntilExpiry,
+        'expiryDate' => date('Y-m-d H:i:s', $validTo)
+    ];
+}
+
 function issueCertificate($domain) {
     $db = getDB();
+    
+    // Extract base domain from subdomain (subdomain.example.com -> example.com)
+    $baseDomain = extractRootDomain($domain);
+    
+    // IMPORTANT: Check if valid certificate already exists before issuing
+    // This prevents getting locked out due to Let's Encrypt rate limits
+    $existingCert = checkExistingCertificate($baseDomain);
+    if ($existingCert && $existingCert['valid']) {
+        $daysUntilExpiry = $existingCert['daysUntilExpiry'];
+        
+        // Only issue if certificate expires within 30 days or doesn't exist
+        if ($daysUntilExpiry > 30) {
+            http_response_code(400);
+            echo json_encode([
+                'error' => 'Valid certificate already exists',
+                'message' => "Certificate for {$baseDomain} is still valid for {$daysUntilExpiry} days. Reissue prevented to avoid rate limits.",
+                'expiryDate' => $existingCert['expiryDate'],
+                'daysUntilExpiry' => $daysUntilExpiry,
+                'hint' => 'Certificates are automatically renewed when they have less than 30 days remaining'
+            ]);
+            return;
+        }
+    }
     
     // Get site configuration for SSL challenge type
     $stmt = $db->prepare("SELECT ssl_challenge_type, cf_api_token, cf_zone_id FROM sites WHERE domain = ?");
@@ -254,9 +326,6 @@ function issueCertificate($domain) {
     
     $challengeType = $site['ssl_challenge_type'] ?? 'dns-01';  // Default to DNS-01 for wildcard support
     $email = getenv('ACME_EMAIL') ?: 'admin@localhost';
-    
-    // Extract base domain from subdomain (subdomain.example.com -> example.com)
-    $baseDomain = extractRootDomain($domain);
     
     // ALWAYS issue certificate for base domain + wildcard to prevent certificate proliferation
     // This prevents dozens of individual subdomain certificates and rate limit issues
