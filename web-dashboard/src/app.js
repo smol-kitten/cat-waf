@@ -100,6 +100,12 @@ async function initializeApp() {
         });
     }
     
+    // Setup security checks button
+    const runAllChecksBtn = document.getElementById('runAllChecksBtn');
+    if (runAllChecksBtn) {
+        runAllChecksBtn.addEventListener('click', runAllSecurityChecks);
+    }
+    
     // Setup auto-refresh
     setInterval(() => {
         if (currentPage === 'overview') {
@@ -183,6 +189,9 @@ async function loadPageData(page) {
         case 'security':
             await loadSecuritySummary();
             await loadSecurityEvents();
+            break;
+        case 'security-checks':
+            await loadSecurityChecks();
             break;
         case 'modsecurity':
             await loadModSecurityData();
@@ -1286,6 +1295,94 @@ async function loadSecuritySummary() {
         document.getElementById('summary-bot-blocks').textContent = '0';
         document.getElementById('summary-active-bans').textContent = '0';
         document.getElementById('summary-auto-bans').textContent = '0';
+    }
+}
+
+// Security Checks Center
+async function loadSecurityChecks() {
+    try {
+        const response = await apiRequest('/security-checks');
+        const checks = response?.checks || [];
+        const summary = response?.summary || { healthy: 0, warning: 0, critical: 0, unknown: 0, total: 0 };
+        
+        // Update summary cards
+        document.getElementById('checksHealthy').textContent = summary.healthy || 0;
+        document.getElementById('checksWarning').textContent = summary.warning || 0;
+        document.getElementById('checksCritical').textContent = summary.critical || 0;
+        document.getElementById('checksTotal').textContent = summary.total || 0;
+        
+        // Update last checked time
+        if (checks.length > 0 && checks[0].last_checked) {
+            const lastChecked = new Date(checks[0].last_checked);
+            document.getElementById('checksLastUpdated').textContent = `Last checked: ${lastChecked.toLocaleString()}`;
+        }
+        
+        // Render checks table
+        const tbody = document.getElementById('securityChecksTable');
+        tbody.innerHTML = '';
+        
+        if (checks.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center">No security checks configured</td></tr>';
+            return;
+        }
+        
+        checks.forEach(check => {
+            const row = document.createElement('tr');
+            
+            // Status badge
+            const statusClass = check.status === 'healthy' ? 'success' : 
+                              check.status === 'warning' ? 'warning' : 
+                              check.status === 'critical' ? 'danger' : 'secondary';
+            const statusIcon = check.status === 'healthy' ? '✅' : 
+                             check.status === 'warning' ? '⚠️' : 
+                             check.status === 'critical' ? '🚨' : '❓';
+            
+            row.innerHTML = `
+                <td><span class="badge badge-${statusClass}">${statusIcon} ${check.status.toUpperCase()}</span></td>
+                <td><strong>${escapeHtml(check.check_name)}</strong></td>
+                <td><span class="badge badge-secondary">${escapeHtml(check.check_type)}</span></td>
+                <td>${escapeHtml(check.message || 'No message')}</td>
+                <td>${check.last_checked ? new Date(check.last_checked).toLocaleString() : 'Never'}</td>
+                <td>
+                    <button class="btn btn-sm btn-primary" onclick="runSecurityCheck(${check.id})">
+                        <span>🔄</span> Run
+                    </button>
+                </td>
+            `;
+            
+            tbody.appendChild(row);
+        });
+    } catch (error) {
+        console.error('Error loading security checks:', error);
+        showToast('Failed to load security checks', 'error');
+    }
+}
+
+async function runSecurityCheck(checkId) {
+    try {
+        showToast('Running security check...', 'info');
+        await apiRequest(`/security-checks/run/${checkId}`, { method: 'POST' });
+        showToast('Security check completed', 'success');
+        
+        // Reload checks after a short delay to get updated results
+        setTimeout(() => loadSecurityChecks(), 1000);
+    } catch (error) {
+        console.error('Error running security check:', error);
+        showToast('Failed to run security check', 'error');
+    }
+}
+
+async function runAllSecurityChecks() {
+    try {
+        showToast('Running all security checks...', 'info');
+        await apiRequest('/security-checks/run', { method: 'POST' });
+        showToast('All security checks completed', 'success');
+        
+        // Reload checks after a short delay to get updated results
+        setTimeout(() => loadSecurityChecks(), 2000);
+    } catch (error) {
+        console.error('Error running all security checks:', error);
+        showToast('Failed to run security checks', 'error');
     }
 }
 

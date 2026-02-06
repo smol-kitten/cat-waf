@@ -40,6 +40,10 @@
                     <span class="nav-icon">🛡️</span>
                     <span class="nav-text">Security Events</span>
                 </a>
+                <a href="#" class="nav-item" data-page="security-checks">
+                    <span class="nav-icon">🔍</span>
+                    <span class="nav-text">Security Center</span>
+                </a>
                 <a href="#" class="nav-item" data-page="modsecurity">
                     <span class="nav-icon">🔒</span>
                     <span class="nav-text">ModSecurity</span>
@@ -294,6 +298,80 @@
                     </div>
                     <div class="events-list" id="securityEvents">
                         <div class="loading-spinner">Loading events...</div>
+                    </div>
+                </div>
+
+                <!-- Security Checks Page -->
+                <div class="page" id="security-checks-page">
+                    <div class="page-header">
+                        <h2>Security Check Center</h2>
+                        <button class="btn btn-primary" id="runAllChecksBtn">
+                            <span>🔄</span>
+                            <span>Run All Checks</span>
+                        </button>
+                    </div>
+                    
+                    <!-- Security Summary Cards -->
+                    <div class="stats-grid" style="margin-bottom: 2rem;">
+                        <div class="stat-card" id="checksHealthyCard">
+                            <div class="stat-icon">✅</div>
+                            <div class="stat-content">
+                                <div class="stat-label">Healthy</div>
+                                <div class="stat-value" id="checksHealthy">0</div>
+                            </div>
+                        </div>
+                        <div class="stat-card" id="checksWarningCard">
+                            <div class="stat-icon">⚠️</div>
+                            <div class="stat-content">
+                                <div class="stat-label">Warnings</div>
+                                <div class="stat-value" id="checksWarning">0</div>
+                            </div>
+                        </div>
+                        <div class="stat-card" id="checksCriticalCard">
+                            <div class="stat-icon">🚨</div>
+                            <div class="stat-content">
+                                <div class="stat-label">Critical</div>
+                                <div class="stat-value" id="checksCritical">0</div>
+                            </div>
+                        </div>
+                        <div class="stat-card" id="checksTotalCard">
+                            <div class="stat-icon">📊</div>
+                            <div class="stat-content">
+                                <div class="stat-label">Total Checks</div>
+                                <div class="stat-value" id="checksTotal">0</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Security Checks List -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Security Checks</h3>
+                            <div class="last-updated" id="checksLastUpdated">Last checked: Never</div>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-container">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Status</th>
+                                            <th>Check Name</th>
+                                            <th>Type</th>
+                                            <th>Message</th>
+                                            <th>Last Checked</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="securityChecksTable">
+                                        <tr>
+                                            <td colspan="6" class="text-center">
+                                                <div class="loading-spinner">Loading checks...</div>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -1778,6 +1856,7 @@ Sitemap: https://example.com/sitemap.xml"></textarea>
                             <button class="tab-btn" data-editor-tab="security">Security</button>
                             <button class="tab-btn" data-editor-tab="performance">Performance</button>
                             <button class="tab-btn" data-editor-tab="backends">Backends</button>
+                            <button class="tab-btn" data-editor-tab="path-routing">Path Routing</button>
                             <button class="tab-btn" data-editor-tab="ssl">SSL/TLS</button>
                             <button class="tab-btn" data-editor-tab="access">Access Control</button>
                             <button class="tab-btn" data-editor-tab="error-pages">Error Pages</button>
