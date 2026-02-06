@@ -314,7 +314,7 @@ function issueCertificate($domain) {
     }
     
     // Get site configuration for SSL challenge type
-    $stmt = $db->prepare("SELECT ssl_challenge_type, cf_api_token, cf_zone_id FROM sites WHERE domain = ?");
+    $stmt = $db->prepare("SELECT ssl_challenge_type, cf_api_token, cf_zone_id, acme_provider FROM sites WHERE domain = ?");
     $stmt->execute([$domain]);
     $site = $stmt->fetch(PDO::FETCH_ASSOC);
     
@@ -325,6 +325,7 @@ function issueCertificate($domain) {
     }
     
     $challengeType = $site['ssl_challenge_type'] ?? 'dns-01';  // Default to DNS-01 for wildcard support
+    $acmeProvider = $site['acme_provider'] ?? getenv('ACME_PROVIDER') ?: 'letsencrypt';
     $email = getenv('ACME_EMAIL') ?: 'admin@localhost';
     
     // ALWAYS issue certificate for base domain + wildcard to prevent certificate proliferation
@@ -354,12 +355,27 @@ function issueCertificate($domain) {
         // ALWAYS issue with base domain + wildcard to consolidate certificates
         $domains = sprintf("-d %s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
 
+        // Determine ACME server based on provider
+        $serverOption = '--server letsencrypt';
+        $extraEnv = '';
+        if ($acmeProvider === 'zerossl') {
+            $zerosslApiKey = getenv('ZEROSSL_API_KEY');
+            if (empty($zerosslApiKey)) {
+                http_response_code(400);
+                echo json_encode(['error' => 'ZeroSSL API key not configured. Please set ZEROSSL_API_KEY environment variable.']);
+                return;
+            }
+            $serverOption = '--server zerossl';
+            $extraEnv .= ' -e ZEROSSL_API_KEY=' . escapeshellarg($zerosslApiKey);
+        }
+
         // Build the inner acme.sh command and safely quote it for sh -c
         // NOTE: acme.sh home is /acme.sh (mounted from waf-certs volume), NOT /root/.acme.sh
-        $innerCmd = sprintf("acme.sh --issue --dns dns_cf %s --server letsencrypt --home /acme.sh --force", $domains);
+        $innerCmd = sprintf("acme.sh --issue --dns dns_cf %s %s --home /acme.sh --force", $domains, $serverOption);
         $command = sprintf(
-            "docker exec %s waf-acme sh -c %s 2>&1",
+            "docker exec %s%s waf-acme sh -c %s 2>&1",
             $envOptions,
+            $extraEnv,
             escapeshellarg($innerCmd)
         );
     } elseif ($challengeType === 'snakeoil') {

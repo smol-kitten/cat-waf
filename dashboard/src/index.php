@@ -245,6 +245,16 @@ try {
             require_once 'endpoints/security-checks.php';
             handleSecurityChecks($method, array_slice($uri, 1), $db);
             break;
+            
+        case 'alerts':
+            require_once 'endpoints/alerts.php';
+            handleAlerts($method, array_slice($uri, 1), $db);
+            break;
+            
+        case 'insights':
+            require_once 'endpoints/insights.php';
+            handleInsights($method, array_slice($uri, 1), $db);
+            break;
 
         default:
             http_response_code(404);

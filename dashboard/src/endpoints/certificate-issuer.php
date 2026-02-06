@@ -31,7 +31,7 @@ function extractRootDomain($domain) {
 }
 
 if ($argc < 3) {
-    error_log("Usage: php certificate-issuer.php <domain> <challenge_type> [cf_api_token] [cf_zone_id]");
+    error_log("Usage: php certificate-issuer.php <domain> <challenge_type> [cf_api_token] [cf_zone_id] [acme_provider] [zerossl_api_key]");
     exit(1);
 }
 
@@ -39,6 +39,8 @@ $domain = $argv[1];
 $challengeType = $argv[2];
 $cfApiToken = $argv[3] ?? '';
 $cfZoneId = $argv[4] ?? '';
+$acmeProvider = $argv[5] ?? getenv('ACME_PROVIDER') ?: 'letsencrypt';
+$zerosslApiKey = $argv[6] ?? getenv('ZEROSSL_API_KEY') ?: '';
 
 // Extract base domain - all certificates are issued for base + wildcard
 $baseDomain = extractRootDomain($domain);
@@ -63,12 +65,26 @@ if ($challengeType === 'dns-01') {
     // ALWAYS issue with base domain + wildcard to prevent certificate proliferation
     $domains = sprintf("%s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
     
+    // Determine ACME server based on provider
+    $serverOption = '--server letsencrypt';
+    $extraEnv = '';
+    if ($acmeProvider === 'zerossl') {
+        if (empty($zerosslApiKey)) {
+            error_log("ERROR: ZeroSSL API key not configured for {$domain}");
+            exit(1);
+        }
+        $serverOption = '--server zerossl';
+        $extraEnv = sprintf('export ZEROSSL_API_KEY=%s; ', escapeshellarg($zerosslApiKey));
+    }
+    
     // NOTE: acme.sh home is /acme.sh (mounted from waf-certs volume), NOT /root/.acme.sh
     $command = sprintf(
-        "docker exec waf-acme sh -c 'export CF_Token=%s CF_Zone_ID=%s; acme.sh --issue --dns dns_cf -d %s --server letsencrypt --home /acme.sh --key-file /acme.sh/%s/key.pem --fullchain-file /acme.sh/%s/fullchain.pem --force' 2>&1",
+        "docker exec waf-acme sh -c '%sexport CF_Token=%s CF_Zone_ID=%s; acme.sh --issue --dns dns_cf -d %s %s --home /acme.sh --key-file /acme.sh/%s/key.pem --fullchain-file /acme.sh/%s/fullchain.pem --force' 2>&1",
+        $extraEnv,
         escapeshellarg($cfApiToken),
         escapeshellarg($cfZoneId),
         $domains,
+        $serverOption,
         escapeshellarg($baseDomain),
         escapeshellarg($baseDomain)
     );
