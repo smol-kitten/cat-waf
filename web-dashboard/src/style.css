@@ -135,6 +135,16 @@ body {
     margin-bottom: var(--spacing-sm);
 }
 
+.nav-section-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    padding: var(--spacing-lg) var(--spacing-md) var(--spacing-sm) var(--spacing-md);
+    margin-top: var(--spacing-md);
+}
+
 .nav-item:hover {
     background: var(--bg-tertiary);
     color: var(--text-primary);

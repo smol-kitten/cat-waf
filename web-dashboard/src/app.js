@@ -205,6 +205,13 @@ async function loadPageData(page) {
         case 'telemetry':
             await loadTelemetryData();
             break;
+        case 'insights':
+            await loadInsightsData();
+            break;
+        case 'alerts':
+            await loadAlertRules();
+            await loadAlertHistory();
+            break;
         case 'analytics':
             await loadGoAccessData();
             break;
@@ -8331,3 +8338,362 @@ window.toggleRSLSiteOptions = toggleRSLSiteOptions;
 window.testRSLEndpoint = testRSLEndpoint;
 window.regenerateSiteConfig = regenerateSiteConfig;
 
+
+// ============================================================================
+// INSIGHTS FUNCTIONS
+// ============================================================================
+
+async function loadInsightsData() {
+    try {
+        const range = document.getElementById('insightsTimeRange')?.value || '24h';
+        const response = await fetch(`${API_BASE_URL}/insights/basic?range=${range}`, {
+            headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+        });
+        
+        if (!response.ok) throw new Error('Failed to fetch insights');
+        
+        const data = await response.json();
+        
+        // Update basic stats
+        document.getElementById('insightsTotalRequests').textContent = data.basic_stats?.total_requests || 0;
+        document.getElementById('insightsUniqueVisitors').textContent = data.basic_stats?.unique_visitors || 0;
+        document.getElementById('insightsAvgResponseTime').textContent = 
+            Math.round((data.basic_stats?.avg_response_time || 0) * 1000) + 'ms';
+        
+        // Calculate success rate
+        const status2xx = parseInt(data.status_codes?.status_2xx || 0);
+        const total = status2xx + 
+                     parseInt(data.status_codes?.status_3xx || 0) + 
+                     parseInt(data.status_codes?.status_4xx || 0) + 
+                     parseInt(data.status_codes?.status_5xx || 0);
+        const successRate = total > 0 ? Math.round((status2xx / total) * 100) : 0;
+        document.getElementById('insightsSuccessRate').textContent = successRate + '%';
+        
+        // Update status codes table
+        const tbody = document.getElementById('insightsStatusCodesBody');
+        tbody.innerHTML = '';
+        if (data.status_codes) {
+            const rows = [
+                ['2xx Success', data.status_codes.status_2xx, '#4CAF50'],
+                ['3xx Redirect', data.status_codes.status_3xx, '#64B5F6'],
+                ['4xx Client Error', data.status_codes.status_4xx, '#FFA726'],
+                ['5xx Server Error', data.status_codes.status_5xx, '#EF5350']
+            ];
+            
+            rows.forEach(([label, count, color]) => {
+                const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                tbody.innerHTML += `
+                    <tr>
+                        <td><span style="display: inline-block; width: 12px; height: 12px; background: ${color}; border-radius: 50%; margin-right: 8px;"></span>${label}</td>
+                        <td>${count}</td>
+                        <td>${pct}%</td>
+                    </tr>
+                `;
+            });
+        }
+        
+        // Update top paths
+        const pathsBody = document.getElementById('insightsTopPathsBody');
+        pathsBody.innerHTML = '';
+        if (data.top_paths && data.top_paths.length > 0) {
+            data.top_paths.forEach(path => {
+                pathsBody.innerHTML += `
+                    <tr>
+                        <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(path.request_uri)}</td>
+                        <td>${path.count}</td>
+                        <td>${Math.round(path.avg_time * 1000)}ms</td>
+                    </tr>
+                `;
+            });
+        } else {
+            pathsBody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-muted);">No data available</td></tr>';
+        }
+        
+    } catch (error) {
+        console.error('Error loading insights:', error);
+        showToast('Failed to load insights data', 'error');
+    }
+}
+
+async function loadExtendedInsights() {
+    try {
+        const range = document.getElementById('insightsTimeRange')?.value || '24h';
+        const response = await fetch(`${API_BASE_URL}/insights/extended?range=${range}`, {
+            headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+        });
+        
+        if (!response.ok) throw new Error('Failed to fetch extended insights');
+        
+        const data = await response.json();
+        
+        // Update web vitals
+        if (data.vitals) {
+            const lcp = Math.round((data.vitals.avg_lcp || 0) * 1000);
+            const fcp = Math.round((data.vitals.avg_fcp || 0) * 1000);
+            const ttfb = Math.round((data.vitals.avg_ttfb || 0) * 1000);
+            
+            document.getElementById('insightsLCP').textContent = lcp + 'ms';
+            document.getElementById('insightsFCP').textContent = fcp + 'ms';
+            document.getElementById('insightsTTFB').textContent = ttfb + 'ms';
+            document.getElementById('insightsCLS').textContent = (data.vitals.avg_cls || 0).toFixed(3);
+            
+            // Update LCP status
+            const lcpStatus = document.getElementById('insightsLCPStatus');
+            if (lcp < 2500) {
+                lcpStatus.textContent = 'Good: < 2.5s';
+                lcpStatus.style.color = 'var(--success)';
+            } else if (lcp < 4000) {
+                lcpStatus.textContent = 'Needs Improvement';
+                lcpStatus.style.color = 'var(--warning)';
+            } else {
+                lcpStatus.textContent = 'Poor: > 4s';
+                lcpStatus.style.color = 'var(--danger)';
+            }
+        }
+        
+        // Update slowest pages
+        const slowestBody = document.getElementById('insightsSlowestPagesBody');
+        slowestBody.innerHTML = '';
+        if (data.slowest_pages && data.slowest_pages.length > 0) {
+            data.slowest_pages.forEach(page => {
+                slowestBody.innerHTML += `
+                    <tr>
+                        <td>${escapeHtml(page.domain)}</td>
+                        <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(page.path)}</td>
+                        <td>${Math.round(page.avg_lcp * 1000)}ms</td>
+                        <td>${page.count}</td>
+                    </tr>
+                `;
+            });
+        } else {
+            slowestBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No data available</td></tr>';
+        }
+        
+    } catch (error) {
+        console.error('Error loading extended insights:', error);
+    }
+}
+
+async function updateInsightsConfig() {
+    try {
+        const enabled = document.getElementById('insightsEnabled')?.checked;
+        const level = document.getElementById('insightsLevel')?.value;
+        const collectWebVitals = document.getElementById('collectWebVitals')?.checked;
+        
+        // Show/hide extended options based on level
+        const extendedOptions = document.getElementById('extendedOptions');
+        const extendedSection = document.getElementById('extendedInsightsSection');
+        if (level === 'extended') {
+            extendedOptions.style.display = 'block';
+            extendedSection.style.display = 'block';
+        } else {
+            extendedOptions.style.display = 'none';
+            extendedSection.style.display = 'none';
+        }
+        
+        const response = await fetch(`${API_BASE_URL}/insights/config`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${API_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                enabled: enabled,
+                level: level,
+                collect_web_vitals: collectWebVitals
+            })
+        });
+        
+        if (!response.ok) throw new Error('Failed to update insights config');
+        
+        showToast('Insights configuration updated', 'success');
+        
+        // Reload data
+        await loadInsightsData();
+        if (level === 'extended' && collectWebVitals) {
+            await loadExtendedInsights();
+        }
+        
+    } catch (error) {
+        console.error('Error updating insights config:', error);
+        showToast('Failed to update insights configuration', 'error');
+    }
+}
+
+// ============================================================================
+// ALERTS FUNCTIONS
+// ============================================================================
+
+async function loadAlertRules() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/alerts`, {
+            headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+        });
+        
+        if (!response.ok) throw new Error('Failed to fetch alert rules');
+        
+        const data = await response.json();
+        const tbody = document.getElementById('alertRulesBody');
+        tbody.innerHTML = '';
+        
+        if (data.rules && data.rules.length > 0) {
+            data.rules.forEach(rule => {
+                const config = JSON.stringify(rule.config || {});
+                const status = rule.enabled ? 
+                    '<span style="color: var(--success);">✓ Enabled</span>' : 
+                    '<span style="color: var(--text-muted);">○ Disabled</span>';
+                
+                tbody.innerHTML += `
+                    <tr>
+                        <td><strong>${escapeHtml(rule.rule_name)}</strong></td>
+                        <td><span style="text-transform: capitalize;">${escapeHtml(rule.rule_type).replace(/_/g, ' ')}</span></td>
+                        <td>${status}</td>
+                        <td style="font-size: 0.85em; color: var(--text-muted); max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(config)}">${escapeHtml(config)}</td>
+                        <td>${rule.site_domain || 'Global'}</td>
+                        <td>
+                            <button class="btn-icon" onclick="toggleAlertRule(${rule.id})" title="Toggle">
+                                ${rule.enabled ? '⏸️' : '▶️'}
+                            </button>
+                            <button class="btn-icon" onclick="deleteAlertRule(${rule.id})" title="Delete">🗑️</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        } else {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No alert rules configured</td></tr>';
+        }
+        
+    } catch (error) {
+        console.error('Error loading alert rules:', error);
+        showToast('Failed to load alert rules', 'error');
+    }
+}
+
+async function loadAlertHistory() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/alerts/history?limit=50`, {
+            headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+        });
+        
+        if (!response.ok) throw new Error('Failed to fetch alert history');
+        
+        const data = await response.json();
+        const tbody = document.getElementById('alertHistoryBody');
+        tbody.innerHTML = '';
+        
+        if (data.history && data.history.length > 0) {
+            data.history.forEach(alert => {
+                const status = alert.acknowledged ? 
+                    '<span style="color: var(--success);">✓ Acknowledged</span>' : 
+                    '<span style="color: var(--warning);">⚠ Active</span>';
+                
+                const alertData = JSON.stringify(alert.alert_data || {});
+                
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${new Date(alert.fired_at).toLocaleString()}</td>
+                        <td>${escapeHtml(alert.rule_name)}</td>
+                        <td><span style="text-transform: capitalize;">${escapeHtml(alert.rule_type).replace(/_/g, ' ')}</span></td>
+                        <td style="font-size: 0.85em; max-width: 300px; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(alertData)}">${escapeHtml(alertData)}</td>
+                        <td>${status}</td>
+                        <td>
+                            ${!alert.acknowledged ? `<button class="btn-icon" onclick="acknowledgeAlert(${alert.id})" title="Acknowledge">✓</button>` : ''}
+                        </td>
+                    </tr>
+                `;
+            });
+        } else {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No alerts fired recently</td></tr>';
+        }
+        
+    } catch (error) {
+        console.error('Error loading alert history:', error);
+        showToast('Failed to load alert history', 'error');
+    }
+}
+
+async function toggleAlertRule(id) {
+    try {
+        // Get current state
+        const response = await fetch(`${API_BASE_URL}/alerts/${id}`, {
+            headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+        });
+        const data = await response.json();
+        
+        // Toggle enabled state
+        const updateResponse = await fetch(`${API_BASE_URL}/alerts/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${API_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ enabled: !data.rule.enabled })
+        });
+        
+        if (!updateResponse.ok) throw new Error('Failed to toggle alert rule');
+        
+        showToast('Alert rule updated', 'success');
+        await loadAlertRules();
+        
+    } catch (error) {
+        console.error('Error toggling alert rule:', error);
+        showToast('Failed to toggle alert rule', 'error');
+    }
+}
+
+async function deleteAlertRule(id) {
+    if (!confirm('Are you sure you want to delete this alert rule?')) return;
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/alerts/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+        });
+        
+        if (!response.ok) throw new Error('Failed to delete alert rule');
+        
+        showToast('Alert rule deleted', 'success');
+        await loadAlertRules();
+        
+    } catch (error) {
+        console.error('Error deleting alert rule:', error);
+        showToast('Failed to delete alert rule', 'error');
+    }
+}
+
+async function acknowledgeAlert(id) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/alerts/history/${id}/acknowledge`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${API_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ acknowledged_by: 'dashboard_user' })
+        });
+        
+        if (!response.ok) throw new Error('Failed to acknowledge alert');
+        
+        showToast('Alert acknowledged', 'success');
+        await loadAlertHistory();
+        
+    } catch (error) {
+        console.error('Error acknowledging alert:', error);
+        showToast('Failed to acknowledge alert', 'error');
+    }
+}
+
+function showAddAlertModal() {
+    showToast('Add alert modal coming soon!', 'info');
+}
+
+// Export functions
+window.loadInsightsData = loadInsightsData;
+window.loadExtendedInsights = loadExtendedInsights;
+window.updateInsightsConfig = updateInsightsConfig;
+window.loadAlertRules = loadAlertRules;
+window.loadAlertHistory = loadAlertHistory;
+window.toggleAlertRule = toggleAlertRule;
+window.deleteAlertRule = deleteAlertRule;
+window.acknowledgeAlert = acknowledgeAlert;
+window.showAddAlertModal = showAddAlertModal;

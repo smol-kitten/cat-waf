@@ -32,10 +32,9 @@
                     <span class="nav-icon">✏️</span>
                     <span class="nav-text">Edit Site</span>
                 </a>
-                <a href="#" class="nav-item" data-page="bans">
-                    <span class="nav-icon">🚫</span>
-                    <span class="nav-text">Bans</span>
-                </a>
+                
+                <!-- Security Section -->
+                <div class="nav-section-title">Security</div>
                 <a href="#" class="nav-item" data-page="security">
                     <span class="nav-icon">🛡️</span>
                     <span class="nav-text">Security Events</span>
@@ -52,23 +51,28 @@
                     <span class="nav-icon">🤖</span>
                     <span class="nav-text">Bot Protection</span>
                 </a>
-                <a href="#" class="nav-item" data-page="bot-whitelist">
-                    <span class="nav-icon">🎯</span>
-                    <span class="nav-text">Bot Whitelist</span>
+                <a href="#" class="nav-item" data-page="bans">
+                    <span class="nav-icon">🚫</span>
+                    <span class="nav-text">IP Bans</span>
                 </a>
-                <a href="#" class="nav-item" data-page="telemetry">
-                    <span class="nav-icon">⚡</span>
-                    <span class="nav-text">Performance</span>
+                
+                <!-- Monitoring Section -->
+                <div class="nav-section-title">Monitoring</div>
+                <a href="#" class="nav-item" data-page="insights">
+                    <span class="nav-icon">💡</span>
+                    <span class="nav-text">Insights</span>
                 </a>
-                <a href="#" class="nav-item" data-page="rsl">
-                    <span class="nav-icon">🔐</span>
-                    <span class="nav-text">RSL Licensing</span>
+                <a href="#" class="nav-item" data-page="alerts">
+                    <span class="nav-icon">🔔</span>
+                    <span class="nav-text">Alerts</span>
                 </a>
-
                 <a href="#" class="nav-item" data-page="logs">
                     <span class="nav-icon">📝</span>
                     <span class="nav-text">Logs</span>
                 </a>
+                
+                <!-- System Section -->
+                <div class="nav-section-title">System</div>
                 <a href="#" class="nav-item" data-page="settings">
                     <span class="nav-icon">⚙️</span>
                     <span class="nav-text">Settings</span>
@@ -79,7 +83,7 @@
                 <div class="cat-status">
                     <div class="cat-text">All systems purring!</div>
                     <div class="version-text" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; text-align: center;">
-                        v1.5.0 | Nya~
+                        v2.0.0 | Nya~
                     </div>
                 </div>
             </div>
@@ -1820,6 +1824,255 @@ Sitemap: https://example.com/sitemap.xml"></textarea>
                                 </thead>
                                 <tbody id="recentRequestsBody">
                                     <tr><td colspan="6" style="text-align: center; color: #9ca3af;">Select a site to view recent requests</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Insights Page -->
+                <div class="page" id="insights-page">
+                    <div class="page-header">
+                        <h2>💡 Insights Portal</h2>
+                        <p style="color: var(--text-muted); margin-top: 0.5rem;">Modern analytics with basic and extended metrics</p>
+                    </div>
+
+                    <!-- Insights Configuration -->
+                    <div class="chart-card" style="margin-bottom: 20px;">
+                        <div class="chart-header">
+                            <h3>⚙️ Configuration</h3>
+                        </div>
+                        <div style="padding: 20px;">
+                            <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 15px;">
+                                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                    <input type="checkbox" id="insightsEnabled" onchange="updateInsightsConfig()" checked>
+                                    <span>Enable Insights Collection</span>
+                                </label>
+                            </div>
+                            <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 15px;">
+                                <label style="font-weight: 600;">Insight Level:</label>
+                                <select id="insightsLevel" onchange="updateInsightsConfig()" class="time-range">
+                                    <option value="basic" selected>Basic (Request counts, response times)</option>
+                                    <option value="extended">Extended (Web Vitals: LCP, FCP, TTFB)</option>
+                                </select>
+                            </div>
+                            <div id="extendedOptions" style="display: none; padding: 15px; background: var(--bg-tertiary); border-radius: var(--radius-md); margin-top: 15px;">
+                                <p style="color: var(--text-muted); margin-bottom: 10px;">
+                                    Extended insights collect Core Web Vitals metrics including LCP (Largest Contentful Paint), 
+                                    FCP (First Contentful Paint), and TTFB (Time to First Byte). This provides deeper performance insights 
+                                    but requires JavaScript integration on your sites.
+                                </p>
+                                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                    <input type="checkbox" id="collectWebVitals" onchange="updateInsightsConfig()">
+                                    <span>Collect Web Vitals (LCP, FCP, TTFB, CLS, FID)</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Basic Insights -->
+                    <div class="stats-grid" style="margin-bottom: 30px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">📊</span>
+                                <span class="stat-label">Total Requests</span>
+                            </div>
+                            <div class="stat-value" id="insightsTotalRequests">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">👥</span>
+                                <span class="stat-label">Unique Visitors</span>
+                            </div>
+                            <div class="stat-value" id="insightsUniqueVisitors">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">⚡</span>
+                                <span class="stat-label">Avg Response Time</span>
+                            </div>
+                            <div class="stat-value" id="insightsAvgResponseTime">0ms</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-icon">✅</span>
+                                <span class="stat-label">Success Rate</span>
+                            </div>
+                            <div class="stat-value" id="insightsSuccessRate">0%</div>
+                        </div>
+                    </div>
+
+                    <!-- Status Code Distribution -->
+                    <div class="chart-card" style="margin-bottom: 20px;">
+                        <div class="chart-header">
+                            <h3>HTTP Status Codes</h3>
+                            <select class="time-range" id="insightsTimeRange" onchange="loadInsightsData()">
+                                <option value="1h">Last Hour</option>
+                                <option value="24h" selected>Last 24 Hours</option>
+                                <option value="7d">Last 7 Days</option>
+                                <option value="30d">Last 30 Days</option>
+                            </select>
+                        </div>
+                        <div id="insightsStatusCodes" class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Status Range</th>
+                                        <th>Count</th>
+                                        <th>Percentage</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="insightsStatusCodesBody">
+                                    <tr><td colspan="3" style="text-align: center;">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Top Paths -->
+                    <div class="chart-card" style="margin-bottom: 20px;">
+                        <div class="chart-header">
+                            <h3>🔥 Top Accessed Paths</h3>
+                        </div>
+                        <div id="insightsTopPaths" class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Path</th>
+                                        <th>Requests</th>
+                                        <th>Avg Response Time</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="insightsTopPathsBody">
+                                    <tr><td colspan="3" style="text-align: center;">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Extended Insights (Web Vitals) -->
+                    <div id="extendedInsightsSection" style="display: none;">
+                        <div class="chart-card" style="margin-bottom: 20px;">
+                            <div class="chart-header">
+                                <h3>🚀 Core Web Vitals</h3>
+                                <p style="color: var(--text-muted); font-size: 0.875rem; margin: 0;">Performance metrics from real user experiences</p>
+                            </div>
+                            <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); padding: 20px;">
+                                <div class="stat-card">
+                                    <div class="stat-header">
+                                        <span class="stat-label">LCP (Largest Contentful Paint)</span>
+                                    </div>
+                                    <div class="stat-value" id="insightsLCP">0ms</div>
+                                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;" id="insightsLCPStatus">Good: < 2.5s</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-header">
+                                        <span class="stat-label">FCP (First Contentful Paint)</span>
+                                    </div>
+                                    <div class="stat-value" id="insightsFCP">0ms</div>
+                                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Good: < 1.8s</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-header">
+                                        <span class="stat-label">TTFB (Time to First Byte)</span>
+                                    </div>
+                                    <div class="stat-value" id="insightsTTFB">0ms</div>
+                                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Good: < 800ms</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-header">
+                                        <span class="stat-label">CLS (Cumulative Layout Shift)</span>
+                                    </div>
+                                    <div class="stat-value" id="insightsCLS">0</div>
+                                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Good: < 0.1</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Slowest Pages by LCP -->
+                        <div class="chart-card" style="margin-bottom: 20px;">
+                            <div class="chart-header">
+                                <h3>🐌 Slowest Pages (by LCP)</h3>
+                            </div>
+                            <div id="insightsSlowestPages" class="table-container">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Domain</th>
+                                            <th>Path</th>
+                                            <th>Avg LCP</th>
+                                            <th>Samples</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="insightsSlowestPagesBody">
+                                        <tr><td colspan="4" style="text-align: center;">Loading...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Alerts Page -->
+                <div class="page" id="alerts-page">
+                    <div class="page-header">
+                        <h2>🔔 Alert Rules</h2>
+                        <p style="color: var(--text-muted); margin-top: 0.5rem;">Configure automated alerts for critical events</p>
+                    </div>
+
+                    <div style="display: flex; gap: 15px; margin-bottom: 20px;">
+                        <button class="btn-primary" onclick="showAddAlertModal()">
+                            <span>➕</span>
+                            <span>Add Alert Rule</span>
+                        </button>
+                    </div>
+
+                    <!-- Alert Rules List -->
+                    <div class="chart-card" style="margin-bottom: 20px;">
+                        <div class="chart-header">
+                            <h3>⚙️ Configured Alerts</h3>
+                        </div>
+                        <div id="alertRulesList" class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Rule Name</th>
+                                        <th>Type</th>
+                                        <th>Status</th>
+                                        <th>Configuration</th>
+                                        <th>Site</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="alertRulesBody">
+                                    <tr><td colspan="6" style="text-align: center;">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Alert History -->
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3>📜 Alert History</h3>
+                            <div style="display: flex; gap: 10px;">
+                                <button class="btn-secondary" onclick="loadAlertHistory()">🔄 Refresh</button>
+                            </div>
+                        </div>
+                        <div id="alertHistory" class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Time</th>
+                                        <th>Rule</th>
+                                        <th>Type</th>
+                                        <th>Details</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="alertHistoryBody">
+                                    <tr><td colspan="6" style="text-align: center;">Loading...</td></tr>
                                 </tbody>
                             </table>
                         </div>
