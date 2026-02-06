@@ -52,9 +52,16 @@ docker compose up -d --build
 - **Fail2Ban** - Automated IP banning after repeated attacks with manual ban/unban controls
 - **Rate Limiting** - 4 preset zones (general, strict, API, custom) with per-site configuration
 - **GeoIP Filtering** - MaxMind GeoIP2 database integration with country-level blocking
+- **🆕 Security Check Center** - Automated health checks for SSL certificates, services, disk space, and attack monitoring
+
+### Advanced Routing & Configuration
+- **🆕 Path-Based Routing** - Route different URL paths to different backend servers (microservices support)
+- **🆕 Per-Path Settings** - Separate security, rate limiting, and body size limits for each path
+- **🆕 Max Body Size Control** - Configure upload size limits per site or per path
+- **Backend Load Balancing** - Multiple backend servers with health checks and failover
 
 ### Beautiful Dashboard
-- **Pages** - Overview, Sites, Security Events, ModSecurity, Bot Protection, IP Bans, Telemetry, Logs, Settings
+- **Pages** - Overview, Sites, Security Events, ModSecurity, Bot Protection, IP Bans, Telemetry, Logs, Settings, 🆕 Security Center
 - **Live Editing** - Auto-save changes 800ms after typing stops, no save button needed
 - **Real-Time Stats** - Total requests, attacks blocked, response times
 - **Catboy Theme** - Custom pink/purple gradient design with cute catboy aesthetic
@@ -81,6 +88,7 @@ docker compose up -d --build
 
 ### Reference & Features
 - **[FEATURES.md](_git/FEATURES.md)** - Complete feature list with implementation status (✅ Complete, 🔧 Partial, 📋 Planned) and dashboard screenshots
+- **[NEW_FEATURES.md](docs/NEW_FEATURES.md)** - 🆕 Path-based routing, Security Check Center, and max body size configuration guide
 
 ### Project Development
 - **[SUMMARY.md](_git/SUMMARY.md)** - Project development summary, architecture overview, and technical decisions
