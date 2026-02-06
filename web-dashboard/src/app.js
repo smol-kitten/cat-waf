@@ -1610,6 +1610,11 @@ async function loadSettings() {
         // Load certificate status
         loadCertificateStatus();
         
+        // Toggle ZeroSSL field visibility based on loaded setting
+        if (window.toggleZeroSSLField) {
+            setTimeout(() => window.toggleZeroSSLField(), 100);
+        }
+        
         // Load custom block rules
         loadBlockRules();
         
@@ -1764,6 +1769,16 @@ window.saveAcmeSettings = async () => {
         acme_server: document.getElementById('setting-acme_server')?.value.trim()
     };
     
+    // Add ZeroSSL API key if ZeroSSL is selected
+    const zerosslApiKey = document.getElementById('setting-zerossl_api_key')?.value.trim();
+    if (settings.acme_server === 'zerossl') {
+        if (!zerosslApiKey) {
+            showToast('Please enter ZeroSSL API key', 'error');
+            return;
+        }
+        settings.zerossl_api_key = zerosslApiKey;
+    }
+    
     if (!settings.acme_email) {
         showToast('Please enter an email address for ACME', 'error');
         return;
@@ -1792,6 +1807,14 @@ window.saveAcmeSettings = async () => {
     } catch (error) {
         console.error('Error saving ACME settings:', error);
         showToast('Failed to save certificate settings', 'error');
+    }
+};
+
+window.toggleZeroSSLField = function() {
+    const serverSelect = document.getElementById('setting-acme_server');
+    const zerosslGroup = document.getElementById('zerossl-api-key-group');
+    if (serverSelect && zerosslGroup) {
+        zerosslGroup.style.display = serverSelect.value === 'zerossl' ? 'block' : 'none';
     }
 };
 
@@ -4065,10 +4088,19 @@ function renderSSLTab() {
             </div>
             
             <div class="form-group">
+                <label>Certificate Provider</label>
+                <select id="edit_acme_provider" class="form-input" onchange="toggleACMEProvider()">
+                    <option value="letsencrypt" ${!data.acme_provider || data.acme_provider === 'letsencrypt' ? 'selected' : ''}>Let's Encrypt</option>
+                    <option value="zerossl" ${data.acme_provider === 'zerossl' ? 'selected' : ''}>ZeroSSL</option>
+                </select>
+                <small style="color: var(--text-muted);">Choose your preferred ACME certificate provider</small>
+            </div>
+            
+            <div class="form-group">
                 <label>Certificate Challenge Type</label>
                 <select id="edit_ssl_challenge_type" class="form-input" onchange="toggleSSLChallengeType()">
-                    <option value="http-01" ${data.ssl_challenge_type === 'http-01' || !data.ssl_challenge_type ? 'selected' : ''}>Let's Encrypt (HTTP Challenge)</option>
-                    <option value="dns-01" ${data.ssl_challenge_type === 'dns-01' ? 'selected' : ''}>Let's Encrypt (DNS Challenge)</option>
+                    <option value="http-01" ${data.ssl_challenge_type === 'http-01' || !data.ssl_challenge_type ? 'selected' : ''}>HTTP Challenge</option>
+                    <option value="dns-01" ${data.ssl_challenge_type === 'dns-01' ? 'selected' : ''}>DNS Challenge (Wildcards)</option>
                     <option value="snakeoil" ${data.ssl_challenge_type === 'snakeoil' ? 'selected' : ''}>Self-Signed (Snakeoil)</option>
                     <option value="custom" ${data.ssl_challenge_type === 'custom' ? 'selected' : ''}>Custom Certificate</option>
                 </select>
@@ -5177,6 +5209,14 @@ window.toggleSSLChallengeType = function() {
     const cloudflareGroup = document.getElementById('cloudflare-dns-group');
     if (cloudflareGroup && select) {
         cloudflareGroup.style.display = select.value === 'dns-01' ? 'block' : 'none';
+    }
+};
+
+window.toggleACMEProvider = function() {
+    // Just trigger auto-save when provider changes
+    const select = document.getElementById('edit_acme_provider');
+    if (select) {
+        autoSaveField('acme_provider', select.value);
     }
 };
 
