@@ -384,6 +384,9 @@ function sanitizeUri($uri) {
                 foreach ($params as $key => $value) {
                     // Skip non-string values
                     if (!is_string($value)) {
+                        if (is_array($value) || is_object($value)) {
+                            error_log("URI sanitization: Non-string query param value for key '{$key}' - type: " . gettype($value));
+                        }
                         $value = '';
                     }
                     

@@ -12,8 +12,12 @@ MODIFY COLUMN `rule_type` ENUM(
     'passkey_whitelist'
 ) NOT NULL;
 
+-- Add unique constraint to prevent duplicate global rules
+CREATE UNIQUE INDEX IF NOT EXISTS idx_site_rule_unique ON security_rules(site_id, rule_type);
+
 -- Insert default passkey whitelist rule (disabled by default)
-INSERT INTO security_rules (site_id, rule_type, enabled, config) VALUES
+-- Use IGNORE to skip if already exists due to unique constraint
+INSERT IGNORE INTO security_rules (site_id, rule_type, enabled, config) VALUES
 (NULL, 'passkey_whitelist', 0, JSON_OBJECT(
   'allow_cbor', true,
   'allow_webauthn_paths', true,
@@ -24,5 +28,4 @@ INSERT INTO security_rules (site_id, rule_type, enabled, config) VALUES
     '/api/auth/'
   ),
   'description', 'Whitelist WebAuthn/Passkey authentication requests to prevent blocking by ModSecurity rule 920420'
-))
-ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP;
+));

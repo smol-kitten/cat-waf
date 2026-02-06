@@ -81,7 +81,7 @@ if docker ps 2>/dev/null | grep -q waf-acme; then
                         now_epoch=$(date +%s)
                         days_until_expiry=$(( ($expiry_epoch - $now_epoch) / 86400 ))
                         
-                        if [ $days_until_expiry -gt 0 ] && [ $days_until_expiry -gt 30 ]; then
+                        if [ $days_until_expiry -gt 30 ]; then
                             # Certificate is valid and not expiring soon, sync it
                             ln -sf "$acme_cert" "$nginx_cert"
                             ln -sf "/acme.sh/$domain/key.pem" "/etc/nginx/certs/$domain/key.pem"

@@ -180,6 +180,12 @@ if (preg_match('#/cleanup/orphan-configs$#', $requestUri)) {
         
         if ($remove && count($orphansList) > 0) {
             foreach ($orphansList as $orphan) {
+                // Validate domain name to prevent command injection
+                if (!preg_match('/^[a-z0-9.-]+$/i', $orphan)) {
+                    error_log("Skipping invalid orphan config name: {$orphan}");
+                    continue;
+                }
+                
                 // Move to quarantine instead of deleting
                 $quarantineCmd = sprintf(
                     "docker exec waf-nginx sh -c 'mkdir -p /etc/nginx/sites-quarantine && mv /etc/nginx/sites-enabled/%s.conf /etc/nginx/sites-quarantine/%s.conf 2>&1'",

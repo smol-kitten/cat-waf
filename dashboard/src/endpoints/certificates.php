@@ -246,17 +246,23 @@ function checkExistingCertificate($domain) {
     // Extract base domain for wildcard cert lookup
     $baseDomain = extractRootDomain($domain);
     
+    // Sanitize domain to prevent command injection
+    $baseDomain = preg_replace('/[^a-z0-9.-]/i', '', $baseDomain);
+    if (empty($baseDomain)) {
+        return null;
+    }
+    
     // Check ACME certificate first (preferred source)
-    $acmeCertPath = "/acme.sh/{$baseDomain}/fullchain.pem";
-    $checkCmd = sprintf("docker exec waf-acme sh -c 'test -s \"%s\" && cat \"%s\" 2>/dev/null || echo not_found'", 
-        $acmeCertPath, $acmeCertPath);
+    $acmeCertPath = "/acme.sh/" . $baseDomain . "/fullchain.pem";
+    $checkCmd = sprintf("docker exec waf-acme sh -c 'test -s %s && cat %s 2>/dev/null || echo not_found'", 
+        escapeshellarg($acmeCertPath), escapeshellarg($acmeCertPath));
     $certData = shell_exec($checkCmd);
     
     // If not found in ACME, check nginx location
     if (!$certData || trim($certData) === 'not_found') {
-        $nginxCertPath = "/etc/nginx/certs/{$baseDomain}/fullchain.pem";
-        $checkCmd = sprintf("docker exec waf-nginx sh -c 'test -s \"%s\" && cat \"%s\" 2>/dev/null || echo not_found'", 
-            $nginxCertPath, $nginxCertPath);
+        $nginxCertPath = "/etc/nginx/certs/" . $baseDomain . "/fullchain.pem";
+        $checkCmd = sprintf("docker exec waf-nginx sh -c 'test -s %s && cat %s 2>/dev/null || echo not_found'", 
+            escapeshellarg($nginxCertPath), escapeshellarg($nginxCertPath));
         $certData = shell_exec($checkCmd);
     }
     
