@@ -104,6 +104,7 @@ services:
       - waf-logs:/var/log
       # Configuration access (via volumes)
       - waf-nginx-sites:/etc/nginx/sites-enabled
+      - waf-nginx-modsecurity:/etc/nginx/modsecurity
       - waf-fail2ban:/etc/fail2ban
       - ./fail2ban-socket:/var/run/fail2ban
       - /var/run/docker.sock:/var/run/docker.sock
@@ -224,6 +225,29 @@ services:
       DB_USER: waf_user
       DB_PASSWORD: ${DB_PASSWORD:-changeme}
 
+  # Playwright screenshot service (optional)
+  playwright:
+    build:
+      context: ./playwright
+      dockerfile: Dockerfile
+    container_name: waf-playwright
+    environment:
+      PORT: 3000
+      CACHE_TTL: 3600
+      MAX_CONCURRENT: 3
+      API_KEY: ${PLAYWRIGHT_API_KEY:-}
+    volumes:
+      - waf-playwright-screenshots:/app/screenshots
+      - waf-playwright-cache:/app/cache
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - waf-network
+    restart: unless-stopped
+
 networks:
   waf-network:
     driver: bridge
@@ -252,3 +276,8 @@ volumes:
   # waf-default-backend removed - now using direct host mount
   fail2ban-socket:
     name: fail2ban-socket
+  # Playwright service volumes
+  waf-playwright-screenshots:
+    name: waf-playwright-screenshots
+  waf-playwright-cache:
+    name: waf-playwright-cache

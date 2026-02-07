@@ -54,6 +54,11 @@ function handleSettings($method, $params, $db) {
                 if ($key === 'paranoia_level') {
                     updateModSecurityParanoiaLevel($value);
                 }
+                
+                // Handle auto-ban toggle
+                if ($key === 'enable_auto_ban') {
+                    controlAutoBanService($value === '1' || $value === true);
+                }
             }
             
             sendResponse(['success' => true, 'message' => 'Settings updated']);
@@ -92,7 +97,8 @@ function handleSettings($method, $params, $db) {
 }
 
 /**
- * Update ModSecurity paranoia level in the nginx container
+ * Update ModSecurity paranoia level
+ * This updates the config file in the shared volume and signals nginx to reload
  */
 function updateModSecurityParanoiaLevel($level) {
     $level = (int)$level;
@@ -103,41 +109,44 @@ function updateModSecurityParanoiaLevel($level) {
         return false;
     }
     
-    $configFile = '/etc/nginx/modsecurity/coreruleset/crs-setup.conf';
+    // Path to the shared ModSecurity config (mounted in both containers)
+    $configFile = '/etc/nginx/modsecurity/crs-setup-override.conf';
     
-    // Read current config
-    $dockerExec = "docker exec waf-nginx sh -c";
-    $readCmd = "$dockerExec \"cat $configFile\"";
-    $config = shell_exec($readCmd);
+    // Create or update the override config
+    $config = "# CatWAF ModSecurity Override Configuration\n";
+    $config .= "# Auto-generated - DO NOT EDIT MANUALLY\n";
+    $config .= "# Generated: " . date('Y-m-d H:i:s') . "\n\n";
+    $config .= "# Paranoia Level (1-4)\n";
+    $config .= "SecAction \"id:900000,phase:1,nolog,pass,t:none,setvar:tx.paranoia_level=$level\"\n";
     
-    if (!$config) {
-        error_log("Failed to read ModSecurity config file");
+    // Write the config file
+    $result = file_put_contents($configFile, $config);
+    
+    if ($result === false) {
+        error_log("Failed to write ModSecurity config file: $configFile");
         return false;
     }
     
-    // Update paranoia level using regex
-    $pattern = '/setvar:tx\.paranoia_level=\d+/';
-    $replacement = "setvar:tx.paranoia_level=$level";
+    // Signal nginx to reload by touching the reload signal file
+    $reloadSignal = '/etc/nginx/sites-enabled/.reload_needed';
+    touch($reloadSignal);
     
-    if (preg_match($pattern, $config)) {
-        // Replace existing paranoia level
-        $newConfig = preg_replace($pattern, $replacement, $config);
-    } else {
-        // Paranoia level not found, append it
-        $newConfig = $config . "\n\n# Set paranoia level\n";
-        $newConfig .= "SecAction \"id:900000,phase:1,nolog,pass,t:none,setvar:tx.paranoia_level=$level\"\n";
-    }
-    
-    // Write updated config back
-    $escapedConfig = addslashes($newConfig);
-    $writeCmd = "$dockerExec \"echo '$escapedConfig' > $configFile\"";
-    shell_exec($writeCmd);
-    
-    // Reload nginx to apply changes
-    $reloadCmd = "$dockerExec \"nginx -s reload\"";
-    $output = shell_exec($reloadCmd . " 2>&1");
-    
-    error_log("ModSecurity paranoia level updated to $level. Nginx reload output: " . $output);
+    error_log("ModSecurity paranoia level updated to $level. Reload signal sent.");
     
     return true;
+}
+
+/**
+ * Control the auto-ban supervisord service
+ */
+function controlAutoBanService($enable) {
+    $action = $enable ? 'start' : 'stop';
+    
+    // Use supervisorctl to control the service
+    $cmd = "supervisorctl $action auto-ban-service 2>&1";
+    $output = shell_exec($cmd);
+    
+    error_log("Auto-ban service $action: " . $output);
+    
+    return strpos($output, 'ERROR') === false;
 }

@@ -1,10 +1,17 @@
 <?php
 // Log parser - Parses NGINX access logs and populates database with telemetry, bot detection, and ModSec events
 
+require_once __DIR__ . '/LogQueue.php';
+
 $logDir = '/var/log/nginx';
 $modsecAuditLog = '/var/log/modsec/modsec_audit.log';
 $posFilePrefix = '/tmp/parser_';
 $modsecPosFile = '/tmp/parser_modsec.pos';
+
+// Queue configuration
+$QUEUE_BUFFER_SIZE = (int)(getenv('QUEUE_BUFFER_SIZE') ?: 500);
+$QUEUE_FLUSH_INTERVAL = (int)(getenv('QUEUE_FLUSH_INTERVAL') ?: 5);
+$USE_QUEUE = getenv('USE_LOG_QUEUE') !== 'false'; // Enabled by default
 
 // Load bot patterns from bot-protection.conf
 $botPatterns = [
@@ -84,6 +91,15 @@ if (!$pdo) {
 
 $lastHealthCheck = time();
 $healthCheckInterval = 60; // Check connection every 60 seconds
+
+// Initialize queue if enabled
+$logQueue = null;
+if ($USE_QUEUE) {
+    $logQueue = new LogQueue($pdo, $QUEUE_BUFFER_SIZE, $QUEUE_FLUSH_INTERVAL);
+    echo "[QUEUE] Log queue enabled (buffer: {$QUEUE_BUFFER_SIZE}, flush interval: {$QUEUE_FLUSH_INTERVAL}s)\n";
+} else {
+    echo "[QUEUE] Log queue disabled, using direct inserts\n";
+}
 
 echo "Starting log parser...\n";
 
@@ -206,26 +222,34 @@ while (true) {
                 $botType = $botDetection['type'];
                 $botName = $botDetection['name'] ?? 'unknown';
                 
-                // Insert into access_logs
-                $stmt = $pdo->prepare("
-                    INSERT INTO access_logs (
-                        domain, ip_address, request_uri, method,
-                        status_code, bytes_sent, user_agent, referer, 
-                        timestamp
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ");
+                // Insert into access_logs (via queue or direct)
+                $accessLogData = [
+                    'domain' => $host,
+                    'ip_address' => $clientIp,
+                    'request_uri' => $uri,
+                    'method' => $method,
+                    'status_code' => $status,
+                    'bytes_sent' => $bodyBytes,
+                    'user_agent' => $userAgent,
+                    'referer' => $referer,
+                    'timestamp' => $logTime
+                ];
                 
-                $stmt->execute([
-                    $host,
-                    $clientIp,
-                    $uri,
-                    $method,
-                    $status,
-                    $bodyBytes,
-                    $userAgent,
-                    $referer,
-                    $logTime
-                ]);
+                if ($logQueue) {
+                    $logQueue->addAccessLog($accessLogData);
+                } else {
+                    $stmt = $pdo->prepare("
+                        INSERT INTO access_logs (
+                            domain, ip_address, request_uri, method,
+                            status_code, bytes_sent, user_agent, referer, 
+                            timestamp
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ");
+                    $stmt->execute([
+                        $host, $clientIp, $uri, $method,
+                        $status, $bodyBytes, $userAgent, $referer, $logTime
+                    ]);
+                }
                 
                 // Record bot detection if bot identified
                 if ($botType !== 'human') {
@@ -249,22 +273,30 @@ while (true) {
                         
                         echo "[DEBUG] Bot detected: name=$botName, type=$botType, action=$action, UA=$userAgent, IP=$clientIp\n";
                         
-                        $botStmt = $pdo->prepare("
-                            INSERT INTO bot_detections (
-                                ip_address, user_agent, bot_name, bot_type, action, 
-                                domain, timestamp
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                        ");
+                        // Insert bot detection (via queue or direct)
+                        $botData = [
+                            'ip_address' => $clientIp,
+                            'user_agent' => $userAgent,
+                            'bot_name' => $botName,
+                            'bot_type' => $botType,
+                            'action' => $action,
+                            'domain' => $host,
+                            'timestamp' => $logTime
+                        ];
                         
-                        $botStmt->execute([
-                            $clientIp,
-                            $userAgent,
-                            $botName,
-                            $botType,
-                            $action,
-                            $host,
-                            $logTime
-                        ]);
+                        if ($logQueue) {
+                            $logQueue->addBotDetection($botData);
+                        } else {
+                            $botStmt = $pdo->prepare("
+                                INSERT INTO bot_detections (
+                                    ip_address, user_agent, bot_name, bot_type, action, 
+                                    domain, timestamp
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                            ");
+                            $botStmt->execute([
+                                $clientIp, $userAgent, $botName, $botType, $action, $host, $logTime
+                            ]);
+                        }
                         
                         echo "[BOT] $botName ($botType) detected: $userAgent ($action)\n";
                     } catch (PDOException $e) {
@@ -278,30 +310,37 @@ while (true) {
                 
                 // Record telemetry for ALL requests (including errors)
                 try {
-                    // Insert enhanced telemetry with response times and cache status
-                    $telemetryStmt = $pdo->prepare("
-                        INSERT INTO request_telemetry (
-                            domain, uri, method, status_code, ip_address,
-                            bytes_sent, response_time,
-                            cache_status, backend_server, timestamp
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ");
-                    
                     // Use upstream_response_time if available, otherwise request_time
                     $responseTime = $upstreamResponseTime ?? $requestTime;
                     
-                    $telemetryStmt->execute([
-                        $host,
-                        $uri,
-                        $method,
-                        $status,
-                        $clientIp,
-                        $bodyBytes,
-                        $responseTime,
-                        $cacheStatus,
-                        $upstreamAddr,
-                        $logTime
-                    ]);
+                    $telemetryData = [
+                        'domain' => $host,
+                        'uri' => $uri,
+                        'method' => $method,
+                        'status_code' => $status,
+                        'ip_address' => $clientIp,
+                        'bytes_sent' => $bodyBytes,
+                        'response_time' => $responseTime,
+                        'cache_status' => $cacheStatus,
+                        'backend_server' => $upstreamAddr,
+                        'timestamp' => $logTime
+                    ];
+                    
+                    if ($logQueue) {
+                        $logQueue->addTelemetry($telemetryData);
+                    } else {
+                        $telemetryStmt = $pdo->prepare("
+                            INSERT INTO request_telemetry (
+                                domain, uri, method, status_code, ip_address,
+                                bytes_sent, response_time,
+                                cache_status, backend_server, timestamp
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ");
+                        $telemetryStmt->execute([
+                            $host, $uri, $method, $status, $clientIp,
+                            $bodyBytes, $responseTime, $cacheStatus, $upstreamAddr, $logTime
+                        ]);
+                    }
                 } catch (PDOException $e) {
                     // Table might not exist yet, silently continue
                 }
@@ -336,6 +375,24 @@ while (true) {
         file_put_contents($posFile, $lastPos);
 
         fclose($handle);
+    }
+    
+    // Flush queue if enabled
+    if ($logQueue) {
+        $logQueue->flush();
+        
+        // Periodically check disk queue (every 5 iterations = ~10 seconds)
+        static $iterCount = 0;
+        $iterCount++;
+        if ($iterCount % 5 === 0) {
+            $logQueue->processDiskQueue();
+        }
+        
+        // Print stats every 30 iterations (~60 seconds)
+        if ($iterCount % 30 === 0) {
+            $stats = $logQueue->getStats();
+            echo "[QUEUE STATS] Flushed: {$stats['flushed']}, Disk queued: {$stats['disk_queued']}, Recovered: {$stats['disk_recovered']}, Errors: {$stats['errors']}\n";
+        }
     }
     
     // Parse ModSecurity audit logs (once per iteration, not per file)
@@ -632,149 +689,164 @@ function detectBot($userAgent, $patterns) {
 function detectScanner($ip, $uri, $status, $host, $pdo, $wpPaths, $exploitPaths, &$scannerTracking) {
     global $dbHost, $dbName, $dbUser, $dbPass;
     
-    $scanType = null;
-    $suspicious = false;
+    // Only track 404s and known scan paths
+    if ($status != 404) {
+        // Track successful requests for ratio calculation
+        updateScannerSuccessCount($pdo, $ip);
+        return;
+    }
+    
+    $category = 'other';
     
     // Check for WordPress scanning
     foreach ($wpPaths as $wpPath) {
         if (stripos($uri, $wpPath) !== false) {
-            $scanType = 'wordpress';
-            $suspicious = true;
+            $category = 'wordpress';
             break;
         }
     }
     
-    // Check for exploit path scanning
-    if (!$scanType) {
-        foreach ($exploitPaths as $exploitPath) {
-            if (stripos($uri, $exploitPath) !== false) {
-                $scanType = 'exploit';
-                $suspicious = true;
-                break;
-            }
+    // Check for config/exploit paths
+    if ($category === 'other') {
+        if (stripos($uri, '.env') !== false || stripos($uri, '.git') !== false) {
+            $category = 'config';
+        } elseif (stripos($uri, '.sql') !== false || stripos($uri, 'backup') !== false) {
+            $category = 'backup';
+        } elseif (stripos($uri, 'admin') !== false) {
+            $category = 'admin';
+        } elseif (stripos($uri, 'api') !== false) {
+            $category = 'api';
+        } elseif (stripos($uri, '.php') !== false) {
+            $category = 'php';
         }
     }
     
-    // Check for directory scanning (multiple 404s)
-    if ($status == 404) {
-        $scanType = $scanType ?: 'directory';
-        $suspicious = true;
-    }
-    
-    if (!$suspicious) {
-        return;
-    }
-    
-    // Track in memory for this execution
-    $trackKey = $ip . '_' . $host;
+    // Track in memory for this execution (for rate limiting)
+    $trackKey = $ip;
     if (!isset($scannerTracking[$trackKey])) {
         $scannerTracking[$trackKey] = [
-            'count' => 0,
             '404_count' => 0,
             'paths' => [],
             'first_seen' => time()
         ];
     }
     
-    $scannerTracking[$trackKey]['count']++;
-    if ($status == 404) {
-        $scannerTracking[$trackKey]['404_count']++;
-    }
+    $scannerTracking[$trackKey]['404_count']++;
     $scannerTracking[$trackKey]['paths'][] = $uri;
     
-    // Update database
+    // Update databases
     try {
+        // 1. Update scanned_endpoints table
         $stmt = $pdo->prepare("
-            INSERT INTO scanner_detections (
-                ip_address, domain, scan_type, request_count, 
-                error_404_count, suspicious_paths, first_seen, last_seen
-            ) VALUES (?, ?, ?, 1, ?, ?, NOW(), NOW())
+            INSERT INTO scanned_endpoints (path, category, hit_count, unique_ips, first_seen, last_seen)
+            VALUES (?, ?, 1, 1, NOW(), NOW())
             ON DUPLICATE KEY UPDATE
-                request_count = request_count + 1,
-                error_404_count = error_404_count + ?,
-                suspicious_paths = CONCAT_WS(',', suspicious_paths, ?),
-                last_seen = NOW(),
-                scan_type = IF(scan_type != VALUES(scan_type), 'mixed', scan_type)
+                hit_count = hit_count + 1,
+                last_seen = NOW()
         ");
+        $pathTruncated = substr($uri, 0, 500);
+        $stmt->execute([$pathTruncated, $category]);
         
-        $is404 = ($status == 404) ? 1 : 0;
-        $pathTruncated = substr($uri, 0, 200);
+        // 2. Update scanner_ips table
+        $stmt = $pdo->prepare("
+            INSERT INTO scanner_ips (ip_address, scan_count, paths_scanned, first_seen, last_seen)
+            VALUES (?, 1, 1, NOW(), NOW())
+            ON DUPLICATE KEY UPDATE
+                scan_count = scan_count + 1,
+                last_seen = NOW()
+        ");
+        $stmt->execute([$ip]);
         
-        $stmt->execute([
-            $ip,
-            $host,
-            $scanType,
-            $is404,
-            $pathTruncated,
-            $is404,
-            $pathTruncated
-        ]);
+        // Get scanner ID for request logging
+        $stmt = $pdo->prepare("SELECT id FROM scanner_ips WHERE ip_address = ?");
+        $stmt->execute([$ip]);
+        $scannerId = $stmt->fetchColumn();
         
-        // Check if we should auto-block
-        $threshold = getScannerThreshold($pdo, $host);
-        $timeWindow = $threshold['time_window_seconds'] ?? 60;
+        // 3. Log the request (only for active scanners to save space)
+        if ($scannerId && $scannerTracking[$trackKey]['404_count'] <= 100) {
+            $stmt = $pdo->prepare("
+                INSERT INTO scanner_requests (scanner_ip_id, path, status_code, domain, timestamp)
+                VALUES (?, ?, ?, ?, NOW())
+            ");
+            $stmt->execute([$scannerId, $pathTruncated, $status, $host]);
+        }
         
-        if (time() - $scannerTracking[$trackKey]['first_seen'] <= $timeWindow) {
-            $count404 = $scannerTracking[$trackKey]['404_count'];
-            $thresholdValue = $threshold['threshold_404'] ?? 10;
-            $wpInstantBlock = $threshold['wordpress_instant_block'] ?? false;
+        // 4. Check if we should auto-block
+        $settings = getScannerSettings($pdo);
+        
+        if ($settings['detection_enabled'] === '1') {
+            $threshold = (int)$settings['404_threshold'];
+            $timeframe = (int)$settings['timeframe'];
             
-            $shouldBlock = false;
-            $blockReason = '';
-            
-            // Instant block for WordPress if enabled
-            if ($wpInstantBlock && $scanType === 'wordpress') {
-                $shouldBlock = true;
-                $blockReason = 'WordPress path scanning detected (instant block enabled)';
-            }
-            // Threshold-based blocking
-            elseif ($count404 >= $thresholdValue) {
-                $shouldBlock = true;
-                $blockReason = "Scanner detected: $count404 404 errors in {$timeWindow}s";
-            }
-            
-            if ($shouldBlock) {
-                autoBlockScanner($ip, $blockReason, $threshold['auto_block_duration'] ?? 3600, $pdo);
-                echo "[SCANNER BLOCKED] $ip - $blockReason\n";
+            // Check if threshold exceeded in memory tracking
+            if (time() - $scannerTracking[$trackKey]['first_seen'] <= $timeframe) {
+                $count404 = $scannerTracking[$trackKey]['404_count'];
+                
+                if ($count404 >= $threshold && $settings['auto_block'] === '1') {
+                    $duration = (int)$settings['auto_block_duration'];
+                    $reason = "Scanner auto-blocked: $count404 404s in {$timeframe}s";
+                    autoBlockScanner($ip, $reason, $duration, $pdo);
+                    
+                    // Update scanner status
+                    $stmt = $pdo->prepare("
+                        UPDATE scanner_ips 
+                        SET status = 'blocked', auto_blocked = 1, action_taken_at = NOW() 
+                        WHERE ip_address = ?
+                    ");
+                    $stmt->execute([$ip]);
+                    
+                    echo "[SCANNER BLOCKED] $ip - $reason\n";
+                }
             }
         }
         
     } catch (PDOException $e) {
-        echo "[ERROR] Scanner detection failed: " . $e->getMessage() . "\n";
+        // Tables might not exist yet
+        if (strpos($e->getMessage(), "doesn't exist") === false) {
+            echo "[ERROR] Scanner detection failed: " . $e->getMessage() . "\n";
+        }
     }
 }
 
-// Get scanner detection threshold for domain
-function getScannerThreshold($pdo, $domain) {
+// Update success count for an IP (for ratio calculation)
+function updateScannerSuccessCount($pdo, $ip) {
     try {
-        // Try to get site-specific rule first
-        $stmt = $pdo->prepare("
-            SELECT sr.config
-            FROM security_rules sr
-            LEFT JOIN sites s ON sr.site_id = s.id
-            WHERE sr.rule_type = 'scanner_detection' 
-              AND sr.enabled = 1
-              AND (s.domain = ? OR sr.site_id IS NULL)
-            ORDER BY sr.site_id DESC
-            LIMIT 1
-        ");
-        $stmt->execute([$domain]);
-        $result = $stmt->fetch();
+        $pdo->prepare("
+            UPDATE scanner_ips 
+            SET successful_requests = successful_requests + 1 
+            WHERE ip_address = ?
+        ")->execute([$ip]);
+    } catch (PDOException $e) {
+        // Ignore - IP might not be tracked as scanner yet
+    }
+}
+
+// Get scanner detection settings
+function getScannerSettings($pdo) {
+    $defaults = [
+        'detection_enabled' => '1',
+        '404_threshold' => '10',
+        'timeframe' => '300',
+        'success_ratio' => '0.1',
+        'auto_block' => '0',
+        'auto_block_duration' => '86400'
+    ];
+    
+    try {
+        $stmt = $pdo->query("SELECT setting_key, setting_value FROM settings WHERE setting_key LIKE 'scanner_%'");
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        if ($result) {
-            return json_decode($result['config'], true);
+        foreach ($rows as $row) {
+            $key = str_replace('scanner_', '', $row['setting_key']);
+            if (isset($defaults[$key])) {
+                $defaults[$key] = $row['setting_value'];
+            }
         }
     } catch (PDOException $e) {
-        // Silent fail, use defaults
+        // Use defaults if settings table doesn't exist
     }
     
-    // Default values
-    return [
-        'threshold_404' => 10,
-        'time_window_seconds' => 60,
-        'auto_block_duration' => 3600,
-        'wordpress_instant_block' => false
-    ];
+    return $defaults;
 }
 
 // Auto-block scanner IP
@@ -782,25 +854,17 @@ function autoBlockScanner($ip, $reason, $duration, $pdo) {
     try {
         // Add to banned_ips table
         $stmt = $pdo->prepare("
-            INSERT INTO banned_ips (ip_address, reason, duration, banned_at)
-            VALUES (?, ?, ?, NOW())
+            INSERT INTO banned_ips (ip_address, reason, banned_by, ban_duration, expires_at, created_at)
+            VALUES (?, ?, 'scanner-detection', ?, DATE_ADD(NOW(), INTERVAL ? SECOND), NOW())
             ON DUPLICATE KEY UPDATE
                 reason = VALUES(reason),
-                duration = VALUES(duration),
-                banned_at = NOW()
+                ban_duration = VALUES(ban_duration),
+                expires_at = VALUES(expires_at)
         ");
-        $stmt->execute([$ip, $reason, $duration]);
+        $stmt->execute([$ip, $reason, $duration, $duration]);
         
-        // Update scanner_detections
-        $stmt = $pdo->prepare("
-            UPDATE scanner_detections 
-            SET auto_blocked = 1, block_reason = ?
-            WHERE ip_address = ? AND auto_blocked = 0
-        ");
-        $stmt->execute([$reason, $ip]);
-        
-        // Trigger nginx banlist regeneration (async)
-        exec("docker exec waf-dashboard php /var/www/html/regen.php > /dev/null 2>&1 &");
+        // Trigger nginx banlist regeneration
+        touch('/etc/nginx/sites-enabled/.reload_needed');
         
     } catch (PDOException $e) {
         echo "[ERROR] Auto-block failed: " . $e->getMessage() . "\n";

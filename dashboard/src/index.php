@@ -259,6 +259,61 @@ try {
             handleInsights($method, array_slice($uri, 1), $db);
             break;
 
+        case 'notifications':
+            require_once 'endpoints/notifications.php';
+            handleNotifications($method, array_slice($uri, 1), $db);
+            break;
+
+        case 'security-center':
+            require_once 'endpoints/security-center.php';
+            handleSecurityCenter($method, array_slice($uri, 1), $db);
+            break;
+
+        case 'scanners':
+            require_once 'endpoints/scanners.php';
+            handleScanners($method, array_slice($uri, 1), $db);
+            break;
+
+        case 'tasks':
+            require_once 'endpoints/tasks.php';
+            handleScheduledTasks($method, '/' . implode('/', array_slice($uri, 1)), json_decode(file_get_contents('php://input'), true) ?? []);
+            break;
+
+        case 'routers':
+            require_once 'endpoints/routers.php';
+            handleRouters($method, '/' . implode('/', array_slice($uri, 1)), json_decode(file_get_contents('php://input'), true) ?? []);
+            break;
+
+        case 'bot-center':
+            require_once 'endpoints/bot-center.php';
+            handleBotCenter($method, '/' . implode('/', array_slice($uri, 1)), json_decode(file_get_contents('php://input'), true) ?? []);
+            break;
+
+        case 'cf-origin':
+            require_once 'endpoints/cf-origin.php';
+            handleCfOriginRequest($method, array_slice($uri, 1), $db);
+            break;
+
+        case 'ca-center':
+            require_once 'endpoints/ca-center.php';
+            handleCaRequest($method, array_slice($uri, 1), $db);
+            break;
+
+        case 'preview':
+            require_once 'endpoints/preview.php';
+            handlePreviewRequest($method, array_slice($uri, 1), $db);
+            break;
+
+        case 'cache':
+            require_once 'endpoints/cache.php';
+            handleCacheRequest($method, array_slice($uri, 1), $db);
+            break;
+
+        case 'rsl-tester':
+            require_once 'endpoints/rsl-tester.php';
+            handleRslTester($method, array_slice($uri, 1), $db);
+            break;
+
         default:
             http_response_code(404);
             echo json_encode(['error' => 'Endpoint not found']);

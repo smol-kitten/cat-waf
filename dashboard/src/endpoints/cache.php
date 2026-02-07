@@ -1,192 +1,368 @@
 <?php
-// Cache Management API
-// GET /api/cache/stats - Get cache statistics
-// GET /api/cache/items - List cached items
-// POST /api/cache/purge - Purge all or pattern-based cache
-// DELETE /api/cache/items/:key - Purge specific cache item
+/**
+ * Caching & Image Optimization API Endpoint
+ */
 
-// Use $db from index.php (already connected)
-global $db;
+require_once __DIR__ . '/../lib/CacheManager.php';
+require_once __DIR__ . '/../lib/ImageOptimizer.php';
 
-// Don't set header again if already set by index.php
-if (!headers_sent()) {
-    header('Content-Type: application/json');
+function handleCacheRequest(string $method, array $path, PDO $pdo): void
+{
+    $cacheManager = new CacheManager($pdo);
+    $imageOptimizer = new ImageOptimizer($pdo);
+    
+    $action = $path[1] ?? 'stats';
+
+    switch ($action) {
+        case 'stats':
+            handleCacheStats($method, $cacheManager);
+            break;
+        case 'config':
+            handleCacheConfig($method, $path, $pdo, $cacheManager);
+            break;
+        case 'purge':
+            handlePurge($method, $path, $pdo, $cacheManager);
+            break;
+        case 'warm':
+            handleWarm($method, $path, $pdo, $cacheManager);
+            break;
+        case 'history':
+            handlePurgeHistory($method, $path, $pdo, $cacheManager);
+            break;
+        case 'image':
+            handleImageOptimization($method, $path, $pdo, $imageOptimizer);
+            break;
+        case 'settings':
+            handleCacheSettings($method, $pdo, $cacheManager);
+            break;
+        default:
+            sendResponse(['error' => 'Unknown action'], 404);
+    }
 }
 
-$method = $_SERVER['REQUEST_METHOD'];
-$requestUri = $_SERVER['REQUEST_URI'];
-
-// Parse action from URI - use both full URI and path segment for compatibility
-$pathSegment = $_GET['action'] ?? '';
-
-if (preg_match('#/cache/stats$#', $requestUri) || $pathSegment === 'stats') {
+/**
+ * Get cache statistics
+ */
+function handleCacheStats(string $method, CacheManager $cacheManager): void
+{
     if ($method !== 'GET') {
-        http_response_code(405);
-        echo json_encode(['error' => 'Method not allowed']);
-        exit;
-    }
-    exit;
-}
-
-if (preg_match('#/cache/items/([^/]+)$#', $requestUri, $matches) || ($pathSegment === 'items' && isset($_GET['key']))) {
-    $key = isset($matches[1]) ? urldecode($matches[1]) : urldecode($_GET['key']);
-    if ($method === 'DELETE') {
-        purgeCacheItem($key);
-    } else {
-        http_response_code(405);
-        echo json_encode(['error' => 'Method not allowed']);
-    }
-    exit;
-}
-
-if (preg_match('#/cache/items$#', $requestUri)) {
-    if ($method !== 'GET') {
-        http_response_code(405);
-        echo json_encode(['error' => 'Method not allowed']);
-        exit;
-    }
-    getCacheItems();
-    exit;
-}
-
-if (preg_match('#/cache/purge$#', $requestUri)) {
-    if ($method !== 'POST') {
-        http_response_code(405);
-        echo json_encode(['error' => 'Method not allowed']);
-        exit;
-    }
-    purgeCache();
-    exit;
-}
-
-http_response_code(404);
-echo json_encode(['error' => 'Endpoint not found']);
-exit;
-
-function getCacheItems() {
-    $cacheDir = '/var/cache/nginx';
-    $items = [];
-
-    // Run find inside the nginx container - BusyBox find doesn't support -printf
-    // So we use find + stat to get file info
-    $innerFind = "find {$cacheDir} -type f \\( -path '{$cacheDir}/*_cache/*' -o -path '{$cacheDir}/__cache/*' \\) 2>/dev/null | head -100";
-    $findCmd = "docker exec waf-nginx sh -c " . escapeshellarg($innerFind) . " 2>&1";
-    $output = shell_exec($findCmd);
-    if (!$output) {
-        echo json_encode(['items' => []]);
+        sendResponse(['error' => 'Method not allowed'], 405);
         return;
     }
 
-    $paths = array_filter(array_map('trim', explode("\n", $output)));
-    foreach ($paths as $path) {
-        if (empty($path)) continue;
-        
-        // Get file info using stat (BusyBox compatible)
-        $statCmd = "docker exec waf-nginx stat -c '%s %Y' " . escapeshellarg($path) . " 2>/dev/null";
-        $statOutput = trim(shell_exec($statCmd));
-        if (!$statOutput) continue;
-        
-        $statParts = explode(' ', $statOutput);
-        if (count($statParts) < 2) continue;
-        
-        $size = intval($statParts[0]);
-        $mtime = intval($statParts[1]);
+    $stats = $cacheManager->getCacheStats();
+    $warmStatus = $cacheManager->getWarmQueueStatus();
 
-        // Try to extract URL/key from the cache file by grepping inside the nginx container
-        $url = extractUrlFromCacheFile($path);
-
-        $items[] = [
-            'key' => basename($path),
-            'url' => $url,
-            'size' => $size,
-            'age' => time() - intval($mtime),
-            'last_access' => date('Y-m-d H:i:s', intval($mtime)),
-            'hits' => null // TODO: Get real hit count from nginx if available
-        ];
-    }
-
-    echo json_encode(['items' => $items]);
+    sendResponse([
+        'cache' => $stats,
+        'warm_queue' => $warmStatus
+    ]);
 }
 
-function extractUrlFromCacheFile($cachePath) {
-    // Because the cache files live inside the nginx container, try to read
-    // the first part of the file there and grep for a KEY: line.
+/**
+ * Get/set cache configuration for domain
+ */
+function handleCacheConfig(string $method, array $path, PDO $pdo, CacheManager $cacheManager): void
+{
+    $domainId = $path[2] ?? null;
 
-    // Escape the path for inclusion in shell command and run grep inside the nginx container
-    $innerGrep = 'grep -a -m1 "KEY:" ' . escapeshellarg($cachePath) . ' 2>/dev/null || true';
-    $cmd = "docker exec waf-nginx sh -c " . escapeshellarg($innerGrep) . " 2>&1";
-    $output = shell_exec($cmd);
-    if ($output) {
-        // Output may contain lines; find the KEY: part
-        if (preg_match('/KEY:\s*(.+)/', $output, $m)) {
-            $key = trim($m[1]);
-            // Try to extract path portion from a full URL-like key
-            if (preg_match('#https?://[^/]+(.+)$#', $key, $urlMatch)) {
-                return $urlMatch[1];
+    if (!$domainId || !is_numeric($domainId)) {
+        sendResponse(['error' => 'Domain ID required'], 400);
+        return;
+    }
+
+    $domainId = (int)$domainId;
+
+    switch ($method) {
+        case 'GET':
+            $config = $cacheManager->getCacheConfig($domainId);
+            if ($config) {
+                sendResponse(['config' => $config]);
+            } else {
+                sendResponse(['config' => null, 'message' => 'No custom configuration, using defaults']);
             }
-            return $key;
-        }
-    }
+            break;
 
-    // If we couldn't extract a key, try to derive a short label from the path
-    if (preg_match('#/([^/]+_cache|__cache)/#', $cachePath, $match)) {
-        return 'Cached item (' . $match[1] . ')';
-    }
+        case 'PUT':
+        case 'POST':
+            $input = json_decode(file_get_contents('php://input'), true);
+            if ($cacheManager->setCacheConfig($domainId, $input)) {
+                // Regenerate nginx config
+                triggerConfigRegeneration($pdo, $domainId);
+                sendResponse(['success' => true]);
+            } else {
+                sendResponse(['error' => 'Failed to save configuration'], 500);
+            }
+            break;
 
-    return basename($cachePath);
-}
+        case 'DELETE':
+            // Remove custom config (revert to defaults)
+            $stmt = $pdo->prepare("DELETE FROM cache_configs WHERE domain_id = ?");
+            $stmt->execute([$domainId]);
+            triggerConfigRegeneration($pdo, $domainId);
+            sendResponse(['success' => true]);
+            break;
 
-function purgeCache() {
-    $input = json_decode(file_get_contents('php://input'), true);
-    $pattern = $input['pattern'] ?? null;
-    
-    $cacheDir = '/var/cache/nginx';
-    
-    if ($pattern) {
-        // Purge by pattern
-        // Convert wildcard pattern to find command
-        $findPattern = str_replace('*', '*', $pattern);
-        
-        // For safety, just remove all files (proper pattern matching would need more work)
-        $command = "find {$cacheDir} -type f -delete 2>&1";
-        exec($command, $output, $returnCode);
-        
-        if ($returnCode !== 0) {
-            http_response_code(500);
-            echo json_encode(['error' => 'Failed to purge cache', 'output' => implode("\n", $output)]);
-            return;
-        }
-        
-        echo json_encode(['success' => true, 'message' => "Cache purged for pattern: {$pattern}"]);
-    } else {
-        // Purge all cache
-        $command = "rm -rf {$cacheDir}/* 2>&1";
-        exec($command, $output, $returnCode);
-        
-        if ($returnCode !== 0) {
-            http_response_code(500);
-            echo json_encode(['error' => 'Failed to purge cache', 'output' => implode("\n", $output)]);
-            return;
-        }
-        
-        echo json_encode(['success' => true, 'message' => 'All cache purged successfully']);
+        default:
+            sendResponse(['error' => 'Method not allowed'], 405);
     }
 }
 
-function purgeCacheItem($key) {
-    $cacheDir = '/var/cache/nginx';
-    $cachePath = $cacheDir . '/' . basename($key); // Security: only basename
-    
-    if (!file_exists($cachePath)) {
-        http_response_code(404);
-        echo json_encode(['error' => 'Cache item not found']);
+/**
+ * Handle cache purge operations
+ */
+function handlePurge(string $method, array $path, PDO $pdo, CacheManager $cacheManager): void
+{
+    if ($method !== 'POST') {
+        sendResponse(['error' => 'Method not allowed'], 405);
         return;
     }
-    
-    if (unlink($cachePath)) {
-        echo json_encode(['success' => true, 'message' => 'Cache item purged']);
-    } else {
-        http_response_code(500);
-        echo json_encode(['error' => 'Failed to purge cache item']);
+
+    $input = json_decode(file_get_contents('php://input'), true);
+    $domainId = $input['domain_id'] ?? null;
+    $type = $input['type'] ?? 'all';
+    $target = $input['target'] ?? null;
+    $purgedBy = $input['purged_by'] ?? 'api';
+
+    if (!$domainId) {
+        sendResponse(['error' => 'domain_id is required'], 400);
+        return;
     }
+
+    switch ($type) {
+        case 'all':
+            $result = $cacheManager->purgeAll((int)$domainId, $purgedBy);
+            break;
+        case 'url':
+            if (!$target) {
+                sendResponse(['error' => 'target URL is required for url purge'], 400);
+                return;
+            }
+            $result = $cacheManager->purgeUrl((int)$domainId, $target, $purgedBy);
+            break;
+        case 'pattern':
+            if (!$target) {
+                sendResponse(['error' => 'target pattern is required for pattern purge'], 400);
+                return;
+            }
+            $result = $cacheManager->purgePattern((int)$domainId, $target, $purgedBy);
+            break;
+        default:
+            sendResponse(['error' => 'Invalid purge type'], 400);
+            return;
+    }
+
+    sendResponse($result, $result['success'] ? 200 : 500);
+}
+
+/**
+ * Handle cache warming
+ */
+function handleWarm(string $method, array $path, PDO $pdo, CacheManager $cacheManager): void
+{
+    $subAction = $path[2] ?? null;
+
+    switch ($method) {
+        case 'GET':
+            // Get warming queue status
+            $domainId = $_GET['domain_id'] ?? null;
+            $status = $cacheManager->getWarmQueueStatus($domainId ? (int)$domainId : null);
+            sendResponse(['queue' => $status]);
+            break;
+
+        case 'POST':
+            if ($subAction === 'process') {
+                // Process warming queue
+                $limit = $_GET['limit'] ?? 10;
+                $result = $cacheManager->processWarmQueue((int)$limit);
+                sendResponse($result);
+                return;
+            }
+
+            if ($subAction === 'clear') {
+                // Clear warming queue
+                $input = json_decode(file_get_contents('php://input'), true);
+                $domainId = $input['domain_id'] ?? null;
+                $status = $input['status'] ?? null;
+                $cleared = $cacheManager->clearWarmQueue(
+                    $domainId ? (int)$domainId : null,
+                    $status
+                );
+                sendResponse(['success' => true, 'cleared' => $cleared]);
+                return;
+            }
+
+            // Add URLs to warming queue
+            $input = json_decode(file_get_contents('php://input'), true);
+            $domainId = $input['domain_id'] ?? null;
+            $urls = $input['urls'] ?? [];
+            $priority = $input['priority'] ?? 5;
+
+            if (!$domainId || empty($urls)) {
+                sendResponse(['error' => 'domain_id and urls are required'], 400);
+                return;
+            }
+
+            if (is_string($urls)) {
+                $urls = [$urls];
+            }
+
+            $added = $cacheManager->addBulkToWarmQueue((int)$domainId, $urls, (int)$priority);
+            sendResponse(['success' => true, 'added' => $added]);
+            break;
+
+        default:
+            sendResponse(['error' => 'Method not allowed'], 405);
+    }
+}
+
+/**
+ * Get purge history
+ */
+function handlePurgeHistory(string $method, array $path, PDO $pdo, CacheManager $cacheManager): void
+{
+    if ($method !== 'GET') {
+        sendResponse(['error' => 'Method not allowed'], 405);
+        return;
+    }
+
+    $domainId = $_GET['domain_id'] ?? null;
+    $limit = (int)($_GET['limit'] ?? 100);
+
+    $history = $cacheManager->getPurgeHistory(
+        $domainId ? (int)$domainId : null,
+        $limit
+    );
+
+    sendResponse(['history' => $history]);
+}
+
+/**
+ * Handle image optimization
+ */
+function handleImageOptimization(string $method, array $path, PDO $pdo, ImageOptimizer $imageOptimizer): void
+{
+    $subAction = $path[2] ?? 'stats';
+
+    switch ($subAction) {
+        case 'stats':
+            if ($method !== 'GET') {
+                sendResponse(['error' => 'Method not allowed'], 405);
+                return;
+            }
+            $stats = $imageOptimizer->getCacheStats();
+            $processors = $imageOptimizer->getAvailableProcessors();
+            sendResponse([
+                'cache' => $stats,
+                'processors' => $processors
+            ]);
+            break;
+
+        case 'config':
+            $domainId = $path[3] ?? null;
+            if (!$domainId || !is_numeric($domainId)) {
+                sendResponse(['error' => 'Domain ID required'], 400);
+                return;
+            }
+
+            if ($method === 'GET') {
+                $config = $imageOptimizer->getConfig((int)$domainId);
+                sendResponse(['config' => $config]);
+            } elseif ($method === 'PUT' || $method === 'POST') {
+                $input = json_decode(file_get_contents('php://input'), true);
+                if ($imageOptimizer->setConfig((int)$domainId, $input)) {
+                    triggerConfigRegeneration($pdo, (int)$domainId);
+                    sendResponse(['success' => true]);
+                } else {
+                    sendResponse(['error' => 'Failed to save configuration'], 500);
+                }
+            } else {
+                sendResponse(['error' => 'Method not allowed'], 405);
+            }
+            break;
+
+        case 'optimize':
+            if ($method !== 'POST') {
+                sendResponse(['error' => 'Method not allowed'], 405);
+                return;
+            }
+
+            $input = json_decode(file_get_contents('php://input'), true);
+            $imagePath = $input['path'] ?? null;
+            $format = $input['format'] ?? 'webp';
+            $quality = $input['quality'] ?? 80;
+
+            if (!$imagePath) {
+                sendResponse(['error' => 'Image path is required'], 400);
+                return;
+            }
+
+            $result = $imageOptimizer->optimize($imagePath, [
+                'format' => $format,
+                'quality' => (int)$quality,
+                'max_width' => $input['max_width'] ?? 2048,
+                'max_height' => $input['max_height'] ?? 2048,
+                'strip_metadata' => $input['strip_metadata'] ?? true
+            ]);
+
+            sendResponse($result, $result['success'] ? 200 : 500);
+            break;
+
+        case 'clear':
+            if ($method !== 'POST') {
+                sendResponse(['error' => 'Method not allowed'], 405);
+                return;
+            }
+
+            $input = json_decode(file_get_contents('php://input'), true);
+            $format = $input['format'] ?? null;
+            $cleared = $imageOptimizer->clearCache($format);
+            sendResponse(['success' => true, 'cleared' => $cleared]);
+            break;
+
+        case 'processors':
+            if ($method !== 'GET') {
+                sendResponse(['error' => 'Method not allowed'], 405);
+                return;
+            }
+            sendResponse(['processors' => $imageOptimizer->getAvailableProcessors()]);
+            break;
+
+        default:
+            sendResponse(['error' => 'Unknown image action'], 404);
+    }
+}
+
+/**
+ * Handle cache settings
+ */
+function handleCacheSettings(string $method, PDO $pdo, CacheManager $cacheManager): void
+{
+    switch ($method) {
+        case 'GET':
+            sendResponse(['settings' => $cacheManager->getSettings()]);
+            break;
+
+        case 'PUT':
+            $input = json_decode(file_get_contents('php://input'), true);
+            $updated = $cacheManager->updateSettings($input);
+            sendResponse(['success' => true, 'updated' => $updated]);
+            break;
+
+        default:
+            sendResponse(['error' => 'Method not allowed'], 405);
+    }
+}
+
+/**
+ * Trigger nginx config regeneration for domain
+ */
+function triggerConfigRegeneration(PDO $pdo, int $domainId): void
+{
+    // Add job to queue for config regeneration
+    $stmt = $pdo->prepare("
+        INSERT INTO jobs (job_type, payload, status, created_at)
+        VALUES ('regenerate_config', ?, 'pending', NOW())
+    ");
+    $stmt->execute([json_encode(['domain_id' => $domainId])]);
 }

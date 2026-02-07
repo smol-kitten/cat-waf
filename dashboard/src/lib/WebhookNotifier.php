@@ -172,6 +172,132 @@ class WebhookNotifier {
     }
     
     /**
+     * Send test notification
+     */
+    public function sendTestNotification() {
+        $embed = [
+            'title' => '✅ CatWAF Test Notification',
+            'color' => 5763719, // Green color
+            'description' => 'This is a test notification from CatWAF. If you see this message, your webhook configuration is working correctly!',
+            'fields' => [
+                ['name' => 'Status', 'value' => 'Webhook Working', 'inline' => true],
+                ['name' => 'Server Time', 'value' => date('Y-m-d H:i:s'), 'inline' => true]
+            ],
+            'timestamp' => date('c'),
+            'footer' => ['text' => 'CatWAF Notification System']
+        ];
+        
+        return $this->sendDiscordEmbed($embed);
+    }
+    
+    /**
+     * Send custom notification
+     */
+    public function sendCustomNotification($title, $message, $color = 'blue', $fields = []) {
+        $colorMap = [
+            'red' => 15548997,
+            'orange' => 15105570,
+            'yellow' => 16776960,
+            'green' => 5763719,
+            'blue' => 3447003,
+            'purple' => 10181046
+        ];
+        
+        $colorValue = $colorMap[$color] ?? 3447003;
+        
+        $embedFields = [
+            ['name' => 'Time', 'value' => date('Y-m-d H:i:s'), 'inline' => true]
+        ];
+        
+        foreach ($fields as $field) {
+            $embedFields[] = [
+                'name' => $field['name'] ?? 'Field',
+                'value' => $field['value'] ?? '',
+                'inline' => $field['inline'] ?? false
+            ];
+        }
+        
+        $embed = [
+            'title' => $title,
+            'description' => $message,
+            'color' => $colorValue,
+            'fields' => $embedFields,
+            'timestamp' => date('c')
+        ];
+        
+        return $this->sendDiscordEmbed($embed);
+    }
+    
+    /**
+     * Generic send method for event-based notifications
+     * @param string $eventType Event type identifier
+     * @param array $data Event data
+     */
+    public function send(string $eventType, array $data = []): bool {
+        if (!$this->isEnabled()) {
+            return false;
+        }
+        
+        // Map event types to notification methods
+        $eventConfig = [
+            'certificate_fallback' => [
+                'title' => '⚠️ Certificate Fallback Activated',
+                'color' => 15105570, // Orange
+                'fields' => ['domain', 'reason', 'message']
+            ],
+            'certificate_restored' => [
+                'title' => '✅ Certificate Restored',
+                'color' => 5763719, // Green
+                'fields' => ['domain', 'message']
+            ],
+            'security_alert' => [
+                'title' => '🚨 Security Alert',
+                'color' => 15548997, // Red
+                'fields' => ['type', 'ip', 'message']
+            ],
+            'system_event' => [
+                'title' => 'ℹ️ System Event',
+                'color' => 3447003, // Blue
+                'fields' => ['event', 'message']
+            ]
+        ];
+        
+        $config = $eventConfig[$eventType] ?? [
+            'title' => '📢 ' . ucwords(str_replace('_', ' ', $eventType)),
+            'color' => 3447003,
+            'fields' => array_keys($data)
+        ];
+        
+        $embedFields = [
+            ['name' => 'Time', 'value' => date('Y-m-d H:i:s'), 'inline' => true]
+        ];
+        
+        foreach ($config['fields'] as $fieldKey) {
+            if (isset($data[$fieldKey])) {
+                $embedFields[] = [
+                    'name' => ucwords(str_replace('_', ' ', $fieldKey)),
+                    'value' => is_array($data[$fieldKey]) ? json_encode($data[$fieldKey]) : (string)$data[$fieldKey],
+                    'inline' => strlen((string)($data[$fieldKey] ?? '')) < 50
+                ];
+            }
+        }
+        
+        $embed = [
+            'title' => $config['title'],
+            'color' => $config['color'],
+            'fields' => $embedFields,
+            'timestamp' => date('c')
+        ];
+        
+        // Add description if message is provided
+        if (isset($data['message'])) {
+            $embed['description'] = $data['message'];
+        }
+        
+        return $this->sendDiscordEmbed($embed);
+    }
+    
+    /**
      * Send Discord webhook with embed
      */
     private function sendDiscordEmbed($embed) {

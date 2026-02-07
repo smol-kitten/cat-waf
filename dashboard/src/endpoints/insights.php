@@ -203,12 +203,12 @@ function getBasicInsights($db) {
         // Top paths
         $stmt = $db->prepare("
             SELECT 
-                request_uri,
+                uri as request_uri,
                 COUNT(*) as count,
                 AVG(response_time) as avg_time
             FROM request_telemetry
             $whereClause
-            GROUP BY request_uri
+            GROUP BY uri
             ORDER BY count DESC
             LIMIT 10
         ");

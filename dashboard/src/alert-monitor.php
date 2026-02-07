@@ -2,7 +2,7 @@
 /**
  * Alert Monitoring Service
  * Runs periodically to check alert rules and fire notifications
- * Should be executed via cron: */5 * * * * php /dashboard/src/alert-monitor.php
+ * Should be executed via cron: 5 * * * * php /dashboard/src/alert-monitor.php
  */
 
 require_once __DIR__ . '/config.php';

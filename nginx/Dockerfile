@@ -82,7 +82,13 @@ RUN cd /etc/nginx/modsecurity && \
     echo "" >> modsecurity.conf && \
     echo "# Include OWASP CRS" >> modsecurity.conf && \
     echo "Include /etc/nginx/modsecurity/coreruleset/crs-setup.conf" >> modsecurity.conf && \
-    echo "Include /etc/nginx/modsecurity/coreruleset/rules/*.conf" >> modsecurity.conf
+    echo "Include /etc/nginx/modsecurity/coreruleset/rules/*.conf" >> modsecurity.conf && \
+    echo "" >> modsecurity.conf && \
+    echo "# Include CatWAF override configuration (paranoia level, etc.)" >> modsecurity.conf && \
+    echo "Include /etc/nginx/modsecurity/crs-setup-override.conf" >> modsecurity.conf
+
+# Create empty override config file (will be managed by dashboard)
+RUN echo "# CatWAF Override Config - Managed by Dashboard" > /etc/nginx/modsecurity/crs-setup-override.conf
 
 # Create custom rules directory
 RUN mkdir -p /etc/nginx/modsecurity/custom-rules

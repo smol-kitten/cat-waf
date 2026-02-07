@@ -195,6 +195,22 @@ services:
       mariadb:
         condition: service_healthy
 
+  # Playwright screenshot service (optional - for page previews)
+  playwright:
+    image: ghcr.io/smol-kitten/cat-waf-playwright:latest
+    container_name: waf-playwright
+    environment:
+      PORT: 3000
+      CACHE_TTL: 3600
+      MAX_CONCURRENT: 3
+      API_KEY: ${PLAYWRIGHT_API_KEY:-}
+    volumes:
+      - waf-playwright-screenshots:/app/screenshots
+      - waf-playwright-cache:/app/cache
+    networks:
+      - waf-network
+    restart: unless-stopped
+
 networks:
   waf-network:
     driver: bridge
@@ -233,3 +249,8 @@ volumes:
   # Backup storage for updater
   waf-backups:
     name: waf-backups
+  # Playwright service volumes
+  waf-playwright-screenshots:
+    name: waf-playwright-screenshots
+  waf-playwright-cache:
+    name: waf-playwright-cache
