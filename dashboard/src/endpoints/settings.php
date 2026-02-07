@@ -65,7 +65,7 @@ function handleSettings($method, $params, $db) {
             break;
             
         case 'PUT':
-            // Update single setting
+            // Update single setting (upsert)
             if (empty($params[0])) {
                 sendResponse(['error' => 'Setting key required'], 400);
             }
@@ -76,12 +76,13 @@ function handleSettings($method, $params, $db) {
                 sendResponse(['error' => 'Value required'], 400);
             }
             
+            // Use INSERT ... ON DUPLICATE KEY UPDATE for upsert behavior
             $stmt = $db->prepare("
-                UPDATE settings 
-                SET setting_value = ?, updated_at = NOW() 
-                WHERE setting_key = ?
+                INSERT INTO settings (setting_key, setting_value, updated_at) 
+                VALUES (?, ?, NOW())
+                ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = NOW()
             ");
-            $stmt->execute([$data['value'], $params[0]]);
+            $stmt->execute([$params[0], $data['value']]);
             
             // Handle paranoia level update
             if ($params[0] === 'paranoia_level') {

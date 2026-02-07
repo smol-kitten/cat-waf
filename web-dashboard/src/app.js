@@ -1624,6 +1624,10 @@ async function loadSettings() {
         // Load cleanup stats
         loadCleanupStats();
         
+        // Load router data
+        loadRouters();
+        loadRouterActivityLog();
+        
         // Setup Settings tabs
         setupSettingsTabs();
     } catch (error) {
@@ -2665,7 +2669,7 @@ async function loadModSecEvents() {
         const tbody = document.getElementById('modsecEventsBody');
         
         if (!response || response.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">No security events</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">No security events</td></tr>';
             return;
         }
         
@@ -2678,14 +2682,15 @@ async function loadModSecEvents() {
                     ${event.city ? `<br><small style="color: #94a3b8;">${event.city}</small>` : ''}
                 </td>
                 <td><code>${event.client_ip || event.ip_address || 'N/A'}</code></td>
+                <td style="max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(event.uri || '/')}"><code>${escapeHtml(event.method || 'GET')} ${escapeHtml(event.uri || '/')}</code></td>
                 <td><code>${event.rule_id || 'N/A'}</code></td>
                 <td>
                     <span class="badge badge-${(event.severity || 'notice').toLowerCase()}">
                         ${event.severity || 'NOTICE'}
                     </span>
                 </td>
-                <td style="max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                    ${event.rule_message || event.message || 'N/A'}
+                <td style="max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(event.rule_message || event.message || 'N/A')}">
+                    ${escapeHtml(event.rule_message || event.message || 'N/A')}
                 </td>
                 <td>
                     <span class="badge badge-${(event.action || '').toLowerCase() === 'blocked' ? 'danger' : 'warning'}">
@@ -2697,7 +2702,7 @@ async function loadModSecEvents() {
     } catch (error) {
         console.error('Error loading ModSec events:', error);
         document.getElementById('modsecEventsBody').innerHTML = 
-            '<tr><td colspan="7" style="text-align: center; color: #ef4444;">Error loading events</td></tr>';
+            '<tr><td colspan="8" style="text-align: center; color: #ef4444;">Error loading events</td></tr>';
     }
 }
 
@@ -8562,8 +8567,59 @@ window.regenerateSiteConfig = regenerateSiteConfig;
 // INSIGHTS FUNCTIONS
 // ============================================================================
 
+/**
+ * Load insights configuration and populate form fields
+ */
+async function loadInsightsConfig() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/insights/config`, {
+            headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+        });
+        
+        if (!response.ok) throw new Error('Failed to fetch insights config');
+        
+        const data = await response.json();
+        const config = data.config || {};
+        
+        // Populate form fields with saved config
+        const enabledCheckbox = document.getElementById('insightsEnabled');
+        const levelSelect = document.getElementById('insightsLevel');
+        const webVitalsCheckbox = document.getElementById('collectWebVitals');
+        const extendedOptions = document.getElementById('extendedOptions');
+        const extendedSection = document.getElementById('extendedInsightsSection');
+        
+        if (enabledCheckbox) {
+            enabledCheckbox.checked = config.enabled !== false && config.enabled !== 0;
+        }
+        
+        if (levelSelect) {
+            levelSelect.value = config.level || 'basic';
+        }
+        
+        if (webVitalsCheckbox) {
+            webVitalsCheckbox.checked = config.collect_web_vitals === true || config.collect_web_vitals === 1;
+        }
+        
+        // Show/hide extended options based on level
+        if (levelSelect?.value === 'extended') {
+            if (extendedOptions) extendedOptions.style.display = 'block';
+            if (extendedSection) extendedSection.style.display = 'block';
+        } else {
+            if (extendedOptions) extendedOptions.style.display = 'none';
+            if (extendedSection) extendedSection.style.display = 'none';
+        }
+        
+        console.log('Insights config loaded:', config);
+    } catch (error) {
+        console.error('Error loading insights config:', error);
+    }
+}
+
 async function loadInsightsData() {
     try {
+        // First, load insights config to populate form fields
+        await loadInsightsConfig();
+        
         const range = document.getElementById('insightsTimeRange')?.value || '24h';
         const response = await fetch(`${API_BASE_URL}/insights/basic?range=${range}`, {
             headers: { 'Authorization': `Bearer ${API_TOKEN}` }
@@ -8918,6 +8974,7 @@ function showAddAlertModal() {
 }
 
 // Export functions
+window.loadInsightsConfig = loadInsightsConfig;
 window.loadInsightsData = loadInsightsData;
 window.loadExtendedInsights = loadExtendedInsights;
 window.updateInsightsConfig = updateInsightsConfig;
@@ -9030,3 +9087,412 @@ window.toggleEmailOptions = toggleEmailOptions;
 window.toggleWebhookOptions = toggleWebhookOptions;
 window.saveNotificationSettings = saveNotificationSettings;
 window.testNotifications = testNotifications;
+
+// ============================================================================
+// ROUTER MANAGEMENT FUNCTIONS
+// ============================================================================
+
+/**
+ * Load configured routers and display in table
+ */
+async function loadRouters() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/routers`, {
+            headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+        });
+        
+        if (!response.ok) throw new Error('Failed to fetch routers');
+        
+        const data = await response.json();
+        const routers = data.routers || [];
+        const tbody = document.getElementById('routerTableBody');
+        
+        if (routers.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                        No routers configured. Click "Add Router" to set up your first router.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+        
+        tbody.innerHTML = routers.map(router => `
+            <tr>
+                <td><strong>${escapeHtml(router.name)}</strong></td>
+                <td><span class="badge badge-info">${escapeHtml(router.router_type || 'mikrotik')}</span></td>
+                <td><code>${escapeHtml(router.host)}:${router.port || 8728}</code></td>
+                <td>
+                    ${router.enabled 
+                        ? '<span class="badge badge-success">Enabled</span>' 
+                        : '<span class="badge badge-secondary">Disabled</span>'}
+                    ${router.last_error 
+                        ? `<span class="badge badge-danger" title="${escapeHtml(router.last_error)}">Error</span>` 
+                        : ''}
+                </td>
+                <td>${router.cached_rules || 0}</td>
+                <td>${router.last_sync ? new Date(router.last_sync).toLocaleString() : 'Never'}</td>
+                <td>
+                    <button class="btn-secondary btn-sm" onclick="testRouterById(${router.id})" title="Test Connection">🔌</button>
+                    <button class="btn-secondary btn-sm" onclick="syncRouterById(${router.id})" title="Sync Rules">🔄</button>
+                    <button class="btn-secondary btn-sm" onclick="editRouter(${router.id})" title="Edit">✏️</button>
+                    <button class="btn-danger btn-sm" onclick="deleteRouter(${router.id})" title="Delete">🗑️</button>
+                </td>
+            </tr>
+        `).join('');
+        
+    } catch (error) {
+        console.error('Error loading routers:', error);
+        const tbody = document.getElementById('routerTableBody');
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" style="text-align: center; color: var(--danger); padding: 2rem;">
+                    Failed to load routers: ${error.message}
+                </td>
+            </tr>
+        `;
+    }
+}
+
+/**
+ * Load router activity log
+ */
+async function loadRouterActivityLog() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/routers/log`, {
+            headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+        });
+        
+        if (!response.ok) throw new Error('Failed to fetch router log');
+        
+        const data = await response.json();
+        const logs = data.logs || [];
+        const logContainer = document.getElementById('routerActivityLog');
+        
+        if (logs.length === 0) {
+            logContainer.innerHTML = '<div style="color: var(--text-muted);">No recent activity.</div>';
+            return;
+        }
+        
+        logContainer.innerHTML = logs.map(log => {
+            const timestamp = new Date(log.created_at).toLocaleString();
+            const statusIcon = log.success ? '✅' : '❌';
+            return `<div style="padding: 0.5rem 0; border-bottom: 1px solid var(--border);">
+                <span style="color: var(--text-muted);">${timestamp}</span> 
+                ${statusIcon} 
+                <strong>${escapeHtml(log.action)}</strong> 
+                ${log.ip_address ? `<code>${escapeHtml(log.ip_address)}</code>` : ''} 
+                - ${escapeHtml(log.router_name || 'Unknown router')}
+                ${log.message ? `<span style="color: var(--text-muted);">: ${escapeHtml(log.message)}</span>` : ''}
+            </div>`;
+        }).join('');
+        
+    } catch (error) {
+        console.error('Error loading router log:', error);
+        const logContainer = document.getElementById('routerActivityLog');
+        logContainer.innerHTML = `<div style="color: var(--danger);">Failed to load activity log.</div>`;
+    }
+}
+
+/**
+ * Show add router modal
+ */
+function showAddRouterModal() {
+    document.getElementById('routerModalTitle').textContent = '➕ Add Router';
+    document.getElementById('routerEditId').value = '';
+    document.getElementById('routerName').value = '';
+    document.getElementById('routerType').value = 'mikrotik';
+    document.getElementById('routerHost').value = '';
+    document.getElementById('routerPort').value = '8728';
+    document.getElementById('routerUsername').value = '';
+    document.getElementById('routerPassword').value = '';
+    document.getElementById('routerEnabled').checked = true;
+    
+    openModal('routerModal');
+}
+
+/**
+ * Edit existing router
+ */
+async function editRouter(id) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/routers/${id}`, {
+            headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+        });
+        
+        if (!response.ok) throw new Error('Failed to fetch router');
+        
+        const data = await response.json();
+        const router = data.router;
+        
+        document.getElementById('routerModalTitle').textContent = '✏️ Edit Router';
+        document.getElementById('routerEditId').value = router.id;
+        document.getElementById('routerName').value = router.name || '';
+        document.getElementById('routerType').value = router.router_type || 'mikrotik';
+        document.getElementById('routerHost').value = router.host || '';
+        document.getElementById('routerPort').value = router.port || '8728';
+        document.getElementById('routerUsername').value = router.username || '';
+        document.getElementById('routerPassword').value = ''; // Don't populate password
+        document.getElementById('routerEnabled').checked = router.enabled;
+        
+        openModal('routerModal');
+        
+    } catch (error) {
+        console.error('Error loading router:', error);
+        showToast('Failed to load router: ' + error.message, 'error');
+    }
+}
+
+/**
+ * Save router (create or update)
+ */
+async function saveRouter() {
+    const id = document.getElementById('routerEditId').value;
+    const router = {
+        name: document.getElementById('routerName').value.trim(),
+        router_type: document.getElementById('routerType').value,
+        host: document.getElementById('routerHost').value.trim(),
+        port: parseInt(document.getElementById('routerPort').value) || 8728,
+        username: document.getElementById('routerUsername').value.trim(),
+        enabled: document.getElementById('routerEnabled').checked
+    };
+    
+    // Only include password if provided
+    const password = document.getElementById('routerPassword').value;
+    if (password) {
+        router.password = password;
+    }
+    
+    // Validate
+    if (!router.name || !router.host || !router.username) {
+        showToast('Please fill in name, host, and username', 'warning');
+        return;
+    }
+    
+    try {
+        const url = id ? `${API_BASE_URL}/routers/${id}` : `${API_BASE_URL}/routers`;
+        const method = id ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method,
+            headers: {
+                'Authorization': `Bearer ${API_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(router)
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to save router');
+        }
+        
+        showToast(id ? 'Router updated successfully!' : 'Router added successfully!', 'success');
+        closeModal('routerModal');
+        await loadRouters();
+        
+    } catch (error) {
+        console.error('Error saving router:', error);
+        showToast('Failed to save router: ' + error.message, 'error');
+    }
+}
+
+/**
+ * Delete router
+ */
+async function deleteRouter(id) {
+    if (!confirm('Are you sure you want to delete this router? This cannot be undone.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/routers/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+        });
+        
+        if (!response.ok) throw new Error('Failed to delete router');
+        
+        showToast('Router deleted successfully!', 'success');
+        await loadRouters();
+        
+    } catch (error) {
+        console.error('Error deleting router:', error);
+        showToast('Failed to delete router: ' + error.message, 'error');
+    }
+}
+
+/**
+ * Test router connection by ID
+ */
+async function testRouterById(id) {
+    showToast('Testing connection...', 'info');
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/routers/${id}/test`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast(`✅ Connection successful! ${data.message || ''}`, 'success');
+        } else {
+            showToast(`❌ Connection failed: ${data.message || 'Unknown error'}`, 'error');
+        }
+        
+    } catch (error) {
+        console.error('Error testing router:', error);
+        showToast('Failed to test connection: ' + error.message, 'error');
+    }
+}
+
+/**
+ * Test router connection from modal
+ */
+async function testRouterConnection() {
+    const router = {
+        router_type: document.getElementById('routerType').value,
+        host: document.getElementById('routerHost').value.trim(),
+        port: parseInt(document.getElementById('routerPort').value) || 8728,
+        username: document.getElementById('routerUsername').value.trim(),
+        password: document.getElementById('routerPassword').value
+    };
+    
+    if (!router.host || !router.username) {
+        showToast('Please fill in host and username first', 'warning');
+        return;
+    }
+    
+    showToast('Testing connection...', 'info');
+    
+    const editId = document.getElementById('routerEditId').value;
+    
+    try {
+        // If editing existing router and no new password, test via ID
+        if (editId && !router.password) {
+            await testRouterById(editId);
+            return;
+        }
+        
+        // Otherwise test with provided credentials
+        const response = await fetch(`${API_BASE_URL}/routers/test`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${API_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(router)
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast(`✅ Connection successful! ${data.message || ''}`, 'success');
+        } else {
+            showToast(`❌ Connection failed: ${data.message || 'Unknown error'}`, 'error');
+        }
+        
+    } catch (error) {
+        console.error('Error testing router:', error);
+        showToast('Failed to test connection: ' + error.message, 'error');
+    }
+}
+
+/**
+ * Sync router by ID
+ */
+async function syncRouterById(id) {
+    showToast('Syncing rules...', 'info');
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/routers/${id}/sync`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast(`✅ Sync complete! ${data.added || 0} rules added, ${data.removed || 0} removed.`, 'success');
+            await loadRouters();
+            await loadRouterActivityLog();
+        } else {
+            showToast(`❌ Sync failed: ${data.message || 'Unknown error'}`, 'error');
+        }
+        
+    } catch (error) {
+        console.error('Error syncing router:', error);
+        showToast('Failed to sync router: ' + error.message, 'error');
+    }
+}
+
+/**
+ * Sync all routers
+ */
+async function syncAllRouters() {
+    showToast('Syncing all routers...', 'info');
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/routers/sync-all`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast(`✅ All routers synced! ${data.synced || 0} routers updated.`, 'success');
+            await loadRouters();
+            await loadRouterActivityLog();
+        } else {
+            showToast(`❌ Sync failed: ${data.message || 'Unknown error'}`, 'error');
+        }
+        
+    } catch (error) {
+        console.error('Error syncing all routers:', error);
+        showToast('Failed to sync routers: ' + error.message, 'error');
+    }
+}
+
+/**
+ * Save router global settings
+ */
+async function saveRouterSettings() {
+    const settings = {
+        router_auto_sync: document.getElementById('setting-router_auto_sync')?.checked ? '1' : '0',
+        router_sync_interval: document.getElementById('setting-router_sync_interval')?.value,
+        router_address_list: document.getElementById('setting-router_address_list')?.value
+    };
+    
+    try {
+        for (const [key, value] of Object.entries(settings)) {
+            if (value !== undefined) {
+                await apiRequest(`/settings/${key}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ value })
+                });
+            }
+        }
+        
+        showToast('✅ Router settings saved!', 'success');
+    } catch (error) {
+        console.error('Error saving router settings:', error);
+        showToast('Failed to save router settings', 'error');
+    }
+}
+
+// Export router functions
+window.loadRouters = loadRouters;
+window.loadRouterActivityLog = loadRouterActivityLog;
+window.showAddRouterModal = showAddRouterModal;
+window.editRouter = editRouter;
+window.saveRouter = saveRouter;
+window.deleteRouter = deleteRouter;
+window.testRouterById = testRouterById;
+window.testRouterConnection = testRouterConnection;
+window.syncRouterById = syncRouterById;
+window.syncAllRouters = syncAllRouters;
+window.saveRouterSettings = saveRouterSettings;

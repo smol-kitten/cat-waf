@@ -700,6 +700,7 @@
                         <button class="tab" data-tab="notifications-settings">🔔 Notifications</button>
                         <button class="tab" data-tab="ssl-settings">🔐 SSL/TLS</button>
                         <button class="tab" data-tab="block-rules">🚫 Block Rules</button>
+                        <button class="tab" data-tab="router-settings">🌐 Router</button>
                         <button class="tab" data-tab="wellknown-settings">🌐 Well-Known Files</button>
                         <button class="tab" data-tab="backup-settings">💾 Backup</button>
                         <button class="tab" data-tab="dev-settings">🔧 Development</button>
@@ -1296,6 +1297,89 @@ Sitemap: https://example.com/sitemap.xml"></textarea>
                         </div>
                     </div>
 
+                    <!-- Router Integration Tab -->
+                    <div class="tab-content" id="router-settings">
+                        <div class="settings-card" style="grid-column: 1 / -1;">
+                            <h3>🌐 Router Integration (MikroTik)</h3>
+                            <p style="color: var(--text-muted); margin-bottom: 1.5rem;">
+                                Configure routers to automatically sync DROP rules from CatWAF. When IPs are banned, they're pushed to your router's firewall.
+                            </p>
+                            
+                            <!-- Router List -->
+                            <div id="routerList" style="margin-bottom: 1.5rem;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                                    <h4>Configured Routers</h4>
+                                    <button class="btn-primary" onclick="showAddRouterModal()">
+                                        ➕ Add Router
+                                    </button>
+                                </div>
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Type</th>
+                                            <th>Address</th>
+                                            <th>Status</th>
+                                            <th>Rules</th>
+                                            <th>Last Sync</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="routerTableBody">
+                                        <tr>
+                                            <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                                                Loading routers...
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            <!-- Router Settings -->
+                            <div style="border-top: 1px solid var(--border); padding-top: 1.5rem; margin-top: 1.5rem;">
+                                <h4 style="margin-bottom: 1rem;">Global Router Settings</h4>
+                                <div class="setting-item">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="setting-router_auto_sync" checked>
+                                        <span>Auto-sync bans to routers</span>
+                                    </label>
+                                    <div style="font-size: 0.85em; color: var(--text-muted); margin-left: 1.75rem;">
+                                        Automatically push new bans to configured routers
+                                    </div>
+                                </div>
+                                <div class="setting-item">
+                                    <label>Sync Interval (minutes)</label>
+                                    <select id="setting-router_sync_interval" class="setting-input">
+                                        <option value="1">Every 1 minute</option>
+                                        <option value="5" selected>Every 5 minutes</option>
+                                        <option value="15">Every 15 minutes</option>
+                                        <option value="30">Every 30 minutes</option>
+                                        <option value="60">Every hour</option>
+                                    </select>
+                                </div>
+                                <div class="setting-item">
+                                    <label>Address List Name</label>
+                                    <input type="text" id="setting-router_address_list" class="setting-input" value="catwaf-banned" placeholder="catwaf-banned">
+                                    <div style="font-size: 0.85em; color: var(--text-muted);">
+                                        The address list name to use on routers for banned IPs
+                                    </div>
+                                </div>
+                                <button class="btn-primary" onclick="saveRouterSettings()">Save Router Settings</button>
+                                <button class="btn-secondary" onclick="syncAllRouters()" style="margin-left: 1rem;">
+                                    🔄 Sync All Routers Now
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Activity Log -->
+                        <div class="settings-card" style="grid-column: 1 / -1;">
+                            <h4>Recent Activity</h4>
+                            <div id="routerActivityLog" style="max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 0.85em; background: var(--bg-secondary); padding: 1rem; border-radius: 8px;">
+                                <div style="color: var(--text-muted);">Loading activity log...</div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Backup & Restore Tab -->
                     <div class="tab-content" id="backup-settings">
                         <div class="settings-card" style="grid-column: 1 / -1;">
@@ -1526,6 +1610,7 @@ Sitemap: https://example.com/sitemap.xml"></textarea>
                                         <th>Time</th>
                                         <th>Location</th>
                                         <th>IP</th>
+                                        <th>URI</th>
                                         <th>Rule</th>
                                         <th>Severity</th>
                                         <th>Message</th>
@@ -1533,7 +1618,7 @@ Sitemap: https://example.com/sitemap.xml"></textarea>
                                     </tr>
                                 </thead>
                                 <tbody id="modsecEventsBody">
-                                    <tr><td colspan="7" style="text-align: center;">Loading...</td></tr>
+                                    <tr><td colspan="8" style="text-align: center;">Loading...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -2851,6 +2936,78 @@ Sitemap: https://example.com/sitemap.xml"></textarea>
                     </div>
                 </div>
 
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Router Modal -->
+    <div class="modal" id="routerModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="routerModalTitle">➕ Add Router</h3>
+                <button class="modal-close" onclick="closeModal('routerModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="routerEditId">
+                
+                <div class="setting-item">
+                    <label>Router Name</label>
+                    <input type="text" id="routerName" class="setting-input" placeholder="Main MikroTik Router">
+                </div>
+                
+                <div class="setting-item">
+                    <label>Router Type</label>
+                    <select id="routerType" class="setting-input">
+                        <option value="mikrotik">MikroTik RouterOS</option>
+                        <option value="openwrt">OpenWRT</option>
+                        <option value="pfsense">pfSense</option>
+                        <option value="custom">Custom API</option>
+                    </select>
+                </div>
+                
+                <div class="setting-item">
+                    <label>IP Address / Hostname</label>
+                    <input type="text" id="routerHost" class="setting-input" placeholder="192.168.1.1 or router.example.com">
+                </div>
+                
+                <div class="setting-item">
+                    <label>API Port</label>
+                    <input type="number" id="routerPort" class="setting-input" value="8728" placeholder="8728 (Default API port)">
+                </div>
+                
+                <div class="setting-item">
+                    <label>Username</label>
+                    <input type="text" id="routerUsername" class="setting-input" placeholder="admin">
+                </div>
+                
+                <div class="setting-item">
+                    <label>Password</label>
+                    <input type="password" id="routerPassword" class="setting-input" placeholder="Leave blank to keep existing">
+                </div>
+                
+                <div class="setting-item">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="routerEnabled" checked>
+                        <span>Enable this router</span>
+                    </label>
+                </div>
+                
+                <div style="margin-top: 1rem; padding: 1rem; background: var(--bg-secondary); border-radius: 8px; font-size: 0.9em;">
+                    <strong>MikroTik Setup:</strong>
+                    <ol style="margin-top: 0.5rem; padding-left: 1.25rem; color: var(--text-muted);">
+                        <li>Enable API service on port 8728 (Winbox → IP → Services)</li>
+                        <li>Create a dedicated user with write access to firewall</li>
+                        <li>Ensure your CatWAF server can reach the router</li>
+                        <li>Create an address list named "catwaf-banned" (auto-created on first sync)</li>
+                    </ol>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal('routerModal')">Cancel</button>
+                <button class="btn-secondary" onclick="testRouterConnection()" style="margin-left: auto; margin-right: 1rem;">
+                    🔌 Test Connection
+                </button>
+                <button class="btn-primary" onclick="saveRouter()">Save Router</button>
             </div>
         </div>
     </div>
