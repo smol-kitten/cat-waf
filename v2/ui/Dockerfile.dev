@@ -1,0 +1,26 @@
+# syntax=docker/dockerfile:1.4
+# CatWAF UI Dockerfile - Development
+# Hot reload enabled for development
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+# Copy package files
+COPY package.json pnpm-lock.yaml ./
+
+# Install all dependencies with cache mount
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
+
+# Copy source code (will be overwritten by volume mount)
+COPY . .
+
+# Expose Vite dev server port
+EXPOSE 3000
+
+# Run development server with host binding
+CMD ["pnpm", "dev", "--host", "0.0.0.0"]

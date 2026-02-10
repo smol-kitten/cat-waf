@@ -1,0 +1,106 @@
+# CatWAF v2 Docker Compose - Development
+# Usage: docker compose up -d
+# Enable BuildKit: export DOCKER_BUILDKIT=1
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: catwaf-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-catwaf}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-catwaf}
+      POSTGRES_DB: ${POSTGRES_DB:-catwaf}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U catwaf"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - catwaf
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: catwaf-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - catwaf
+
+  # Go API Server
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: catwaf-api
+    restart: unless-stopped
+    environment:
+      CATWAF_SERVER_HOST: 0.0.0.0
+      CATWAF_SERVER_PORT: 8080
+      CATWAF_DATABASE_HOST: postgres
+      CATWAF_DATABASE_PORT: 5432
+      CATWAF_DATABASE_USER: ${POSTGRES_USER:-catwaf}
+      CATWAF_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-catwaf}
+      CATWAF_DATABASE_DATABASE: ${POSTGRES_DB:-catwaf}
+      CATWAF_REDIS_HOST: redis
+      CATWAF_REDIS_PORT: 6379
+      CATWAF_AUTH_JWTSECRET: ${JWT_SECRET:-change-me-in-production}
+      CATWAF_AUTH_DEFAULTAPIKEY: ${DEFAULT_API_KEY:-dev-api-key}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - catwaf
+
+  # SvelteKit UI (Development with hot reload)
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile.dev
+    container_name: catwaf-ui
+    restart: unless-stopped
+    environment:
+      PUBLIC_API_URL: http://localhost:8080
+      VITE_API_URL: http://catwaf-api:8080
+    volumes:
+      - ./ui/src:/app/src:ro
+      - ./ui/static:/app/static:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    networks:
+      - catwaf
+
+networks:
+  catwaf:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

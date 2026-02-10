@@ -1,0 +1,21 @@
+# CatWAF UI Dockerfile - Playwright E2E Tests
+
+FROM mcr.microsoft.com/playwright:v1.42.0-jammy
+
+WORKDIR /app
+
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+# Copy package files
+COPY package.json pnpm-lock.yaml ./
+
+# Install dependencies
+RUN pnpm install
+
+# Copy test files
+COPY playwright.config.ts ./
+COPY tests/e2e ./tests/e2e
+
+# Run Playwright tests
+CMD ["pnpm", "test:e2e"]

@@ -1,0 +1,140 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+	:root {
+		--background: 0 0% 100%;
+		--foreground: 240 10% 3.9%;
+		--card: 0 0% 100%;
+		--card-foreground: 240 10% 3.9%;
+		--popover: 0 0% 100%;
+		--popover-foreground: 240 10% 3.9%;
+		--primary: 330 81% 60%;
+		--primary-foreground: 0 0% 100%;
+		--secondary: 270 91% 65%;
+		--secondary-foreground: 0 0% 100%;
+		--muted: 240 4.8% 95.9%;
+		--muted-foreground: 240 3.8% 46.1%;
+		--accent: 330 81% 95%;
+		--accent-foreground: 330 81% 40%;
+		--destructive: 0 84.2% 60.2%;
+		--destructive-foreground: 0 0% 98%;
+		--border: 240 5.9% 90%;
+		--input: 240 5.9% 90%;
+		--ring: 330 81% 60%;
+		--radius: 0.5rem;
+	}
+
+	.dark {
+		--background: 240 10% 3.9%;
+		--foreground: 0 0% 98%;
+		--card: 240 10% 6%;
+		--card-foreground: 0 0% 98%;
+		--popover: 240 10% 6%;
+		--popover-foreground: 0 0% 98%;
+		--primary: 330 81% 60%;
+		--primary-foreground: 0 0% 100%;
+		--secondary: 270 91% 65%;
+		--secondary-foreground: 0 0% 100%;
+		--muted: 240 3.7% 15.9%;
+		--muted-foreground: 240 5% 64.9%;
+		--accent: 330 30% 15%;
+		--accent-foreground: 330 81% 70%;
+		--destructive: 0 62.8% 50%;
+		--destructive-foreground: 0 0% 98%;
+		--border: 240 3.7% 20%;
+		--input: 240 3.7% 20%;
+		--ring: 330 81% 60%;
+	}
+}
+
+@layer base {
+	* {
+		@apply border-border;
+	}
+	body {
+		@apply bg-background text-foreground;
+	}
+}
+
+@layer components {
+	/* Custom scrollbar */
+	.custom-scrollbar::-webkit-scrollbar {
+		width: 8px;
+		height: 8px;
+	}
+
+	.custom-scrollbar::-webkit-scrollbar-track {
+		@apply bg-muted rounded-full;
+	}
+
+	.custom-scrollbar::-webkit-scrollbar-thumb {
+		@apply bg-muted-foreground/30 rounded-full hover:bg-muted-foreground/50;
+	}
+
+	/* Gradient text */
+	.gradient-text {
+		@apply bg-gradient-to-r from-catboy-pink-500 to-catboy-purple-500 bg-clip-text text-transparent;
+	}
+
+	/* Gradient background */
+	.gradient-bg {
+		@apply bg-gradient-to-r from-catboy-pink-500/10 to-catboy-purple-500/10;
+	}
+
+	/* Card hover effect */
+	.card-hover {
+		@apply transition-all duration-200 hover:shadow-lg hover:shadow-catboy-pink-500/10 hover:-translate-y-0.5;
+	}
+
+	/* Status indicators */
+	.status-dot {
+		@apply inline-block w-2 h-2 rounded-full;
+	}
+
+	.status-dot-success {
+		@apply status-dot bg-success animate-pulse;
+	}
+
+	.status-dot-warning {
+		@apply status-dot bg-warning;
+	}
+
+	.status-dot-error {
+		@apply status-dot bg-error animate-pulse;
+	}
+
+	/* Loading skeleton */
+	.skeleton {
+		@apply relative overflow-hidden bg-muted;
+	}
+
+	.skeleton::after {
+		content: '';
+		@apply absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/10 to-transparent animate-shimmer;
+	}
+}
+
+@layer utilities {
+	/* Hide scrollbar */
+	.no-scrollbar::-webkit-scrollbar {
+		display: none;
+	}
+
+	.no-scrollbar {
+		-ms-overflow-style: none;
+		scrollbar-width: none;
+	}
+
+	/* Animation utilities */
+	.animate-in {
+		animation: fade-in 0.2s ease-out;
+	}
+
+	.animate-out {
+		animation: fade-out 0.2s ease-out;
+	}
+}

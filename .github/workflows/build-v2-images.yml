@@ -1,0 +1,331 @@
+name: Build V2 Docker Images
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+    tags:
+      - 'v2.*.*'
+    paths:
+      - 'v2/**'
+      - '.github/workflows/build-v2-images.yml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/cat-waf-v2
+
+jobs:
+  build-api:
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-api
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/dev' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.description=CatWAF v2 API Server (Go)
+            maintainer=${{ github.repository_owner }}
+      
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./v2/backend
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            type=local,src=/tmp/.buildx-cache-v2-api
+            type=gha
+          cache-to: type=local,dest=/tmp/.buildx-cache-v2-api-new,mode=max
+      
+      - name: Rotate cache
+        run: |
+          rm -rf /tmp/.buildx-cache-v2-api
+          mv /tmp/.buildx-cache-v2-api-new /tmp/.buildx-cache-v2-api
+
+  build-dashboard:
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-dashboard
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/dev' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.description=CatWAF v2 Dashboard (SvelteKit)
+            maintainer=${{ github.repository_owner }}
+      
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./v2/ui
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            type=local,src=/tmp/.buildx-cache-v2-ui
+            type=gha
+          cache-to: type=local,dest=/tmp/.buildx-cache-v2-ui-new,mode=max
+      
+      - name: Rotate cache
+        run: |
+          rm -rf /tmp/.buildx-cache-v2-ui
+          mv /tmp/.buildx-cache-v2-ui-new /tmp/.buildx-cache-v2-ui
+
+  build-nginx:
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-nginx
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/dev' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.description=CatWAF v2 NGINX with ModSecurity
+            maintainer=${{ github.repository_owner }}
+      
+      # Uses v1 nginx for now - can be migrated to v2 later
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./nginx
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            type=local,src=/tmp/.buildx-cache-v2-nginx
+            type=gha
+          cache-to: type=local,dest=/tmp/.buildx-cache-v2-nginx-new,mode=max
+      
+      - name: Rotate cache
+        run: |
+          rm -rf /tmp/.buildx-cache-v2-nginx
+          mv /tmp/.buildx-cache-v2-nginx-new /tmp/.buildx-cache-v2-nginx
+
+  build-fail2ban:
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-fail2ban
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/dev' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.description=CatWAF v2 Fail2ban
+            maintainer=${{ github.repository_owner }}
+      
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./fail2ban
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            type=local,src=/tmp/.buildx-cache-v2-fail2ban
+            type=gha
+          cache-to: type=local,dest=/tmp/.buildx-cache-v2-fail2ban-new,mode=max
+      
+      - name: Rotate cache
+        run: |
+          rm -rf /tmp/.buildx-cache-v2-fail2ban
+          mv /tmp/.buildx-cache-v2-fail2ban-new /tmp/.buildx-cache-v2-fail2ban
+
+  build-log-parser:
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-log-parser
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/dev' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.description=CatWAF v2 Log Parser
+            maintainer=${{ github.repository_owner }}
+      
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./log-parser
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            type=local,src=/tmp/.buildx-cache-v2-log-parser
+            type=gha
+          cache-to: type=local,dest=/tmp/.buildx-cache-v2-log-parser-new,mode=max
+      
+      - name: Rotate cache
+        run: |
+          rm -rf /tmp/.buildx-cache-v2-log-parser
+          mv /tmp/.buildx-cache-v2-log-parser-new /tmp/.buildx-cache-v2-log-parser
+
+  build-playwright:
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-playwright
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/dev' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.description=CatWAF v2 Playwright Bot Validation
+            maintainer=${{ github.repository_owner }}
+      
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./playwright
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            type=local,src=/tmp/.buildx-cache-v2-playwright
+            type=gha
+          cache-to: type=local,dest=/tmp/.buildx-cache-v2-playwright-new,mode=max
+      
+      - name: Rotate cache
+        run: |
+          rm -rf /tmp/.buildx-cache-v2-playwright
+          mv /tmp/.buildx-cache-v2-playwright-new /tmp/.buildx-cache-v2-playwright

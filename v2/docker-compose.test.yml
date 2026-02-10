@@ -1,0 +1,113 @@
+# CatWAF v2 Docker Compose - Testing
+# Usage: docker compose -f docker-compose.test.yml up -d
+
+services:
+  # PostgreSQL Database for Testing
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: catwaf-postgres-test
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: catwaf_test
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - catwaf-test
+
+  # Redis Cache for Testing
+  redis-test:
+    image: redis:7-alpine
+    container_name: catwaf-redis-test
+    command: redis-server --appendonly no
+    ports:
+      - "6380:6379"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - catwaf-test
+
+  # Go API Server for Testing
+  api-test:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: catwaf-api-test
+    environment:
+      CATWAF_SERVER_HOST: 0.0.0.0
+      CATWAF_SERVER_PORT: 8080
+      CATWAF_SERVER_ENVIRONMENT: test
+      CATWAF_DATABASE_HOST: postgres-test
+      CATWAF_DATABASE_PORT: 5432
+      CATWAF_DATABASE_USER: test
+      CATWAF_DATABASE_PASSWORD: test
+      CATWAF_DATABASE_DATABASE: catwaf_test
+      CATWAF_REDIS_HOST: redis-test
+      CATWAF_REDIS_PORT: 6379
+      CATWAF_AUTH_JWTSECRET: test-jwt-secret
+      CATWAF_AUTH_DEFAULTAPIKEY: test-api-key
+    ports:
+      - "8081:8080"
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - catwaf-test
+
+  # SvelteKit UI for Testing
+  ui-test:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    container_name: catwaf-ui-test
+    environment:
+      PUBLIC_API_URL: http://api-test:8080
+      NODE_ENV: test
+    ports:
+      - "4173:3000"
+    depends_on:
+      api-test:
+        condition: service_healthy
+    networks:
+      - catwaf-test
+
+  # Playwright E2E Tests
+  playwright:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile.playwright
+    container_name: catwaf-playwright
+    environment:
+      BASE_URL: http://ui-test:3000
+      API_URL: http://api-test:8080
+    depends_on:
+      ui-test:
+        condition: service_started
+    networks:
+      - catwaf-test
+    volumes:
+      - ./ui/test-results:/app/test-results
+      - ./ui/playwright-report:/app/playwright-report
+
+networks:
+  catwaf-test:
+    driver: bridge

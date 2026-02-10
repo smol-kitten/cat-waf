@@ -1,0 +1,232 @@
+# CatWAF v2 - Docker Compose with Prebuilt Images
+# Use this for production deployments with images from GHCR
+# Images are automatically built and pushed via GitHub Actions
+
+version: '3.8'
+
+services:
+  # API Gateway / Backend
+  api:
+    image: ghcr.io/smol-kitten/cat-waf-v2-api:latest
+    container_name: catwaf-api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-8080}:8080"
+    environment:
+      - DATABASE_URL=postgres://${DB_USER:-catwaf}:${DB_PASSWORD:-catwaf}@postgres:5432/${DB_NAME:-catwaf}?sslmode=disable
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      - JWT_SECRET=${JWT_SECRET:-changeme}
+      - API_KEY=${API_KEY:-}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - catwaf
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Web Dashboard (SvelteKit)
+  dashboard:
+    image: ghcr.io/smol-kitten/cat-waf-v2-dashboard:latest
+    container_name: catwaf-dashboard
+    restart: unless-stopped
+    ports:
+      - "${DASHBOARD_PORT:-3000}:3000"
+    environment:
+      - PUBLIC_API_URL=http://api:8080/api/v2
+      - ORIGIN=${DASHBOARD_ORIGIN:-http://localhost:3000}
+    depends_on:
+      - api
+    networks:
+      - catwaf
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Nginx WAF with ModSecurity
+  nginx:
+    image: ghcr.io/smol-kitten/cat-waf-v2-nginx:latest
+    container_name: catwaf-nginx
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - nginx_config:/etc/nginx/sites-enabled:ro
+      - nginx_ssl:/etc/letsencrypt:ro
+      - nginx_logs:/var/log/nginx
+      - modsec_data:/etc/nginx/modsecurity
+    environment:
+      - API_URL=http://api:8080
+    depends_on:
+      - api
+    networks:
+      - catwaf
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # PostgreSQL 16
+  postgres:
+    image: postgres:16-alpine
+    container_name: catwaf-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${DB_USER:-catwaf}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-catwaf}
+      - POSTGRES_DB=${DB_NAME:-catwaf}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - catwaf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-catwaf} -d ${DB_NAME:-catwaf}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis 7.x for caching and sessions
+  redis:
+    image: redis:7-alpine
+    container_name: catwaf-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      ${REDIS_PASSWORD:+--requirepass $REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    networks:
+      - catwaf
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Migration runner (init container)
+  migration:
+    image: ghcr.io/smol-kitten/cat-waf-v2-api:latest
+    container_name: catwaf-migration
+    command: ["/app/catwaf", "migrate", "up"]
+    environment:
+      - DATABASE_URL=postgres://${DB_USER:-catwaf}:${DB_PASSWORD:-catwaf}@postgres:5432/${DB_NAME:-catwaf}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - catwaf
+    restart: "no"
+
+  # Config generator worker
+  config-worker:
+    image: ghcr.io/smol-kitten/cat-waf-v2-api:latest
+    container_name: catwaf-config-worker
+    command: ["/app/catwaf", "worker", "--type=config"]
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgres://${DB_USER:-catwaf}:${DB_PASSWORD:-catwaf}@postgres:5432/${DB_NAME:-catwaf}?sslmode=disable
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/0
+    volumes:
+      - nginx_config:/etc/nginx/sites-enabled
+      - nginx_ssl:/etc/letsencrypt
+    depends_on:
+      - api
+      - redis
+    networks:
+      - catwaf
+
+  # Log parser worker
+  log-parser:
+    image: ghcr.io/smol-kitten/cat-waf-v2-api:latest
+    container_name: catwaf-log-parser
+    command: ["/app/catwaf", "worker", "--type=logs"]
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgres://${DB_USER:-catwaf}:${DB_PASSWORD:-catwaf}@postgres:5432/${DB_NAME:-catwaf}?sslmode=disable
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/0
+    volumes:
+      - nginx_logs:/var/log/nginx:ro
+    depends_on:
+      - api
+      - redis
+    networks:
+      - catwaf
+
+  # ACME/Let's Encrypt certificate manager
+  acme:
+    image: ghcr.io/smol-kitten/cat-waf-v2-api:latest
+    container_name: catwaf-acme
+    command: ["/app/catwaf", "worker", "--type=acme"]
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgres://${DB_USER:-catwaf}:${DB_PASSWORD:-catwaf}@postgres:5432/${DB_NAME:-catwaf}?sslmode=disable
+      - ACME_EMAIL=${ACME_EMAIL:-admin@example.com}
+      - ACME_STAGING=${ACME_STAGING:-false}
+    volumes:
+      - nginx_ssl:/etc/letsencrypt
+    depends_on:
+      - api
+    networks:
+      - catwaf
+
+  # Fail2ban for IP banning
+  fail2ban:
+    image: ghcr.io/smol-kitten/cat-waf-v2-fail2ban:latest
+    container_name: catwaf-fail2ban
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - API_URL=http://api:8080/api/v2
+      - API_KEY=${API_KEY:-}
+    volumes:
+      - nginx_logs:/var/log/nginx:ro
+      - fail2ban_data:/var/lib/fail2ban
+    depends_on:
+      - nginx
+    networks:
+      - catwaf
+
+  # Playwright for bot challenge verification
+  playwright:
+    image: ghcr.io/smol-kitten/cat-waf-v2-playwright:latest
+    container_name: catwaf-playwright
+    restart: unless-stopped
+    environment:
+      - API_URL=http://api:8080/api/v2
+    networks:
+      - catwaf
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  nginx_config:
+    driver: local
+  nginx_ssl:
+    driver: local
+  nginx_logs:
+    driver: local
+  modsec_data:
+    driver: local
+  fail2ban_data:
+    driver: local
+
+networks:
+  catwaf:
+    driver: bridge

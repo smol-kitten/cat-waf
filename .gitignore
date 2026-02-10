@@ -14,3 +14,5 @@ backups/
 Proj2/
 reference/Really Simple Licensing (RSL) 1.0 Specification _ RSL_ Really Simple Licensing_files
 reference/Really Simple Licensing (RSL) 1.0 Specification _ RSL_ Really Simple Licensing.html
+v2/ui/.pnpm-store/
+v2/ui/node_modules/.pnpm/

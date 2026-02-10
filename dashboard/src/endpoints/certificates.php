@@ -529,11 +529,13 @@ function renewCertificate($domain) {
         }
         
         // ALWAYS renew with base domain + wildcard (same as issuance)
-        $domains = sprintf("%s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
+        $domains = sprintf("-d %s -d %s", escapeshellarg($baseDomain), escapeshellarg("*.{$baseDomain}"));
         
         // NOTE: acme.sh home is /acme.sh (mounted from waf-certs volume)
+        // Use --issue --force instead of --renew for more reliable renewal with DNS challenge
+        // --renew requires valid existing config, which may be corrupted or missing
         $command = sprintf(
-            "docker exec waf-acme sh -c '%sacme.sh --renew --dns dns_cf -d %s --home /acme.sh --force' 2>&1",
+            "docker exec waf-acme sh -c '%sacme.sh --issue --dns dns_cf %s --home /acme.sh --server letsencrypt --force' 2>&1",
             $envVars,
             $domains
         );
@@ -558,7 +560,13 @@ function renewCertificate($domain) {
         error_log("Output contains 'is not an issued domain': " . (strpos($outputText, 'is not an issued domain') !== false ? 'YES' : 'NO'));
         error_log("Output: " . $outputText);
         
-        if (strpos($outputText, 'is not an issued domain') !== false || strpos($outputText, 'No certificate found for') !== false) {
+        // Check for various error conditions that indicate we need to (re-)issue the certificate
+        $needsReissue = strpos($outputText, 'is not an issued domain') !== false 
+            || strpos($outputText, 'No certificate found for') !== false
+            || strpos($outputText, 'Please specify at least one validation method') !== false
+            || strpos($outputText, 'Le_API=') !== false;  // Empty or invalid API URL in config
+        
+        if ($needsReissue) {
             // Attempt to issue a new certificate with base domain + wildcard
             if ($challengeType === 'dns-01') {
                 $cfApiKey = $site['cf_api_token'] ?: getenv('CLOUDFLARE_API_TOKEN') ?: getenv('CLOUDFLARE_API_KEY');
