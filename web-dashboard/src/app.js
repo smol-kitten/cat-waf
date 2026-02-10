@@ -7006,17 +7006,147 @@ async function deletePathRoute(id) {
     }
 }
 
-// Edit path route (placeholder for future implementation)
-function editPathRoute(id) {
-    showToast('Edit path route feature coming soon', 'info');
-    console.log('Edit path route:', id);
+// Edit path route
+async function editPathRoute(id) {
+    try {
+        const response = await apiRequest(`/path-routes/${id}`);
+        const route = response?.route;
+        
+        if (!route) {
+            showToast('Path route not found', 'error');
+            return;
+        }
+        
+        document.getElementById('pathRouteModalTitle').textContent = 'Edit Path Route';
+        document.getElementById('pathRouteId').value = route.id;
+        document.getElementById('pathRouteSiteId').value = route.site_id;
+        document.getElementById('pathRoutePath').value = route.path || '';
+        document.getElementById('pathRouteBackend').value = route.backend_url || '';
+        document.getElementById('pathRouteProtocol').value = route.backend_protocol || 'http';
+        document.getElementById('pathRoutePriority').value = route.priority || 100;
+        document.getElementById('pathRouteStripPath').checked = route.strip_path == 1;
+        document.getElementById('pathRouteModsecurity').checked = route.enable_modsecurity == 1;
+        document.getElementById('pathRouteRateLimit').checked = route.enable_rate_limit == 1;
+        document.getElementById('pathRouteRateLimitValue').value = route.custom_rate_limit || 10;
+        document.getElementById('pathRouteRateLimitBurst').value = route.rate_limit_burst || 20;
+        document.getElementById('pathRouteMaxBody').value = route.max_body_size || 10;
+        document.getElementById('pathRouteEnabled').checked = route.enabled == 1;
+        
+        // Show/hide rate limit config
+        document.getElementById('pathRouteRateLimitConfig').style.display = 
+            route.enable_rate_limit == 1 ? 'block' : 'none';
+        
+        openModal('pathRouteModal');
+    } catch (error) {
+        console.error('Error loading path route:', error);
+        showToast('Failed to load path route', 'error');
+    }
 }
 
-// Show add path route modal (placeholder for future implementation)
+// Show add path route modal
 function showAddPathRouteModal() {
-    showToast('Add path route feature coming soon', 'info');
-    console.log('Add path route modal');
+    if (!currentSiteData?.id) {
+        showToast('Please select a site first', 'error');
+        return;
+    }
+    
+    document.getElementById('pathRouteModalTitle').textContent = 'Add Path Route';
+    document.getElementById('pathRouteId').value = '';
+    document.getElementById('pathRouteSiteId').value = currentSiteData.id;
+    document.getElementById('pathRoutePath').value = '';
+    document.getElementById('pathRouteBackend').value = '';
+    document.getElementById('pathRouteProtocol').value = 'http';
+    document.getElementById('pathRoutePriority').value = '100';
+    document.getElementById('pathRouteStripPath').checked = false;
+    document.getElementById('pathRouteModsecurity').checked = true;
+    document.getElementById('pathRouteRateLimit').checked = false;
+    document.getElementById('pathRouteRateLimitValue').value = '10';
+    document.getElementById('pathRouteRateLimitBurst').value = '20';
+    document.getElementById('pathRouteMaxBody').value = '10';
+    document.getElementById('pathRouteEnabled').checked = true;
+    document.getElementById('pathRouteRateLimitConfig').style.display = 'none';
+    
+    openModal('pathRouteModal');
 }
+
+// Save path route
+async function savePathRoute() {
+    const id = document.getElementById('pathRouteId').value;
+    const siteId = document.getElementById('pathRouteSiteId').value;
+    const path = document.getElementById('pathRoutePath').value.trim();
+    const backendUrl = document.getElementById('pathRouteBackend').value.trim();
+    const protocol = document.getElementById('pathRouteProtocol').value;
+    const priority = parseInt(document.getElementById('pathRoutePriority').value) || 100;
+    const stripPath = document.getElementById('pathRouteStripPath').checked;
+    const enableModsecurity = document.getElementById('pathRouteModsecurity').checked;
+    const enableRateLimit = document.getElementById('pathRouteRateLimit').checked;
+    const rateLimit = parseInt(document.getElementById('pathRouteRateLimitValue').value) || 10;
+    const rateLimitBurst = parseInt(document.getElementById('pathRouteRateLimitBurst').value) || 20;
+    const maxBodySize = parseInt(document.getElementById('pathRouteMaxBody').value) || 10;
+    const enabled = document.getElementById('pathRouteEnabled').checked;
+    
+    if (!path) {
+        showToast('Path is required', 'error');
+        return;
+    }
+    
+    if (!path.startsWith('/')) {
+        showToast('Path must start with /', 'error');
+        return;
+    }
+    
+    if (!backendUrl) {
+        showToast('Backend URL is required', 'error');
+        return;
+    }
+    
+    // Validate backend URL format (hostname:port or IP:port)
+    if (!/^[a-zA-Z0-9.-]+:\d+$/.test(backendUrl)) {
+        showToast('Backend URL must be in format hostname:port or IP:port', 'error');
+        return;
+    }
+    
+    try {
+        const data = {
+            site_id: parseInt(siteId),
+            path,
+            backend_url: backendUrl,
+            backend_protocol: protocol,
+            priority,
+            strip_path: stripPath ? 1 : 0,
+            enable_modsecurity: enableModsecurity ? 1 : 0,
+            enable_rate_limit: enableRateLimit ? 1 : 0,
+            custom_rate_limit: rateLimit,
+            rate_limit_burst: rateLimitBurst,
+            max_body_size: maxBodySize,
+            enabled: enabled ? 1 : 0
+        };
+        
+        const response = id 
+            ? await apiRequest(`/path-routes/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+            : await apiRequest('/path-routes', { method: 'POST', body: JSON.stringify(data) });
+        
+        if (response && (response.success || response.route)) {
+            showToast(id ? 'Path route updated successfully' : 'Path route created successfully', 'success');
+            closeModal('pathRouteModal');
+            loadPathRoutes();
+        }
+    } catch (error) {
+        console.error('Error saving path route:', error);
+        showToast('Failed to save path route: ' + (error.message || 'Unknown error'), 'error');
+    }
+}
+
+// Toggle rate limit config visibility
+document.addEventListener('DOMContentLoaded', function() {
+    const rateLimitCheckbox = document.getElementById('pathRouteRateLimit');
+    if (rateLimitCheckbox) {
+        rateLimitCheckbox.addEventListener('change', function() {
+            document.getElementById('pathRouteRateLimitConfig').style.display = 
+                this.checked ? 'block' : 'none';
+        });
+    }
+});
 
 // Export functions
 window.loadPathRoutes = loadPathRoutes;
@@ -7024,6 +7154,7 @@ window.togglePathRoute = togglePathRoute;
 window.deletePathRoute = deletePathRoute;
 window.editPathRoute = editPathRoute;
 window.showAddPathRouteModal = showAddPathRouteModal;
+window.savePathRoute = savePathRoute;
 
 // ============================================================
 // BOT WHITELIST MANAGEMENT

@@ -2803,6 +2803,90 @@ Sitemap: https://example.com/sitemap.xml"></textarea>
         </div>
     </div>
 
+    <!-- Add/Edit Path Route Modal -->
+    <div class="modal" id="pathRouteModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="pathRouteModalTitle">Add Path Route</h3>
+                <button class="modal-close" onclick="closeModal('pathRouteModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="pathRouteId">
+                <input type="hidden" id="pathRouteSiteId">
+                <div class="form-group">
+                    <label>Path *</label>
+                    <input type="text" id="pathRoutePath" placeholder="/api" class="form-input" required>
+                    <small style="color: var(--text-muted);">
+                        URL path to match. Must start with /. Examples: <code>/api</code>, <code>/static</code>, <code>/admin</code>
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label>Backend URL *</label>
+                    <input type="text" id="pathRouteBackend" placeholder="127.0.0.1:3000" class="form-input" required>
+                    <small style="color: var(--text-muted);">
+                        Backend server address in format <code>hostname:port</code> or <code>IP:port</code>
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label>Backend Protocol</label>
+                    <select id="pathRouteProtocol" class="form-input">
+                        <option value="http">HTTP</option>
+                        <option value="https">HTTPS</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Priority</label>
+                    <input type="number" id="pathRoutePriority" class="form-input" value="100" min="1" max="999">
+                    <small style="color: var(--text-muted);">
+                        Higher priority routes are evaluated first. Default: 100
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="pathRouteStripPath">
+                        <span>Strip path prefix before proxying</span>
+                    </label>
+                    <small style="color: var(--text-muted);">
+                        If enabled, <code>/api/users</code> → <code>/users</code> is sent to backend
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="pathRouteModsecurity" checked>
+                        <span>Enable ModSecurity WAF</span>
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="pathRouteRateLimit">
+                        <span>Enable Rate Limiting</span>
+                    </label>
+                </div>
+                <div class="form-group" id="pathRouteRateLimitConfig" style="display: none; padding-left: 1.5rem;">
+                    <label>Rate Limit (requests/second)</label>
+                    <input type="number" id="pathRouteRateLimitValue" class="form-input" value="10" min="1" max="10000">
+                    <label style="margin-top: 0.5rem;">Burst Size</label>
+                    <input type="number" id="pathRouteRateLimitBurst" class="form-input" value="20" min="1" max="10000">
+                </div>
+                <div class="form-group">
+                    <label>Max Body Size (MB)</label>
+                    <input type="number" id="pathRouteMaxBody" class="form-input" value="10" min="0" max="10000">
+                    <small style="color: var(--text-muted);">Maximum request body size. 0 = no limit</small>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="pathRouteEnabled" checked>
+                        <span>Enable this route</span>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal('pathRouteModal')">Cancel</button>
+                <button class="btn-primary" onclick="savePathRoute()">Save Route</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Traffic Analysis Modal -->
     <div class="modal" id="trafficAnalysisModal" style="display: none;">
         <div class="modal-content" style="max-width: 1200px; width: 95%;">

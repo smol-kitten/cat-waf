@@ -672,6 +672,9 @@ function renewCertificate($domain) {
         return;
     }
     
+    // Install certificate to nginx after successful renewal
+    copyCertFromAcme($domain);
+    
     // Reload nginx
     exec("docker exec waf-nginx nginx -s reload 2>&1");
     
@@ -1186,8 +1189,17 @@ function findAcmeCertificate($baseDomain, $domain = null) {
  * Helper function to copy certificate from acme.sh to nginx
  */
 function copyCertFromAcme($domain) {
-    $acmeCertPath = "/acme.sh/{$domain}/{$domain}_ecc/fullchain.cer";
-    $acmeKeyPath = "/acme.sh/{$domain}/{$domain}_ecc/{$domain}.key";
+    // Extract base domain for wildcard cert lookup
+    $baseDomain = extractRootDomain($domain);
+    
+    // Try ECC directory first (default for modern acme.sh)
+    // acme.sh stores ECC certs at: /acme.sh/{domain}_ecc/fullchain.cer and {domain}.key
+    $pathPatterns = [
+        ['cert' => "/acme.sh/{$baseDomain}_ecc/fullchain.cer", 'key' => "/acme.sh/{$baseDomain}_ecc/{$baseDomain}.key"],
+        ['cert' => "/acme.sh/{$baseDomain}_ecc/fullchain.pem", 'key' => "/acme.sh/{$baseDomain}_ecc/key.pem"],
+        ['cert' => "/acme.sh/{$baseDomain}/fullchain.cer", 'key' => "/acme.sh/{$baseDomain}/{$baseDomain}.key"],
+        ['cert' => "/acme.sh/{$baseDomain}/fullchain.pem", 'key' => "/acme.sh/{$baseDomain}/key.pem"],
+    ];
     
     $nginxCertDir = "/etc/nginx/certs/{$domain}";
     $nginxCertPath = "{$nginxCertDir}/fullchain.pem";
@@ -1197,13 +1209,39 @@ function copyCertFromAcme($domain) {
     $mkdirCmd = "docker exec waf-nginx sh -c 'mkdir -p {$nginxCertDir} && rm -f {$nginxCertPath} {$nginxKeyPath}' 2>&1";
     shell_exec($mkdirCmd);
     
+    // Find valid certificate path
+    $foundPath = null;
+    foreach ($pathPatterns as $paths) {
+        $checkCmd = "docker exec waf-acme sh -c 'test -f \"{$paths['cert']}\" && echo exists' 2>&1";
+        $result = trim(shell_exec($checkCmd) ?? '');
+        if ($result === 'exists') {
+            $foundPath = $paths;
+            break;
+        }
+    }
+    
+    if (!$foundPath) {
+        error_log("No certificate found in acme.sh for {$domain} (base: {$baseDomain})");
+        return false;
+    }
+    
     // Copy cert: read from acme, write to nginx
-    $copyCertCmd = "docker exec waf-acme cat {$acmeCertPath} | docker exec -i waf-nginx sh -c 'cat > {$nginxCertPath}' 2>&1";
+    $copyCertCmd = "docker exec waf-acme cat {$foundPath['cert']} | docker exec -i waf-nginx sh -c 'cat > {$nginxCertPath}' 2>&1";
     shell_exec($copyCertCmd);
     
     // Copy key: read from acme, write to nginx
-    $copyKeyCmd = "docker exec waf-acme cat {$acmeKeyPath} | docker exec -i waf-nginx sh -c 'cat > {$nginxKeyPath}' 2>&1";
+    $copyKeyCmd = "docker exec waf-acme cat {$foundPath['key']} | docker exec -i waf-nginx sh -c 'cat > {$nginxKeyPath}' 2>&1";
     shell_exec($copyKeyCmd);
     
-    error_log("Copied Let's Encrypt certificate from acme.sh to nginx for {$domain}");
+    // Verify the copy was successful
+    $verifyCmd = "docker exec waf-nginx sh -c 'test -s {$nginxCertPath} && test -s {$nginxKeyPath} && echo ok' 2>&1";
+    $verifyResult = trim(shell_exec($verifyCmd) ?? '');
+    
+    if ($verifyResult !== 'ok') {
+        error_log("Failed to copy certificate to nginx for {$domain}");
+        return false;
+    }
+    
+    error_log("Copied Let's Encrypt certificate from {$foundPath['cert']} to nginx for {$domain}");
+    return true;
 }
