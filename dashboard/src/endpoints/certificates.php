@@ -87,61 +87,6 @@ function dockerExec(string $container, string $cmd): array {
 }
 }
 
-
-// ════════════════════════════════════════════════════════════
-// ROUTING
-// ════════════════════════════════════════════════════════════
-
-$method     = $_SERVER['REQUEST_METHOD'];
-$requestUri = $_SERVER['REQUEST_URI'];
-
-// renew-all
-if (preg_match('#/certificates/renew-all$#', $requestUri)) {
-    if ($method === 'POST') { renewAllCertificates(); }
-    else { http_response_code(405); echo json_encode(['error' => 'Method not allowed']); }
-    exit;
-}
-
-// rescan (all or single domain)
-if (preg_match('#/certificates/rescan(?:/([^/]+))?$#', $requestUri, $m)) {
-    if ($method === 'POST') {
-        !empty($m[1]) ? rescanCertificate($m[1]) : rescanAllCertificates();
-    } else {
-        http_response_code(405);
-        echo json_encode(['error' => 'Method not allowed']);
-    }
-    exit;
-}
-
-// upload is routed via index.php → certificate-upload.php
-
-// domain-specific routes
-preg_match('#/certificates/([^/]+)(?:/(renew))?$#', $requestUri, $matches);
-$domain = $matches[1] ?? null;
-$action = $matches[2] ?? null;
-
-if (!$domain) {
-    http_response_code(400);
-    echo json_encode(['error' => 'Domain parameter required']);
-    exit;
-}
-if (!preg_match('/^[a-zA-Z0-9._-]+$/', $domain)) {
-    http_response_code(400);
-    echo json_encode(['error' => 'Invalid domain format']);
-    exit;
-}
-if ($domain === '_') {
-    echo json_encode(['exists' => false, 'domain' => '_', 'message' => 'Default server – no certificate needed']);
-    exit;
-}
-
-switch ($method) {
-    case 'GET':    getCertificateInfo($domain); break;
-    case 'POST':   $action === 'renew' ? renewCertificate($domain) : issueCertificate($domain); break;
-    case 'DELETE':  removeCertificate($domain); break;
-    default:       http_response_code(405); echo json_encode(['error' => 'Method not allowed']);
-}
-
 /** Run a command with env vars via docker exec -e. Returns [output, exitCode]. */
 if (!function_exists('dockerExecEnv')) {
 function dockerExecEnv(string $container, array $env, string $cmd): array {
@@ -388,6 +333,65 @@ function reloadNginx(): void {
     dockerExec('waf-nginx', 'nginx -s reload');
 }
 }
+
+
+// ════════════════════════════════════════════════════════════
+// ROUTING (only in web context — skip when required from CLI)
+// ════════════════════════════════════════════════════════════
+
+if (php_sapi_name() !== 'cli') {
+
+$method     = $_SERVER['REQUEST_METHOD'];
+$requestUri = $_SERVER['REQUEST_URI'];
+
+// renew-all
+if (preg_match('#/certificates/renew-all$#', $requestUri)) {
+    if ($method === 'POST') { renewAllCertificates(); }
+    else { http_response_code(405); echo json_encode(['error' => 'Method not allowed']); }
+    exit;
+}
+
+// rescan (all or single domain)
+if (preg_match('#/certificates/rescan(?:/([^/]+))?$#', $requestUri, $m)) {
+    if ($method === 'POST') {
+        !empty($m[1]) ? rescanCertificate($m[1]) : rescanAllCertificates();
+    } else {
+        http_response_code(405);
+        echo json_encode(['error' => 'Method not allowed']);
+    }
+    exit;
+}
+
+// upload is routed via index.php → certificate-upload.php
+
+// domain-specific routes
+preg_match('#/certificates/([^/]+)(?:/(renew))?$#', $requestUri, $matches);
+$domain = $matches[1] ?? null;
+$action = $matches[2] ?? null;
+
+if (!$domain) {
+    http_response_code(400);
+    echo json_encode(['error' => 'Domain parameter required']);
+    exit;
+}
+if (!preg_match('/^[a-zA-Z0-9._-]+$/', $domain)) {
+    http_response_code(400);
+    echo json_encode(['error' => 'Invalid domain format']);
+    exit;
+}
+if ($domain === '_') {
+    echo json_encode(['exists' => false, 'domain' => '_', 'message' => 'Default server – no certificate needed']);
+    exit;
+}
+
+switch ($method) {
+    case 'GET':    getCertificateInfo($domain); break;
+    case 'POST':   $action === 'renew' ? renewCertificate($domain) : issueCertificate($domain); break;
+    case 'DELETE':  removeCertificate($domain); break;
+    default:       http_response_code(405); echo json_encode(['error' => 'Method not allowed']);
+}
+
+} // end if (not CLI)
 
 
 // ════════════════════════════════════════════════════════════
