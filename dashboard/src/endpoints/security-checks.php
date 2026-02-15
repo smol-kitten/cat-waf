@@ -304,10 +304,12 @@ function checkSSLExpiry($db) {
 
 function checkModSecurityStatus() {
     // Check if ModSecurity is loaded in the WAF NGINX container
+    // Use nginx -V for compiled-in, or check for loaded dynamic module
     $nginxContainer = getenv('NGINX_CONTAINER_NAME') ?: 'waf-nginx';
-    exec("docker exec {$nginxContainer} nginx -V 2>&1 | grep -i modsecurity", $output, $returnVar);
+    exec("docker exec {$nginxContainer} sh -c \"nginx -V 2>&1 | grep -i modsecurity || grep -q modsecurity /etc/nginx/nginx.conf 2>/dev/null && echo modsecurity_dynamic\" 2>&1", $output, $returnVar);
     
-    if ($returnVar === 0 && !empty($output)) {
+    $combined = implode("\n", $output);
+    if (stripos($combined, 'modsecurity') !== false) {
         return ['healthy', 'ModSecurity module loaded', []];
     } else {
         return ['critical', 'ModSecurity module not found', []];
