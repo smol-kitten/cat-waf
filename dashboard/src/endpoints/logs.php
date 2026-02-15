@@ -52,8 +52,7 @@ function handleLogs($method, $params, $db) {
             $params_array = [];
             
             if ($domain) {
-                $sql .= "WHERE domain = ? OR host = ? ";
-                $params_array[] = $domain;
+                $sql .= "WHERE domain = ? ";
                 $params_array[] = $domain;
             }
             

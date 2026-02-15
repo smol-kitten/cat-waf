@@ -145,7 +145,7 @@ class LogQueue {
         $values = [];
         
         foreach ($this->accessLogsBuffer as $log) {
-            $placeholders[] = '(?, ?, ?, ?, ?, ?, ?, ?, ?)';
+            $placeholders[] = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
             $values = array_merge($values, [
                 $log['domain'],
                 $log['ip_address'],
@@ -155,11 +155,14 @@ class LogQueue {
                 $log['bytes_sent'],
                 $log['user_agent'],
                 $log['referer'],
+                $log['response_time'] ?? null,
+                $log['blocked'] ?? 0,
+                $log['blocked_reason'] ?? null,
                 $log['timestamp']
             ]);
         }
         
-        $sql = "INSERT INTO access_logs (domain, ip_address, request_uri, method, status_code, bytes_sent, user_agent, referer, timestamp) VALUES " . implode(', ', $placeholders);
+        $sql = "INSERT INTO access_logs (domain, ip_address, request_uri, method, status_code, bytes_sent, user_agent, referer, response_time, blocked, blocked_reason, timestamp) VALUES " . implode(', ', $placeholders);
         
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($values);
@@ -178,7 +181,7 @@ class LogQueue {
         $values = [];
         
         foreach ($this->telemetryBuffer as $t) {
-            $placeholders[] = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+            $placeholders[] = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
             $values = array_merge($values, [
                 $t['domain'],
                 $t['uri'],
@@ -189,11 +192,12 @@ class LogQueue {
                 $t['response_time'],
                 $t['cache_status'],
                 $t['backend_server'],
+                $t['user_agent'] ?? null,
                 $t['timestamp']
             ]);
         }
         
-        $sql = "INSERT INTO request_telemetry (domain, uri, method, status_code, ip_address, bytes_sent, response_time, cache_status, backend_server, timestamp) VALUES " . implode(', ', $placeholders);
+        $sql = "INSERT INTO request_telemetry (domain, uri, method, status_code, ip_address, bytes_sent, response_time, cache_status, backend_server, user_agent, timestamp) VALUES " . implode(', ', $placeholders);
         
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($values);

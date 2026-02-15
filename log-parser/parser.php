@@ -5,8 +5,15 @@ require_once __DIR__ . '/LogQueue.php';
 
 $logDir = '/var/log/nginx';
 $modsecAuditLog = '/var/log/modsec/modsec_audit.log';
-$posFilePrefix = '/tmp/parser_';
-$modsecPosFile = '/tmp/parser_modsec.pos';
+// Store position files in the shared waf-logs volume so they persist across restarts
+$posDir = '/var/log/.parser';
+$posFilePrefix = $posDir . '/parser_';
+$modsecPosFile = $posDir . '/parser_modsec.pos';
+
+// Ensure position directory exists
+if (!is_dir($posDir)) {
+    @mkdir($posDir, 0755, true);
+}
 
 // Queue configuration
 $QUEUE_BUFFER_SIZE = (int)(getenv('QUEUE_BUFFER_SIZE') ?: 500);
@@ -222,6 +229,12 @@ while (true) {
                 $botType = $botDetection['type'];
                 $botName = $botDetection['name'] ?? 'unknown';
                 
+                // Determine if request was blocked
+                $blocked = ($status === 403 || $status === 429) ? 1 : 0;
+                $blockedReason = null;
+                if ($status === 403) $blockedReason = 'forbidden';
+                if ($status === 429) $blockedReason = 'rate_limited';
+                
                 // Insert into access_logs (via queue or direct)
                 $accessLogData = [
                     'domain' => $host,
@@ -232,6 +245,9 @@ while (true) {
                     'bytes_sent' => $bodyBytes,
                     'user_agent' => $userAgent,
                     'referer' => $referer,
+                    'response_time' => $requestTime,
+                    'blocked' => $blocked,
+                    'blocked_reason' => $blockedReason,
                     'timestamp' => $logTime
                 ];
                 
@@ -242,12 +258,13 @@ while (true) {
                         INSERT INTO access_logs (
                             domain, ip_address, request_uri, method,
                             status_code, bytes_sent, user_agent, referer, 
-                            timestamp
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            response_time, blocked, blocked_reason, timestamp
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ");
                     $stmt->execute([
                         $host, $clientIp, $uri, $method,
-                        $status, $bodyBytes, $userAgent, $referer, $logTime
+                        $status, $bodyBytes, $userAgent, $referer,
+                        $requestTime, $blocked, $blockedReason, $logTime
                     ]);
                 }
                 
@@ -323,6 +340,7 @@ while (true) {
                         'response_time' => $responseTime,
                         'cache_status' => $cacheStatus,
                         'backend_server' => $upstreamAddr,
+                        'user_agent' => $userAgent,
                         'timestamp' => $logTime
                     ];
                     
@@ -333,12 +351,13 @@ while (true) {
                             INSERT INTO request_telemetry (
                                 domain, uri, method, status_code, ip_address,
                                 bytes_sent, response_time,
-                                cache_status, backend_server, timestamp
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                cache_status, backend_server, user_agent, timestamp
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ");
                         $telemetryStmt->execute([
                             $host, $uri, $method, $status, $clientIp,
-                            $bodyBytes, $responseTime, $cacheStatus, $upstreamAddr, $logTime
+                            $bodyBytes, $responseTime, $cacheStatus, $upstreamAddr,
+                            $userAgent, $logTime
                         ]);
                     }
                 } catch (PDOException $e) {

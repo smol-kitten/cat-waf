@@ -483,8 +483,7 @@ function handleTelemetry($method, $params, $db) {
                     response_time,
                     backend_server,
                     ip_address,
-                    user_agent,
-                    referer
+                    user_agent
                 FROM request_telemetry 
                 WHERE $whereClause
                 ORDER BY timestamp DESC
@@ -506,8 +505,7 @@ function handleTelemetry($method, $params, $db) {
                     'response_time' => round(($row['response_time'] ?? 0) * 1000, 1),
                     'backend_server' => $row['backend_server'] ?? 'unknown',
                     'ip_address' => $row['ip_address'] ?? 'unknown',
-                    'user_agent' => substr($row['user_agent'] ?? '', 0, 100),
-                    'referer' => $row['referer'] ?? ''
+                    'user_agent' => substr($row['user_agent'] ?? '', 0, 100)
                 ];
             }, $results);
             

@@ -1482,7 +1482,7 @@ async function loadAnalytics() {
 async function loadLogs() {
     try {
         // Get filter values
-        const logType = document.getElementById('logType')?.value || 'access';
+        const logType = document.getElementById('logType')?.value || 'database';
         const limit = document.getElementById('logLimit')?.value || 100;
         const siteFilter = document.getElementById('logSiteFilter')?.value || '';
         
@@ -1492,7 +1492,8 @@ async function loadLogs() {
             query += `&domain=${encodeURIComponent(siteFilter)}`;
         }
         
-        const response = await apiRequest(`/logs?${query}`);
+        // Send logType in the URL path so the backend uses the right data source
+        const response = await apiRequest(`/logs/${logType}?${query}`);
         const logs = response?.logs || [];
         
         const logsContainer = document.getElementById('logsContainer');
@@ -1523,11 +1524,12 @@ async function loadLogs() {
                 // Raw log string - parse nginx log format
                 const rawLog = log.raw || log;
                 
-                // Parse NGINX log format: domain - ip - [timestamp] "METHOD path HTTP/version" status ...
-                const logMatch = rawLog.match(/^(\S+) - ([\d\.\:a-fA-F]+) - \[([^\]]+)\] "(\S+) ([^\s"]+)[^"]*" (\d+)/);
+                // Parse NGINX WAF log format: host x_real_ip remote_addr - [timestamp] "METHOD path HTTP/version" status ...
+                const logMatch = rawLog.match(/^(\S+) (\S+) (\S+) - \[([^\]]+)\] "(\S+) ([^\s"]+)[^"]*" (\d+)/);
                 
                 if (logMatch) {
-                    const [, domain, ip, timestamp, method, path, status] = logMatch;
+                    const [, domain, xRealIp, remoteAddr, timestamp, method, path, status] = logMatch;
+                    const ip = (xRealIp && xRealIp !== '-') ? xRealIp : remoteAddr;
                     displayText = `[${timestamp}] [${domain}] ${ip} - ${method} ${path} - ${status}`;
                 } else {
                     // Fallback to showing raw log
