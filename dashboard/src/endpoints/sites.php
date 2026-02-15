@@ -785,99 +785,18 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
             $config .= "    }\n\n";
         }
         
-        // SSL configuration
-        $ssl_challenge_type = $siteData['ssl_challenge_type'] ?? 'http-01';
-        
-        // Try to copy certificates from acme.sh if they exist and are not snakeoil
-        if ($ssl_challenge_type !== 'snakeoil') {
-            // Check if acme.sh has a certificate for this domain
-            $acmeCertPath = "/acme.sh/{$domain}/{$domain}_ecc/fullchain.cer";
-            $acmeKeyPath = "/acme.sh/{$domain}/{$domain}_ecc/{$domain}.key";
-            
-            $nginxCertDir = "/etc/nginx/certs/{$domain}";
-            $nginxCertPath = "{$nginxCertDir}/fullchain.pem";
-            $nginxKeyPath = "{$nginxCertDir}/key.pem";
-            
-            // Check if acme.sh has certificates
-            $checkCmd = "docker exec waf-acme test -f {$acmeCertPath} && echo 'exists' || echo 'missing' 2>&1";
-            $acmeExists = trim(shell_exec($checkCmd));
-            
-            if ($acmeExists === 'exists') {
-                // Check if it's a real Let's Encrypt cert or snakeoil
-                $issuerCmd = "docker exec waf-acme openssl x509 -in {$acmeCertPath} -noout -issuer 2>&1";
-                $issuer = shell_exec($issuerCmd);
-                
-                // If not self-signed (doesn't have CN=domain as issuer), copy to nginx
-                if (strpos($issuer, "CN={$domain}") === false) {
-                    error_log("Found Let's Encrypt certificate for {$domain}, copying to nginx...");
-                    
-                    // Create cert directory in nginx container and remove any old symlinks
-                    $mkdirCmd = "docker exec waf-nginx sh -c 'mkdir -p {$nginxCertDir} && rm -f {$nginxCertPath} {$nginxKeyPath}' 2>&1";
-                    shell_exec($mkdirCmd);
-                    
-                    // Copy cert: read from acme, write to nginx
-                    $copyCertCmd = "docker exec waf-acme cat {$acmeCertPath} | docker exec -i waf-nginx sh -c 'cat > {$nginxCertPath}' 2>&1";
-                    $certResult = shell_exec($copyCertCmd);
-                    
-                    // Copy key: read from acme, write to nginx
-                    $copyKeyCmd = "docker exec waf-acme cat {$acmeKeyPath} | docker exec -i waf-nginx sh -c 'cat > {$nginxKeyPath}' 2>&1";
-                    $keyResult = shell_exec($copyKeyCmd);
-                    
-                    // Verify files exist in nginx
-                    $verifyCmd = "docker exec waf-nginx test -f {$nginxCertPath} && docker exec waf-nginx test -f {$nginxKeyPath} && echo 'success' || echo 'failed' 2>&1";
-                    $verifyResult = trim(shell_exec($verifyCmd));
-                    
-                    if ($verifyResult === 'success') {
-                        error_log("Successfully copied Let's Encrypt certificate for {$domain} to nginx");
-                    } else {
-                        error_log("Failed to verify copied certificate for {$domain}");
-                    }
-                }
-            }
-        }
-        
-        // Check if certificate files exist, generate snakeoil if missing
-        $certPath = "/etc/nginx/certs/{$domain}/fullchain.pem";
-        $keyPath = "/etc/nginx/certs/{$domain}/key.pem";
-        
-        // Check if certs exist in nginx container (check if it's a regular file, not a symlink)
-        $certExistsCmd = "docker exec waf-nginx sh -c '[ -f {$certPath} ] && [ ! -L {$certPath} ] && echo exists || echo missing' 2>&1";
-        $certExists = trim(shell_exec($certExistsCmd));
-        
-        if ($certExists !== 'exists') {
-            // Generate snakeoil certificate if missing
-            error_log("Certificate missing for {$domain}, generating snakeoil...");
-            $certDir = "/etc/nginx/certs/{$domain}";
-            $snakeoilCmd = sprintf(
-                "docker exec waf-nginx sh -c 'mkdir -p %s && openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout %s/key.pem -out %s/fullchain.pem -subj \"/CN=%s\"' 2>&1",
-                escapeshellarg($certDir),
-                escapeshellarg($certDir),
-                escapeshellarg($certDir),
-                escapeshellarg($domain)
-            );
-            exec($snakeoilCmd, $snakeoilOutput, $snakeoilReturn);
-            if ($snakeoilReturn !== 0) {
-                error_log("Failed to generate snakeoil cert for {$domain}: " . implode("\n", $snakeoilOutput));
-            }
-        }
-        
-        // Determine certificate path - use base domain for wildcard coverage
-        $baseDomain = extractRootDomain($domain);
-        $certDomain = $baseDomain; // Always use base domain cert (covers wildcards)
-        
-        // Sanitize certificate domain to prevent path traversal and invalid characters
-        $certDomain = sanitizeCertDomain($certDomain);
-        $domain_safe = sanitizeCertDomain($domain);
-        
-        if ($ssl_challenge_type === 'snakeoil') {
-            // Use self-signed snakeoil certificate (domain-specific)
-            $config .= "    ssl_certificate /etc/nginx/certs/{$domain_safe}/fullchain.pem;\n";
-            $config .= "    ssl_certificate_key /etc/nginx/certs/{$domain_safe}/key.pem;\n";
-        } else {
-            // Use Let's Encrypt certificate from base domain (wildcard support)
-            $config .= "    ssl_certificate /etc/nginx/certs/{$certDomain}/fullchain.pem;\n";
-            $config .= "    ssl_certificate_key /etc/nginx/certs/{$certDomain}/key.pem;\n";
-        }
+        // ── SSL Certificate ──
+        // Use the refactored cert system: ensures a cert exists at the standard path.
+        // For ACME certs this creates symlinks to the shared volume's _ecc/ directory.
+        // For custom certs the file is already there from upload.
+        // Falls back to snakeoil if nothing else is available.
+        require_once __DIR__ . '/certificates.php';
+
+        $domain_safe = sanitizeDomain($domain);
+        ensureCertExists($domain_safe);
+
+        $config .= "    ssl_certificate /etc/nginx/certs/{$domain_safe}/fullchain.pem;\n";
+        $config .= "    ssl_certificate_key /etc/nginx/certs/{$domain_safe}/key.pem;\n";
         $config .= "    ssl_protocols TLSv1.2 TLSv1.3;\n";
         $config .= "    ssl_ciphers HIGH:!aNULL:!MD5;\n";
         $config .= "    ssl_prefer_server_ciphers on;\n";

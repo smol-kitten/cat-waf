@@ -49,94 +49,118 @@ else
     echo "✅ Snakeoil certificate already exists"
 fi
 
-# Sync certificates from ACME to nginx if needed
-echo "🔄 Checking certificate sync from ACME to nginx..."
+# Sync certificates from ACME to nginx via relative symlinks
+# Both /acme.sh and /etc/nginx/certs are the SAME waf-certs volume.
+# acme.sh writes ECC certs to {domain}_ecc/ directories.
+# We create: {domain}/fullchain.pem → ../{domain}_ecc/fullchain.cer
+echo "🔄 Syncing ACME certificates to nginx..."
 SYNC_COUNT=0
-# Check if /acme.sh directory exists and is accessible
-if [ -d "/acme.sh" ]; then
-    # Find all certificate directories in ACME volume
-    for acme_cert_dir in /acme.sh/*/; do
-        if [ -d "$acme_cert_dir" ]; then
-            domain=$(basename "$acme_cert_dir")
-            
-            # Skip special directories
-            if [ "$domain" = "ca" ] || [ "$domain" = "http.header" ]; then
-                continue
-            fi
-            
-            acme_cert="/acme.sh/$domain/fullchain.pem"
-            nginx_cert="/etc/nginx/certs/$domain/fullchain.pem"
-            
-            # Check if ACME cert exists and is valid
-            if [ -f "$acme_cert" ]; then
-                # Check if nginx cert is missing or different
-                if [ ! -f "$nginx_cert" ] || ! cmp -s "$acme_cert" "$nginx_cert"; then
-                    echo "  🔄 Syncing certificate for $domain from ACME..."
-                    mkdir -p "/etc/nginx/certs/$domain"
-                    
-                    # Check if ACME cert is about to expire (less than 30 days)
-                    expiry=$(openssl x509 -enddate -noout -in "$acme_cert" 2>/dev/null | cut -d= -f2)
-                    if [ -n "$expiry" ]; then
-                        # Use portable date parsing (works in both GNU and BusyBox)
-                        expiry_epoch=$(date -j -f "%b %d %H:%M:%S %Y %Z" "$expiry" +%s 2>/dev/null || date -d "$expiry" +%s 2>/dev/null || echo 0)
-                        now_epoch=$(date +%s)
-                        days_until_expiry=$(( ($expiry_epoch - $now_epoch) / 86400 ))
-                        
-                        if [ $days_until_expiry -gt 30 ]; then
-                            # Certificate is valid and not expiring soon, sync it
-                            ln -sf "$acme_cert" "$nginx_cert"
-                            ln -sf "/acme.sh/$domain/key.pem" "/etc/nginx/certs/$domain/key.pem"
-                            SYNC_COUNT=$((SYNC_COUNT + 1))
-                            echo "    ✅ Synced $domain (valid for $days_until_expiry days)"
-                        else
-                            echo "    ⚠️  Certificate for $domain expires in $days_until_expiry days, skipping sync"
-                        fi
-                    fi
+
+if [ -d "/etc/nginx/certs" ]; then
+    # Find _ecc directories (acme.sh ECC cert storage)
+    for ecc_dir in /etc/nginx/certs/*_ecc/; do
+        [ -d "$ecc_dir" ] || continue
+
+        ecc_name=$(basename "$ecc_dir")
+        # Extract domain from dir name: catboy.farm_ecc → catboy.farm
+        domain="${ecc_name%_ecc}"
+
+        # Skip special acme.sh dirs
+        case "$domain" in ca|http.header|deploy) continue ;; esac
+
+        # Find the cert and key files in the _ecc dir
+        cert_file=""
+        key_file=""
+
+        if [ -f "$ecc_dir/fullchain.cer" ]; then
+            cert_file="fullchain.cer"
+        elif [ -f "$ecc_dir/fullchain.pem" ]; then
+            cert_file="fullchain.pem"
+        fi
+
+        if [ -f "$ecc_dir/${domain}.key" ]; then
+            key_file="${domain}.key"
+        elif [ -f "$ecc_dir/key.pem" ]; then
+            key_file="key.pem"
+        fi
+
+        if [ -z "$cert_file" ] || [ -z "$key_file" ]; then
+            echo "  ⚠️  Skipping $domain: missing cert or key in $ecc_name"
+            continue
+        fi
+
+        # Create relative symlinks: {domain}/fullchain.pem → ../{domain}_ecc/{cert_file}
+        nginx_dir="/etc/nginx/certs/$domain"
+        mkdir -p "$nginx_dir"
+
+        # Only update if symlink is missing, broken, or points to wrong target
+        expected_cert="../${ecc_name}/${cert_file}"
+        expected_key="../${ecc_name}/${key_file}"
+        current_cert=$(readlink "$nginx_dir/fullchain.pem" 2>/dev/null || echo "")
+        current_key=$(readlink "$nginx_dir/key.pem" 2>/dev/null || echo "")
+
+        needs_update=0
+        # Update if missing, if it's not a symlink (was a regular file), or if target changed
+        if [ ! -e "$nginx_dir/fullchain.pem" ] || [ "$current_cert" != "$expected_cert" ]; then
+            needs_update=1
+        fi
+        if [ ! -e "$nginx_dir/key.pem" ] || [ "$current_key" != "$expected_key" ]; then
+            needs_update=1
+        fi
+
+        if [ $needs_update -eq 1 ]; then
+            rm -f "$nginx_dir/fullchain.pem" "$nginx_dir/key.pem"
+            ln -s "$expected_cert" "$nginx_dir/fullchain.pem"
+            ln -s "$expected_key" "$nginx_dir/key.pem"
+            SYNC_COUNT=$((SYNC_COUNT + 1))
+
+            # Show expiry info
+            expiry_days=""
+            expiry_info=$(openssl x509 -enddate -noout -in "${ecc_dir}/${cert_file}" 2>/dev/null | cut -d= -f2)
+            if [ -n "$expiry_info" ]; then
+                expiry_epoch=$(date -d "$expiry_info" +%s 2>/dev/null || echo 0)
+                now_epoch=$(date +%s)
+                if [ "$expiry_epoch" -gt 0 ]; then
+                    expiry_days=$(( (expiry_epoch - now_epoch) / 86400 ))
                 fi
             fi
+            echo "  ✅ Linked $domain → ${ecc_name}/${cert_file} (${expiry_days:-?} days remaining)"
+        fi
+    done
+
+    # Also check non-ECC directories (RSA certs or old installs)
+    for cert_dir in /etc/nginx/certs/*/; do
+        [ -d "$cert_dir" ] || continue
+        dir_name=$(basename "$cert_dir")
+
+        # Skip _ecc dirs (handled above) and special dirs
+        case "$dir_name" in *_ecc|ca|http.header|deploy|snakeoil) continue ;; esac
+
+        # If this dir has a fullchain.pem that's a real file (not symlink), leave it alone
+        # (it's either a custom upload or snakeoil - both are valid)
+        if [ -f "$cert_dir/fullchain.pem" ] && [ ! -L "$cert_dir/fullchain.pem" ]; then
+            continue
+        fi
+
+        # If it's a broken symlink, remove it and generate snakeoil
+        if [ -L "$cert_dir/fullchain.pem" ] && [ ! -e "$cert_dir/fullchain.pem" ]; then
+            echo "  ⚠️  Broken symlink for $dir_name, generating snakeoil..."
+            rm -f "$cert_dir/fullchain.pem" "$cert_dir/key.pem"
+            openssl req -x509 -nodes -days 3650 \
+                -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+                -keyout "$cert_dir/key.pem" \
+                -out "$cert_dir/fullchain.pem" \
+                -subj "/CN=$dir_name/O=CatWAF Snakeoil" 2>/dev/null
+            echo "  🔐 Generated snakeoil for $dir_name"
         fi
     done
 fi
 
 if [ $SYNC_COUNT -gt 0 ]; then
-    echo "  ✅ Synced $SYNC_COUNT certificate(s) from ACME"
+    echo "✅ Synced $SYNC_COUNT certificate(s)"
 else
-    echo "  ✅ All certificates are in sync"
+    echo "✅ All certificates in sync"
 fi
-
-# Function to fix broken certificate symlinks
-fix_broken_symlinks() {
-    echo "🔍 Checking for broken certificate symlinks..."
-    find /etc/nginx/certs -type l | while read -r link; do
-        if [ ! -e "$link" ]; then
-            echo "⚠️  Found broken symlink: $link"
-            local dir=$(dirname "$link")
-            local domain=$(basename "$dir")
-            local filename=$(basename "$link")
-            
-            # Remove broken symlink
-            rm -f "$link"
-            echo "   🗑️  Removed broken symlink"
-            
-            # Check if we have snakeoil cert for this domain
-            if [ -f "/etc/nginx/certs/snakeoil/fullchain.pem" ]; then
-                echo "   📋 Using snakeoil certificate"
-                cp "/etc/nginx/certs/snakeoil/fullchain.pem" "$dir/fullchain.pem" 2>/dev/null || true
-                cp "/etc/nginx/certs/snakeoil/key.pem" "$dir/key.pem" 2>/dev/null || true
-            else
-                echo "   🔐 Generating new snakeoil certificate for $domain"
-                openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-                    -keyout "$dir/key.pem" \
-                    -out "$dir/fullchain.pem" \
-                    -subj "/CN=$domain" 2>/dev/null || true
-            fi
-        fi
-    done
-    echo "✅ Certificate symlink check complete"
-}
-
-# Fix any broken symlinks before proceeding
-fix_broken_symlinks
 
 # Install OWASP CRS if not present
 if [ ! -d "/etc/nginx/modsecurity/coreruleset" ]; then
