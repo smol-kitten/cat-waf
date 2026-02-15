@@ -69,7 +69,7 @@ if (file_exists('/proc/meminfo')) {
 }
 
 // Check backend health for each site
-$sites = $pdo->query("SELECT id, domain, backend_url FROM sites WHERE active = 1")->fetchAll(PDO::FETCH_ASSOC);
+$sites = $pdo->query("SELECT id, domain, backend_url FROM sites WHERE enabled = 1")->fetchAll(PDO::FETCH_ASSOC);
 $backendIssues = [];
 
 foreach ($sites as $site) {

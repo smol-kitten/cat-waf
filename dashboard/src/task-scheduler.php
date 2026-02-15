@@ -277,6 +277,18 @@ class TaskScheduler {
     }
     
     private function notifyFailure(array $task, string $error) {
+        // Rate limit: don't spam on persistent failures
+        // Only send if last notification for this task was >30 minutes ago
+        $cacheFile = '/tmp/catwaf_notify_' . md5('task_' . $task['id']) . '.lock';
+        if (file_exists($cacheFile)) {
+            $lastNotify = (int)file_get_contents($cacheFile);
+            if (time() - $lastNotify < 1800) { // 30 minutes
+                logMessage("Notification suppressed for task {$task['task_name']} (rate limited, last sent " . (time() - $lastNotify) . "s ago)");
+                return;
+            }
+        }
+        file_put_contents($cacheFile, time());
+
         require_once __DIR__ . '/lib/WebhookNotifier.php';
         
         $notifier = new WebhookNotifier($this->pdo);
