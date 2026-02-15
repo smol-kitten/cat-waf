@@ -14,7 +14,7 @@ class TaskScheduler {
     private $currentTask = null;
     
     public function __construct() {
-        $this->pdo = getDbConnection();
+        $this->pdo = getDB();
     }
     
     public function run() {

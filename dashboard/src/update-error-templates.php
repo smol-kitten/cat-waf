@@ -13,7 +13,7 @@ $errorPages = [
 ];
 
 try {
-    $db = getDbConnection();
+    $db = getDB();
     
     // Update the default template
     $stmt = $db->prepare("

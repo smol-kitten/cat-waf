@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS `security_checks` (
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_check_type` (`check_type`),
   KEY `idx_check_type` (`check_type`),
   KEY `idx_status` (`status`),
   KEY `idx_enabled` (`enabled`),

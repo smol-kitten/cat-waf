@@ -9,7 +9,7 @@ require_once __DIR__ . '/../config.php';
 echo "GeoIP Database Update Task\n";
 
 // Check for MaxMind license key
-$pdo = getDbConnection();
+$pdo = getDB();
 $stmt = $pdo->prepare("SELECT setting_value FROM settings WHERE setting_key = 'maxmind_license_key'");
 $stmt->execute();
 $result = $stmt->fetch(PDO::FETCH_ASSOC);

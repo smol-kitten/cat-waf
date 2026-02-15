@@ -9,7 +9,7 @@ require_once __DIR__ . '/../lib/Router/RouterManager.php';
 use CatWAF\Router\RouterManager;
 
 function handleRouters($method, $path, $body = null) {
-    $pdo = getDbConnection();
+    $pdo = getDB();
     $manager = new RouterManager($pdo);
     
     // Parse path: /routers, /routers/123, /routers/123/test, /routers/123/sync

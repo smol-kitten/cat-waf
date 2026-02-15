@@ -1577,10 +1577,10 @@ function generateWellKnownFiles($siteData) {
 function generateCustomErrorPages($siteData) {
     $config = "";
     $customEnabled = $siteData['custom_error_pages_enabled'] ?? false;
+    $domain = $siteData['domain'] ?? '_';
     
     if ($customEnabled) {
         $db = getDB();
-        $config .= "    # Custom error pages (inline HTML)\n";
         
         $errorPages = [
             '403' => $siteData['custom_403_html'] ?? null,
@@ -1595,51 +1595,74 @@ function generateCustomErrorPages($siteData) {
         $stmt = $db->query("SELECT html_403, html_404, html_429, html_500, html_502, html_503 FROM error_page_templates WHERE is_default = 1 LIMIT 1");
         $template = $stmt->fetch(PDO::FETCH_ASSOC);
         
+        // Write custom error pages to per-site directory (never inline HTML in nginx return)
+        $errorDir = "/usr/share/nginx/error-pages/sites/{$domain}";
+        if (!is_dir($errorDir)) {
+            @mkdir($errorDir, 0755, true);
+        }
+        
+        $hasCustom = false;
         foreach ($errorPages as $code => $html) {
             if (!$html && $template) {
                 $html = $template["html_{$code}"] ?? null;
             }
-            
             if ($html) {
-                // Escape HTML for NGINX return directive
-                $escaped = addslashes($html);
-                $escaped = str_replace("\n", "\\n", $escaped);
-                $escaped = str_replace("\r", "", $escaped);
-                
-                $statusMap = [
-                    '500' => '500 502 503 504',
-                    '502' => null, // Handled by 500
-                    '503' => null, // Handled by 500
-                    '403' => '403',
-                    '404' => '404',
-                    '429' => '429'
-                ];
-                
-                $statusCodes = $statusMap[$code];
-                if ($statusCodes) {
-                    $config .= "    error_page {$statusCodes} @error_{$code};\n";
-                    $config .= "    location @error_{$code} {\n";
-                    $config .= "        internal;\n";
-                    $config .= "        default_type text/html;\n";
-                    $config .= "        return {$code} \"{$escaped}\";\n";
-                    $config .= "    }\n";
-                }
+                file_put_contents("{$errorDir}/{$code}.html", $html);
+                $hasCustom = true;
             }
         }
-        $config .= "\n";
+        
+        if ($hasCustom) {
+            $config .= "    # Custom error pages (per-site files)\n";
+            
+            $statusMap = [
+                '403' => '403',
+                '404' => '404',
+                '429' => '429',
+                '500' => '500 502 503 504',
+                '502' => null, // Handled by 500
+                '503' => null, // Handled by 500
+            ];
+            
+            foreach ($errorPages as $code => $html) {
+                if (!$html && $template) {
+                    $html = $template["html_{$code}"] ?? null;
+                }
+                $statusCodes = $statusMap[$code];
+                if ($statusCodes && $html && file_exists("{$errorDir}/{$code}.html")) {
+                    $config .= "    error_page {$statusCodes} /custom-errors/{$code}.html;\n";
+                }
+            }
+            
+            $config .= "    location ^~ /custom-errors/ {\n";
+            $config .= "        alias {$errorDir}/;\n";
+            $config .= "        internal;\n";
+            $config .= "    }\n\n";
+        } else {
+            // Fallback to default template pages
+            $config .= generateDefaultErrorPages();
+        }
     } else {
-        // Use template mode - default error pages
-        $config .= "    # Template error pages\n";
-        $config .= "    error_page 429 /errors/429.html;\n";
-        $config .= "    error_page 403 /errors/403.html;\n";
-        $config .= "    error_page 404 /errors/404.html;\n";
-        $config .= "    error_page 500 502 503 504 /errors/500.html;\n";
-        $config .= "    location ^~ /errors/ {\n";
-        $config .= "        alias /usr/share/nginx/error-pages/;\n";
-        $config .= "        internal;\n";
-        $config .= "    }\n\n";
+        $config .= generateDefaultErrorPages();
     }
     
+    return $config;
+}
+
+/**
+ * Generate default template error page config (file-based, never inline HTML)
+ */
+function generateDefaultErrorPages() {
+    $config = "";
+    $config .= "    # Template error pages\n";
+    $config .= "    error_page 429 /errors/429.html;\n";
+    $config .= "    error_page 403 /errors/403.html;\n";
+    $config .= "    error_page 404 /errors/404.html;\n";
+    $config .= "    error_page 500 502 503 504 /errors/500.html;\n";
+    $config .= "    location ^~ /errors/ {\n";
+    $config .= "        alias /usr/share/nginx/error-pages/;\n";
+    $config .= "        internal;\n";
+    $config .= "    }\n\n";
     return $config;
 }
 

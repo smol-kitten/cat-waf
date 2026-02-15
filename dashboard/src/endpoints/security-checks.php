@@ -48,17 +48,22 @@ function handleSecurityChecks($method, $params, $db) {
                     sendResponse(['error' => 'Security check not found'], 404);
                 }
             } else {
-                // List all security checks with summary
+                // List all security checks with summary (deduplicated by check_type)
                 $stmt = $db->query("
-                    SELECT * FROM security_checks 
+                    SELECT sc.* FROM security_checks sc
+                    INNER JOIN (
+                        SELECT check_type, MIN(id) AS min_id
+                        FROM security_checks
+                        GROUP BY check_type
+                    ) dedup ON sc.id = dedup.min_id
                     ORDER BY 
-                        CASE status
+                        CASE sc.status
                             WHEN 'critical' THEN 1
                             WHEN 'warning' THEN 2
                             WHEN 'healthy' THEN 3
                             ELSE 4
                         END,
-                        check_name ASC
+                        sc.check_name ASC
                 ");
                 $checks = $stmt->fetchAll();
                 

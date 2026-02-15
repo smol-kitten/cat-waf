@@ -6,7 +6,7 @@
 
 require_once __DIR__ . '/../config.php';
 
-$pdo = getDbConnection();
+$pdo = getDB();
 
 echo "Ban Cleanup Task\n";
 

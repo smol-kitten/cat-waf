@@ -6,7 +6,7 @@
 
 require_once __DIR__ . '/../config.php';
 
-$pdo = getDbConnection();
+$pdo = getDB();
 
 // Get retention days from settings
 $stmt = $pdo->prepare("SELECT setting_value FROM settings WHERE setting_key = 'log_retention_days'");

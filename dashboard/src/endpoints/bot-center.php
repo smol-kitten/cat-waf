@@ -5,7 +5,7 @@
  */
 
 function handleBotCenter($method, $path, $body = null) {
-    $pdo = getDbConnection();
+    $pdo = getDB();
     
     $pathParts = explode('/', trim($path, '/'));
     $action = $pathParts[1] ?? null;

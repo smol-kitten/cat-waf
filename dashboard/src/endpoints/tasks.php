@@ -5,7 +5,7 @@
  */
 
 function handleScheduledTasks($method, $path, $body = null) {
-    $pdo = getDbConnection();
+    $pdo = getDB();
     
     // Parse path: /tasks, /tasks/123, /tasks/123/run, /tasks/history
     $pathParts = explode('/', trim($path, '/'));

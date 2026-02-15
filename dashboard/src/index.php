@@ -159,18 +159,11 @@ try {
             if (isset($uri[1]) && $uri[1] === 'upload') {
                 require_once 'endpoints/certificate-upload.php';
                 handleCertificateUpload($method, array_slice($uri, 2), $db);
-            } elseif (isset($uri[1]) && $uri[1] === 'rescan') {
-                require_once 'endpoints/certificates.php';
-                // Handle rescan endpoint for specific domain or all
-                if (isset($uri[2])) {
-                    rescanCertificate($uri[2]);
-                } else {
-                    rescanAllCertificates();
-                }
-            } else {
-                require_once 'endpoints/certificates.php';
+                exit;
             }
-            break;
+            // certificates.php handles its own routing (rescan, domain, renew, etc.)
+            require_once 'endpoints/certificates.php';
+            exit;
                         
         case 'challenge':
             require_once 'endpoints/challenge.php';

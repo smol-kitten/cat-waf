@@ -7,7 +7,7 @@
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../lib/WebhookNotifier.php';
 
-$pdo = getDbConnection();
+$pdo = getDB();
 
 echo "Health Check Task\n";
 

@@ -203,7 +203,7 @@ class WebhookNotifier {
             'purple' => 10181046
         ];
         
-        $colorValue = $colorMap[$color] ?? 3447003;
+        $colorValue = is_int($color) ? $color : ($colorMap[$color] ?? 3447003);
         
         $embedFields = [
             ['name' => 'Time', 'value' => date('Y-m-d H:i:s'), 'inline' => true]
@@ -332,13 +332,20 @@ class WebhookNotifier {
             
             $response = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlError = curl_error($ch);
+            $curlErrno = curl_errno($ch);
             curl_close($ch);
+            
+            if ($curlErrno !== 0) {
+                error_log("Webhook curl error ({$curlErrno}): {$curlError} — URL: {$url}");
+                return false;
+            }
             
             if ($httpCode >= 200 && $httpCode < 300) {
                 error_log("Webhook sent successfully to {$url}");
                 return true;
             } else {
-                error_log("Failed to send webhook to {$url}: HTTP {$httpCode}");
+                error_log("Failed to send webhook to {$url}: HTTP {$httpCode} — Response: {$response}");
                 return false;
             }
             
