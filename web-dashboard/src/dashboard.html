@@ -758,7 +758,7 @@
                             <!-- Opt-In -->
                             <div class="setting-item" style="border: 2px solid #10b981; border-radius: 8px; padding: 1rem; background: rgba(16, 185, 129, 0.05); margin-bottom: 1.5rem;">
                                 <label class="checkbox-label" style="font-size: 1.1em; font-weight: 600;">
-                                    <input type="checkbox" id="telemetry_opt_in" onchange="toggleTelemetryOptions()">
+                                    <input type="checkbox" id="telemetry_opt_in" onchange="toggleTelemetryOptions(); saveTelemetrySettings();">
                                     <span>✅ Opt-in to Telemetry Collection</span>
                                 </label>
                                 <div style="font-size: 0.9em; color: var(--text-muted); margin-top: 0.5rem; margin-left: 1.75rem;">

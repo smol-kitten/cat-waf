@@ -144,21 +144,112 @@ foreach ($checks as $name => $check) {
     echo "{$icon} {$name}: {$check['message']}\n";
 }
 
-// Send notification if issues found
-if (!empty($issues)) {
-    echo "\n⚠ Issues detected! Sending notification...\n";
+// ONE-TIME ALERT SYSTEM: Only alert on NEW issues, not recurring ones
+// Track issues and only notify when they first appear
+$newIssues = [];
+$resolvedIssues = [];
+
+foreach ($issues as $issueText) {
+    // Create a unique key for this issue
+    $issueKey = md5($issueText);
+    $issueType = 'health_check';
+    
+    // Check if this issue already exists and is unresolved
+    $stmt = $pdo->prepare("
+        SELECT id, alert_sent FROM active_issues 
+        WHERE issue_type = ? AND issue_key = ? AND resolved_at IS NULL
+    ");
+    $stmt->execute([$issueType, $issueKey]);
+    $existingIssue = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if ($existingIssue) {
+        // Issue already tracked and unresolved - update last_detected but don't alert again
+        $stmt = $pdo->prepare("UPDATE active_issues SET last_detected = NOW() WHERE id = ?");
+        $stmt->execute([$existingIssue['id']]);
+        echo "Issue still active (already alerted): $issueText\n";
+    } else {
+        // New issue - insert and mark for alerting
+        $stmt = $pdo->prepare("
+            INSERT INTO active_issues (issue_type, issue_key, alert_sent, details)
+            VALUES (?, ?, 1, ?)
+        ");
+        $stmt->execute([$issueType, $issueKey, json_encode(['message' => $issueText])]);
+        $newIssues[] = $issueText;
+        echo "NEW issue detected: $issueText\n";
+    }
+}
+
+// Check for resolved issues - mark issues that no longer appear
+$stmt = $pdo->prepare("
+    SELECT id, details FROM active_issues 
+    WHERE issue_type = 'health_check' AND resolved_at IS NULL
+");
+$stmt->execute();
+$activeIssues = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+foreach ($activeIssues as $activeIssue) {
+    $details = json_decode($activeIssue['details'], true);
+    $wasFound = false;
+    
+    foreach ($issues as $issueText) {
+        $issueKey = md5($issueText);
+        if (isset($details['message']) && md5($details['message']) === md5($issueText)) {
+            $wasFound = true;
+            break;
+        }
+    }
+    
+    if (!$wasFound) {
+        // Issue has been resolved
+        $stmt = $pdo->prepare("UPDATE active_issues SET resolved_at = NOW() WHERE id = ?");
+        $stmt->execute([$activeIssue['id']]);
+        $resolvedIssues[] = $details['message'] ?? 'Unknown issue';
+        echo "Issue RESOLVED: " . ($details['message'] ?? 'Unknown') . "\n";
+    }
+}
+
+// Send notification only for NEW issues
+if (!empty($newIssues)) {
+    echo "\n⚠ NEW issues detected! Sending notification...\n";
     
     try {
         $notifier = new WebhookNotifier($pdo);
-        $issueList = implode("\n• ", $issues);
+        $issueList = implode("\n• ", $newIssues);
         $notifier->sendCustomNotification(
             "🏥 Health Check Alert",
-            "The following issues were detected:\n\n• {$issueList}",
+            "The following NEW issues were detected:\n\n• {$issueList}",
             15158332 // Orange
         );
+        
+        // Also store in alert_history for dashboard visibility
+        $healthRuleStmt = $pdo->query("SELECT id FROM alert_rules WHERE rule_type = 'health_check' LIMIT 1");
+        $healthRule = $healthRuleStmt->fetch();
+        if ($healthRule) {
+            $stmt = $pdo->prepare("INSERT INTO alert_history (alert_rule_id, alert_data) VALUES (?, ?)");
+            $stmt->execute([$healthRule['id'], json_encode(['issues' => $newIssues])]);
+        }
+        
         echo "Notification sent\n";
     } catch (Exception $e) {
         echo "Failed to send notification: " . $e->getMessage() . "\n";
+    }
+} else {
+    echo "\nNo NEW issues (existing issues already alerted).\n";
+}
+
+// Optionally notify when issues are resolved
+if (!empty($resolvedIssues)) {
+    echo "\n✅ Issues resolved: " . count($resolvedIssues) . "\n";
+    try {
+        $notifier = new WebhookNotifier($pdo);
+        $resolvedList = implode("\n• ", $resolvedIssues);
+        $notifier->sendCustomNotification(
+            "✅ Health Check - Issues Resolved",
+            "The following issues have been resolved:\n\n• {$resolvedList}",
+            5763719 // Green
+        );
+    } catch (Exception $e) {
+        // Silent fail for resolution notifications
     }
 }
 

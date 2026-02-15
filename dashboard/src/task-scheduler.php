@@ -171,6 +171,9 @@ class TaskScheduler {
             $this->completeExecution($executionId, 'success', $output, $duration);
             $this->calculateNextRun($taskId, $task['schedule']);
             
+            // Mark any previous failures for this task as resolved
+            $this->markTaskRecovered($task);
+            
             logMessage("Task completed: {$task['task_name']} (duration: {$duration}s)");
             
         } catch (Exception $e) {
@@ -277,17 +280,36 @@ class TaskScheduler {
     }
     
     private function notifyFailure(array $task, string $error) {
-        // Rate limit: don't spam on persistent failures
-        // Only send if last notification for this task was >30 minutes ago
-        $cacheFile = '/tmp/catwaf_notify_' . md5('task_' . $task['id']) . '.lock';
-        if (file_exists($cacheFile)) {
-            $lastNotify = (int)file_get_contents($cacheFile);
-            if (time() - $lastNotify < 1800) { // 30 minutes
-                logMessage("Notification suppressed for task {$task['task_name']} (rate limited, last sent " . (time() - $lastNotify) . "s ago)");
-                return;
-            }
+        // ONE-TIME ALERTING: Only send on first failure, not recurring ones
+        $issueType = 'task_failure';
+        $issueKey = md5('task_' . $task['id'] . '_' . $error);
+        
+        // Check if this issue already exists and is unresolved
+        $stmt = $this->pdo->prepare("
+            SELECT id, alert_sent FROM active_issues 
+            WHERE issue_type = ? AND issue_key = ? AND resolved_at IS NULL
+        ");
+        $stmt->execute([$issueType, $issueKey]);
+        $existingIssue = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($existingIssue) {
+            // Issue already tracked - update last_detected but don't alert again
+            $stmt = $this->pdo->prepare("UPDATE active_issues SET last_detected = NOW() WHERE id = ?");
+            $stmt->execute([$existingIssue['id']]);
+            logMessage("Task failure notification suppressed for {$task['task_name']} (already alerted)");
+            return;
         }
-        file_put_contents($cacheFile, time());
+        
+        // New issue - insert and send alert
+        $stmt = $this->pdo->prepare("
+            INSERT INTO active_issues (issue_type, issue_key, alert_sent, details)
+            VALUES (?, ?, 1, ?)
+        ");
+        $stmt->execute([$issueType, $issueKey, json_encode([
+            'task_id' => $task['id'],
+            'task_name' => $task['task_name'],
+            'error' => $error
+        ])]);
 
         require_once __DIR__ . '/lib/WebhookNotifier.php';
         
@@ -297,6 +319,22 @@ class TaskScheduler {
             "Task **{$task['task_name']}** failed:\n```\n{$error}\n```",
             15158332 // Orange color
         );
+        
+        logMessage("Notification sent for NEW task failure: {$task['task_name']}");
+    }
+    
+    /**
+     * Mark task as recovered (for clearing active issues when task succeeds after failure)
+     */
+    private function markTaskRecovered(array $task) {
+        $stmt = $this->pdo->prepare("
+            UPDATE active_issues 
+            SET resolved_at = NOW() 
+            WHERE issue_type = 'task_failure' 
+            AND issue_key LIKE ? 
+            AND resolved_at IS NULL
+        ");
+        $stmt->execute(['%task_' . $task['id'] . '_%']);
     }
     
     public function stop() {

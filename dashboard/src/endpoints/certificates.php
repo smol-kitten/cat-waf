@@ -344,6 +344,18 @@ if (php_sapi_name() !== 'cli') {
 $method     = $_SERVER['REQUEST_METHOD'];
 $requestUri = $_SERVER['REQUEST_URI'];
 
+// Debug logging - uncomment to trace routing issues
+// error_log("certificates.php: Received request - Method: {$method}, URI: {$requestUri}");
+
+// Only process requests that are actually for /certificates/
+if (strpos($requestUri, '/certificates') === false) {
+    // This shouldn't happen - means index.php routing is broken
+    error_log("certificates.php: ERROR - Received non-certificates request: {$requestUri}");
+    http_response_code(400);
+    echo json_encode(['error' => 'Invalid certificates request', 'debug_uri' => $requestUri]);
+    exit;
+}
+
 // renew-all
 if (preg_match('#/certificates/renew-all$#', $requestUri)) {
     if ($method === 'POST') { renewAllCertificates(); }

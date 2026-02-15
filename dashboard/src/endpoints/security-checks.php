@@ -317,15 +317,31 @@ function checkModSecurityStatus() {
 }
 
 function checkFail2banStatus() {
-    // Try to detect the NGINX container name dynamically
-    $nginxContainer = getenv('NGINX_CONTAINER_NAME') ?: 'waf-nginx';
+    // Fail2ban runs in its own container, not inside nginx
+    $fail2banContainer = getenv('FAIL2BAN_CONTAINER_NAME') ?: 'waf-fail2ban';
     
-    exec("docker exec {$nginxContainer} sh -c \"command -v fail2ban-client\" 2>&1", $output, $returnVar);
+    // Check if the fail2ban container is running
+    exec("docker ps --filter name={$fail2banContainer} --filter status=running --format '{{.Names}}' 2>&1", $containerOutput, $containerReturn);
     
-    if ($returnVar === 0) {
-        return ['healthy', 'Fail2ban available', []];
+    if ($containerReturn !== 0 || empty($containerOutput)) {
+        return ['warning', 'Fail2ban container not running', ['container' => $fail2banContainer]];
+    }
+    
+    // Check fail2ban status inside its container
+    exec("docker exec {$fail2banContainer} fail2ban-client status 2>&1", $statusOutput, $statusReturn);
+    
+    if ($statusReturn === 0) {
+        // Count active jails
+        $jailCount = 0;
+        foreach ($statusOutput as $line) {
+            if (strpos($line, 'Jail list:') !== false) {
+                $jails = trim(str_replace('Jail list:', '', $line));
+                $jailCount = empty($jails) ? 0 : count(explode(', ', $jails));
+            }
+        }
+        return ['healthy', "Fail2ban running with {$jailCount} active jail(s)", ['jails' => $jailCount]];
     } else {
-        return ['warning', 'Fail2ban not available', []];
+        return ['warning', 'Fail2ban service not responding', ['output' => implode("\n", $statusOutput)]];
     }
 }
 

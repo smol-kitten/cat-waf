@@ -3691,7 +3691,7 @@ function setupEditorTabs() {
     const tabBtns = document.querySelectorAll('.tab-btn[data-editor-tab]');
     
     tabBtns.forEach(btn => {
-        btn.addEventListener('click', async () => {
+        btn.addEventListener('click', () => {
             const tab = btn.getAttribute('data-editor-tab');
             
             // Update active state
@@ -3701,22 +3701,9 @@ function setupEditorTabs() {
             // Store last active tab
             sessionStorage.setItem('lastEditorTab', tab);
             
-            // Reload site data from server to get fresh data
-            try {
-                const response = await apiRequest(`/sites/${currentSiteId}`);
-                currentSiteData = response.site;
-                console.log('Reloaded site data for tab:', tab);
-            } catch (error) {
-                console.error('Error reloading site data:', error);
-            }
-            
-            // Load tab content
+            // Load tab content without reloading from server - data is already in memory
+            // Only reload when explicitly requested via refresh button
             loadEditorTab(tab);
-            
-            // Re-setup auto-save after tab content loads
-            setTimeout(() => {
-                setupAutoSave();
-            }, 200);
         });
     });
 }
