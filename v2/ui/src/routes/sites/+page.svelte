@@ -225,17 +225,17 @@
 						<div class="flex-1 min-w-0">
 							<div class="flex items-center gap-2">
 								<h3 class="font-semibold truncate">{site.domain}</h3>
-								{#if site.sslEnabled}
+								{#if site.ssl_enabled || site.ssl_mode === 'auto' || site.ssl_mode === 'custom'}
 									<span class="rounded bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-500">
 										SSL
 									</span>
 								{/if}
-								{#if site.wafEnabled}
+								{#if site.waf_enabled}
 									<span class="rounded bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-500">
 										WAF
 									</span>
 								{/if}
-								{#if site.botProtectionEnabled}
+								{#if site.block_bad_bots}
 									<span class="rounded bg-purple-500/10 px-2 py-0.5 text-xs font-medium text-purple-500">
 										Bot Protection
 									</span>

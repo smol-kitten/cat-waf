@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { goto } from '$app/navigation';
+	import { goto, beforeNavigate } from '$app/navigation';
 	import { createQuery, createMutation, useQueryClient } from '@tanstack/svelte-query';
 	import { sitesApi, certificatesApi } from '$lib/api';
-	import type { Site, Backend, PathRoute, WellknownFile, ErrorPage, Certificate } from '$lib/api';
+	import type { Site, Backend, PathRoute, WellknownFile } from '$lib/api';
 	import {
 		Button,
 		Input,
@@ -42,58 +42,59 @@
 		AlertTriangle
 	} from 'lucide-svelte';
 
+	// --- Page params ---
 	$: siteId = $page.params.id;
-	$: isNew = siteId === 'new';
-
 	const queryClient = useQueryClient();
 
-	// Fetch site data
+	// --- Queries (reactive on siteId) ---
 	$: siteQuery = createQuery({
 		queryKey: ['site', siteId],
-		queryFn: () => sitesApi.get(siteId),
-		enabled: !isNew
+		queryFn: () => sitesApi.get(siteId)
 	});
 
-	// Fetch certificates for SSL dropdown
+	$: backendsQuery = createQuery({
+		queryKey: ['site', siteId, 'backends'],
+		queryFn: () => sitesApi.backends.list(siteId)
+	});
+
+	$: pathRoutesQuery = createQuery({
+		queryKey: ['site', siteId, 'pathRoutes'],
+		queryFn: () => sitesApi.pathRoutes.list(siteId)
+	});
+
+	$: wellknownQuery = createQuery({
+		queryKey: ['site', siteId, 'wellknown'],
+		queryFn: () => sitesApi.wellknown.list(siteId)
+	});
+
+	$: errorPagesQuery = createQuery({
+		queryKey: ['site', siteId, 'errorPages'],
+		queryFn: () => sitesApi.errorPages.list(siteId)
+	});
+
 	$: certsQuery = createQuery({
 		queryKey: ['certificates'],
 		queryFn: () => certificatesApi.list()
 	});
 
-	// Fetch backends
-	$: backendsQuery = createQuery({
-		queryKey: ['site', siteId, 'backends'],
-		queryFn: () => sitesApi.backends.list(siteId),
-		enabled: !isNew
-	});
+	// --- Unwrap query data (fixes data access bugs) ---
+	$: backends = $backendsQuery.data?.backends || [];
+	$: pathRoutes = $pathRoutesQuery.data?.pathRoutes || [];
+	$: wellknownFiles = $wellknownQuery.data?.files || [];
+	$: errorPagesMap = $errorPagesQuery.data?.errorPages || {};
+	$: errorPagesList = Object.entries(errorPagesMap).map(([code, content]) => ({
+		code,
+		content: content as string
+	}));
+	$: certificates = $certsQuery.data?.certificates || [];
 
-	// Fetch path routes
-	$: pathRoutesQuery = createQuery({
-		queryKey: ['site', siteId, 'pathRoutes'],
-		queryFn: () => sitesApi.pathRoutes.list(siteId),
-		enabled: !isNew
-	});
-
-	// Fetch wellknown files
-	$: wellknownQuery = createQuery({
-		queryKey: ['site', siteId, 'wellknown'],
-		queryFn: () => sitesApi.wellknown.list(siteId),
-		enabled: !isNew
-	});
-
-	// Fetch error pages
-	$: errorPagesQuery = createQuery({
-		queryKey: ['site', siteId, 'errorPages'],
-		queryFn: () => sitesApi.errorPages.list(siteId),
-		enabled: !isNew
-	});
-
-	// Form state
+	// --- Form state ---
 	let site: Partial<Site> = {
 		domain: '',
 		enabled: true,
 		aliases: [],
 		ssl_mode: 'auto',
+		certificate_id: '',
 		waf_enabled: true,
 		waf_mode: 'on',
 		rate_limit_enabled: false,
@@ -104,27 +105,20 @@
 		geo_block_countries: [],
 		use_cf_ip_headers: false,
 		local_only: false,
-		// Challenge Mode (DDoS Protection)
 		challenge_enabled: false,
 		challenge_difficulty: 16,
 		challenge_duration: 4,
 		challenge_bypass_cf: true,
-		// Compression
 		enable_gzip: true,
 		enable_brotli: true,
 		compression_level: 5,
-		// Basic Auth
 		enable_basic_auth: false,
 		basic_auth_username: '',
 		basic_auth_password: '',
-		// IP Whitelist
 		ip_whitelist: '',
-		// Load Balancing
 		lb_method: 'round_robin',
-		// WebSocket
 		websocket_enabled: false,
 		websocket_path: '/ws',
-		// Advanced
 		client_max_body_size: '100M',
 		proxy_read_timeout: 60,
 		proxy_connect_timeout: 60,
@@ -134,104 +128,123 @@
 		custom_nginx_directives: ''
 	};
 
-	// Watch for site data - reset form when site changes
-	$: if ($siteQuery.data?.site) {
-		const loadedSite = $siteQuery.data.site;
+	// --- One-time form initialization (FIXES: request storm / thrash loop) ---
+	// Without this guard, every query refetch resets the form which triggers
+	// Svelte reactivity on all bindings, causing cascading updates.
+	let initialDataLoaded = false;
+	let originalSiteJson = '';
+
+	$: if ($siteQuery.data?.site && !initialDataLoaded) {
+		const s = $siteQuery.data.site;
 		site = {
-			domain: loadedSite.domain || '',
-			enabled: loadedSite.enabled ?? true,
-			aliases: loadedSite.aliases || [],
-			ssl_mode: loadedSite.ssl_mode || 'auto',
-			waf_enabled: loadedSite.waf_enabled ?? true,
-			waf_mode: loadedSite.waf_mode || 'on',
-			rate_limit_enabled: loadedSite.rate_limit_enabled ?? false,
-			rate_limit_requests: loadedSite.rate_limit_requests ?? 100,
-			rate_limit_window: loadedSite.rate_limit_window ?? 60,
-			block_bad_bots: loadedSite.block_bad_bots ?? true,
-			geo_block_enabled: loadedSite.geo_block_enabled ?? false,
-			geo_block_countries: loadedSite.geo_block_countries || [],
-			use_cf_ip_headers: loadedSite.use_cf_ip_headers ?? false,
-			local_only: loadedSite.local_only ?? false,
-			challenge_enabled: loadedSite.challenge_enabled ?? false,
-			challenge_difficulty: loadedSite.challenge_difficulty ?? 16,
-			challenge_duration: loadedSite.challenge_duration ?? 4,
-			challenge_bypass_cf: loadedSite.challenge_bypass_cf ?? true,
-			enable_gzip: loadedSite.enable_gzip ?? true,
-			enable_brotli: loadedSite.enable_brotli ?? true,
-			compression_level: loadedSite.compression_level ?? 5,
-			enable_basic_auth: loadedSite.enable_basic_auth ?? false,
-			basic_auth_username: loadedSite.basic_auth_username || '',
-			basic_auth_password: loadedSite.basic_auth_password || '',
-			ip_whitelist: loadedSite.ip_whitelist || '',
-			lb_method: loadedSite.lb_method || 'round_robin',
-			websocket_enabled: loadedSite.websocket_enabled ?? false,
-			websocket_path: loadedSite.websocket_path || '/ws',
-			client_max_body_size: loadedSite.client_max_body_size || '100M',
-			proxy_read_timeout: loadedSite.proxy_read_timeout ?? 60,
-			proxy_connect_timeout: loadedSite.proxy_connect_timeout ?? 60,
-			enable_hsts: loadedSite.enable_hsts ?? true,
-			hsts_max_age: loadedSite.hsts_max_age ?? 31536000,
-			wildcard_subdomains: loadedSite.wildcard_subdomains ?? false,
-			custom_nginx_directives: loadedSite.custom_nginx_directives || ''
+			domain: s.domain || '',
+			enabled: s.enabled ?? true,
+			aliases: s.aliases || [],
+			ssl_mode: s.ssl_mode || 'auto',
+			certificate_id: s.certificate_id || '',
+			waf_enabled: s.waf_enabled ?? true,
+			waf_mode: s.waf_mode || 'on',
+			rate_limit_enabled: s.rate_limit_enabled ?? false,
+			rate_limit_requests: s.rate_limit_requests ?? 100,
+			rate_limit_window: s.rate_limit_window ?? 60,
+			block_bad_bots: s.block_bad_bots ?? true,
+			geo_block_enabled: s.geo_block_enabled ?? false,
+			geo_block_countries: s.geo_block_countries || [],
+			use_cf_ip_headers: s.use_cf_ip_headers ?? false,
+			local_only: s.local_only ?? false,
+			challenge_enabled: s.challenge_enabled ?? false,
+			challenge_difficulty: s.challenge_difficulty ?? 16,
+			challenge_duration: s.challenge_duration ?? 4,
+			challenge_bypass_cf: s.challenge_bypass_cf ?? true,
+			enable_gzip: s.enable_gzip ?? true,
+			enable_brotli: s.enable_brotli ?? true,
+			compression_level: s.compression_level ?? 5,
+			enable_basic_auth: s.enable_basic_auth ?? false,
+			basic_auth_username: s.basic_auth_username || '',
+			basic_auth_password: s.basic_auth_password || '',
+			ip_whitelist: s.ip_whitelist || '',
+			lb_method: s.lb_method || 'round_robin',
+			websocket_enabled: s.websocket_enabled ?? false,
+			websocket_path: s.websocket_path || '/ws',
+			client_max_body_size: s.client_max_body_size || '100M',
+			proxy_read_timeout: s.proxy_read_timeout ?? 60,
+			proxy_connect_timeout: s.proxy_connect_timeout ?? 60,
+			enable_hsts: s.enable_hsts ?? true,
+			hsts_max_age: s.hsts_max_age ?? 31536000,
+			wildcard_subdomains: s.wildcard_subdomains ?? false,
+			custom_nginx_directives: s.custom_nginx_directives || ''
 		};
+		originalSiteJson = JSON.stringify(site);
+		initialDataLoaded = true;
 	}
 
+	// --- Dirty state tracking ---
+	$: isDirty = initialDataLoaded && JSON.stringify(site) !== originalSiteJson;
+
+	// Warn on browser close/refresh
+	function handleBeforeUnload(e: BeforeUnloadEvent) {
+		if (isDirty) {
+			e.preventDefault();
+			e.returnValue = '';
+		}
+	}
+
+	// Warn on SvelteKit navigation
+	beforeNavigate(({ cancel }) => {
+		if (isDirty && !confirm('You have unsaved changes. Leave anyway?')) {
+			cancel();
+		}
+	});
+
+	// Function to reload form from server (e.g. after save)
+	function reloadForm() {
+		initialDataLoaded = false;
+		queryClient.invalidateQueries({ queryKey: ['site', siteId], exact: true });
+	}
+
+	// --- UI state ---
 	let activeTab = 'basic';
 	let aliasInput = '';
 	let geoCountryInput = '';
 	let showDeleteModal = false;
 	let saveError = '';
 
-	// Add backend state
+	// Sub-resource form state
 	let newBackend: Partial<Backend> = {
 		address: '',
 		port: 80,
 		weight: 1,
-		protocol: 'http',
-		health_check: true
+		protocol: 'http'
 	};
 	let showAddBackend = false;
 
-	// Add path route state
 	let newPathRoute: Partial<PathRoute> = {
 		path: '',
-		backend_address: '',
-		strip_path: false,
-		rewrite_path: ''
+		matchType: 'prefix',
+		redirectUrl: '',
+		enabled: true
 	};
 	let showAddPathRoute = false;
 
-	// Add wellknown state
 	let newWellknown: Partial<WellknownFile> = {
 		path: '',
-		content: ''
+		content: '',
+		contentType: 'text/plain'
 	};
 	let showAddWellknown = false;
 
-	// Add error page state
-	let newErrorPage: Partial<ErrorPage> = {
-		code: 404,
-		content: ''
-	};
+	let newErrorPage = { code: '404', content: '' };
 	let showAddErrorPage = false;
 
-	// Mutations
-	const createSiteMutation = createMutation({
-		mutationFn: (data: Partial<Site>) => sitesApi.create(data),
-		onSuccess: (data) => {
-			queryClient.invalidateQueries({ queryKey: ['sites'] });
-			goto(`/sites/${data.id}`);
-		},
-		onError: (error) => {
-			saveError = error instanceof Error ? error.message : 'Failed to create site';
-		}
-	});
-
+	// --- Mutations ---
 	const updateSiteMutation = createMutation({
 		mutationFn: (data: Partial<Site>) => sitesApi.update(siteId, data),
 		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: ['site', siteId] });
-			queryClient.invalidateQueries({ queryKey: ['sites'] });
+			// FIXES: Use exact:true to prevent cascading invalidation of all
+			// sub-resource queries (backends, routes, etc.)
+			queryClient.invalidateQueries({ queryKey: ['sites'], exact: true });
+			// Reset dirty tracking with current values
+			originalSiteJson = JSON.stringify(site);
 			saveError = '';
 		},
 		onError: (error) => {
@@ -242,86 +255,88 @@
 	const deleteSiteMutation = createMutation({
 		mutationFn: () => sitesApi.delete(siteId),
 		onSuccess: () => {
+			// Clear dirty flag before navigation
+			originalSiteJson = JSON.stringify(site);
 			queryClient.invalidateQueries({ queryKey: ['sites'] });
 			goto('/sites');
 		}
 	});
 
-	// Backend mutations
+	// Backend mutations — FIXES: use .add() not .create()
 	const addBackendMutation = createMutation({
-		mutationFn: (data: Partial<Backend>) => sitesApi.backends.create(siteId, data),
+		mutationFn: (data: Partial<Backend>) => sitesApi.backends.add(siteId, data),
 		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: ['site', siteId, 'backends'] });
+			queryClient.invalidateQueries({ queryKey: ['site', siteId, 'backends'], exact: true });
 			showAddBackend = false;
-			newBackend = { address: '', port: 80, weight: 1, protocol: 'http', health_check: true };
+			newBackend = { address: '', port: 80, weight: 1, protocol: 'http' };
 		}
 	});
 
 	const deleteBackendMutation = createMutation({
 		mutationFn: (backendId: string) => sitesApi.backends.delete(siteId, backendId),
 		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: ['site', siteId, 'backends'] });
+			queryClient.invalidateQueries({ queryKey: ['site', siteId, 'backends'], exact: true });
 		}
 	});
 
-	// Path route mutations
+	// Path route mutations — FIXES: use .add() not .create()
 	const addPathRouteMutation = createMutation({
-		mutationFn: (data: Partial<PathRoute>) => sitesApi.pathRoutes.create(siteId, data),
+		mutationFn: (data: Partial<PathRoute>) => sitesApi.pathRoutes.add(siteId, data),
 		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: ['site', siteId, 'pathRoutes'] });
+			queryClient.invalidateQueries({ queryKey: ['site', siteId, 'pathRoutes'], exact: true });
 			showAddPathRoute = false;
-			newPathRoute = { path: '', backend_address: '', strip_path: false, rewrite_path: '' };
+			newPathRoute = { path: '', matchType: 'prefix', redirectUrl: '', enabled: true };
 		}
 	});
 
 	const deletePathRouteMutation = createMutation({
 		mutationFn: (routeId: string) => sitesApi.pathRoutes.delete(siteId, routeId),
 		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: ['site', siteId, 'pathRoutes'] });
+			queryClient.invalidateQueries({ queryKey: ['site', siteId, 'pathRoutes'], exact: true });
 		}
 	});
 
-	// Wellknown mutations
+	// Wellknown mutations — FIXES: use .add() not .create()
 	const addWellknownMutation = createMutation({
-		mutationFn: (data: Partial<WellknownFile>) => sitesApi.wellknown.create(siteId, data),
+		mutationFn: (data: { path: string; content: string; contentType: string }) =>
+			sitesApi.wellknown.add(siteId, data),
 		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: ['site', siteId, 'wellknown'] });
+			queryClient.invalidateQueries({ queryKey: ['site', siteId, 'wellknown'], exact: true });
 			showAddWellknown = false;
-			newWellknown = { path: '', content: '' };
+			newWellknown = { path: '', content: '', contentType: 'text/plain' };
 		}
 	});
 
 	const deleteWellknownMutation = createMutation({
 		mutationFn: (wellknownId: string) => sitesApi.wellknown.delete(siteId, wellknownId),
 		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: ['site', siteId, 'wellknown'] });
+			queryClient.invalidateQueries({ queryKey: ['site', siteId, 'wellknown'], exact: true });
 		}
 	});
 
-	// Error page mutations
-	const addErrorPageMutation = createMutation({
-		mutationFn: (data: Partial<ErrorPage>) => sitesApi.errorPages.create(siteId, data),
+	// Error page mutations — FIXES: API only has .update(), not .create()/.delete()
+	// Error pages are a Record<string, string> (code -> template)
+	const saveErrorPageMutation = createMutation({
+		mutationFn: (data: { code: string; content: string }) =>
+			sitesApi.errorPages.update(siteId, data.code, data.content),
 		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: ['site', siteId, 'errorPages'] });
+			queryClient.invalidateQueries({ queryKey: ['site', siteId, 'errorPages'], exact: true });
 			showAddErrorPage = false;
-			newErrorPage = { code: 404, content: '' };
+			newErrorPage = { code: '404', content: '' };
 		}
 	});
 
-	const deleteErrorPageMutation = createMutation({
-		mutationFn: (errorPageId: string) => sitesApi.errorPages.delete(siteId, errorPageId),
+	const removeErrorPageMutation = createMutation({
+		mutationFn: (code: string) => sitesApi.errorPages.update(siteId, code, ''),
 		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: ['site', siteId, 'errorPages'] });
+			queryClient.invalidateQueries({ queryKey: ['site', siteId, 'errorPages'], exact: true });
 		}
 	});
 
+	// --- Handlers ---
 	function handleSave() {
 		saveError = '';
-		if (isNew) {
-			$createSiteMutation.mutate(site);
-		} else {
-			$updateSiteMutation.mutate(site);
-		}
+		$updateSiteMutation.mutate(site);
 	}
 
 	function addAlias() {
@@ -337,7 +352,10 @@
 
 	function addGeoCountry() {
 		if (geoCountryInput && !site.geo_block_countries?.includes(geoCountryInput.toUpperCase())) {
-			site.geo_block_countries = [...(site.geo_block_countries || []), geoCountryInput.toUpperCase()];
+			site.geo_block_countries = [
+				...(site.geo_block_countries || []),
+				geoCountryInput.toUpperCase()
+			];
 			geoCountryInput = '';
 		}
 	}
@@ -346,8 +364,9 @@
 		site.geo_block_countries = site.geo_block_countries?.filter((c) => c !== country) || [];
 	}
 
+	// --- Options ---
 	const sslModeOptions = [
-		{ value: 'auto', label: 'Auto (Let\'s Encrypt)' },
+		{ value: 'auto', label: "Auto (Let's Encrypt)" },
 		{ value: 'custom', label: 'Custom Certificate' },
 		{ value: 'none', label: 'HTTP Only' }
 	];
@@ -362,10 +381,23 @@
 		{ value: 'http', label: 'HTTP' },
 		{ value: 'https', label: 'HTTPS' }
 	];
+
+	const errorCodeOptions = [
+		{ value: '400', label: '400 - Bad Request' },
+		{ value: '401', label: '401 - Unauthorized' },
+		{ value: '403', label: '403 - Forbidden' },
+		{ value: '404', label: '404 - Not Found' },
+		{ value: '500', label: '500 - Internal Server Error' },
+		{ value: '502', label: '502 - Bad Gateway' },
+		{ value: '503', label: '503 - Service Unavailable' },
+		{ value: '504', label: '504 - Gateway Timeout' }
+	];
 </script>
 
+<svelte:window on:beforeunload={handleBeforeUnload} />
+
 <svelte:head>
-	<title>{isNew ? 'New Site' : site.domain || 'Edit Site'} - CatWAF</title>
+	<title>{site.domain || 'Edit Site'} - CatWAF</title>
 </svelte:head>
 
 <div class="space-y-6">
@@ -377,30 +409,26 @@
 			</Button>
 			<div>
 				<h1 class="text-2xl font-bold">
-					{isNew ? 'New Site' : site.domain || 'Loading...'}
+					{site.domain || 'Loading...'}
 				</h1>
-				<p class="text-muted-foreground">
-					{isNew ? 'Create a new site configuration' : 'Edit site configuration'}
-				</p>
+				<p class="text-muted-foreground">Edit site configuration</p>
 			</div>
+			{#if isDirty}
+				<Badge variant="warning">Unsaved changes</Badge>
+			{/if}
 		</div>
 		<div class="flex items-center gap-2">
-			{#if !isNew}
-				<Button variant="destructive" on:click={() => (showDeleteModal = true)}>
-					<Trash2 class="h-4 w-4 mr-2" />
-					Delete
-				</Button>
-			{/if}
-			<Button
-				on:click={handleSave}
-				disabled={$createSiteMutation.isPending || $updateSiteMutation.isPending}
-			>
-				{#if $createSiteMutation.isPending || $updateSiteMutation.isPending}
+			<Button variant="destructive" on:click={() => (showDeleteModal = true)}>
+				<Trash2 class="h-4 w-4 mr-2" />
+				Delete
+			</Button>
+			<Button on:click={handleSave} disabled={$updateSiteMutation.isPending || !isDirty}>
+				{#if $updateSiteMutation.isPending}
 					<Spinner size="sm" class="mr-2" />
 				{:else}
 					<Save class="h-4 w-4 mr-2" />
 				{/if}
-				{isNew ? 'Create' : 'Save'}
+				Save
 			</Button>
 		</div>
 	</div>
@@ -411,13 +439,17 @@
 		</Alert>
 	{/if}
 
-	{#if $siteQuery.isLoading && !isNew}
+	{#if $siteQuery.isLoading}
 		<div class="flex justify-center py-12">
 			<Spinner size="lg" />
 		</div>
+	{:else if $siteQuery.error}
+		<Alert variant="destructive" title="Failed to load site">
+			{$siteQuery.error instanceof Error ? $siteQuery.error.message : 'Unknown error'}
+		</Alert>
 	{:else}
 		<Tabs bind:value={activeTab}>
-			<TabsList class="grid w-full grid-cols-5 lg:grid-cols-12">
+			<TabsList class="grid w-full grid-cols-5 lg:grid-cols-10">
 				<TabsTrigger value="basic">
 					<Globe class="h-4 w-4 mr-1 hidden sm:block" />
 					Basic
@@ -463,12 +495,7 @@
 			<!-- Basic Settings -->
 			<TabsContent value="basic">
 				<Card class="p-6 space-y-4">
-					<Input
-						label="Domain"
-						placeholder="example.com"
-						bind:value={site.domain}
-						required
-					/>
+					<Input label="Domain" placeholder="example.com" bind:value={site.domain} required />
 
 					<div class="space-y-2">
 						<label class="text-sm font-medium">Aliases</label>
@@ -493,7 +520,7 @@
 											class="ml-1 hover:text-destructive"
 											on:click={() => removeAlias(alias)}
 										>
-											×
+											&times;
 										</button>
 									</Badge>
 								{/each}
@@ -511,7 +538,7 @@
 				</Card>
 			</TabsContent>
 
-			<!-- Backends -->
+			<!-- Backends — FIXED: unwrap .backends from response -->
 			<TabsContent value="backends">
 				<Card class="p-6 space-y-4">
 					<div class="flex items-center justify-between mb-4">
@@ -519,23 +546,17 @@
 							<h3 class="text-lg font-semibold">Backend Servers</h3>
 							<p class="text-sm text-muted-foreground">Configure upstream servers</p>
 						</div>
-						{#if !isNew}
-							<Button on:click={() => (showAddBackend = true)}>
-								<Plus class="h-4 w-4 mr-2" />
-								Add Backend
-							</Button>
-						{/if}
+						<Button on:click={() => (showAddBackend = true)}>
+							<Plus class="h-4 w-4 mr-2" />
+							Add Backend
+						</Button>
 					</div>
 
-					{#if isNew}
-						<Alert variant="warning" title="Save First">
-							Please save the site first to add backends.
-						</Alert>
-					{:else if $backendsQuery.isLoading}
+					{#if $backendsQuery.isLoading}
 						<div class="flex justify-center py-8">
 							<Spinner />
 						</div>
-					{:else if $backendsQuery.data?.length}
+					{:else if backends.length}
 						<Table>
 							<TableHeader>
 								<TableRow>
@@ -543,12 +564,12 @@
 									<TableHead>Port</TableHead>
 									<TableHead>Protocol</TableHead>
 									<TableHead>Weight</TableHead>
-									<TableHead>Health Check</TableHead>
+									<TableHead>Status</TableHead>
 									<TableHead></TableHead>
 								</TableRow>
 							</TableHeader>
 							<TableBody>
-								{#each $backendsQuery.data as backend}
+								{#each backends as backend}
 									<TableRow>
 										<TableCell class="font-mono">{backend.address}</TableCell>
 										<TableCell>{backend.port}</TableCell>
@@ -557,8 +578,8 @@
 										</TableCell>
 										<TableCell>{backend.weight}</TableCell>
 										<TableCell>
-											<Badge variant={backend.health_check ? 'success' : 'secondary'}>
-												{backend.health_check ? 'Yes' : 'No'}
+											<Badge variant={backend.healthy ? 'success' : 'secondary'}>
+												{backend.healthy ? 'Healthy' : 'Unknown'}
 											</Badge>
 										</TableCell>
 										<TableCell>
@@ -580,52 +601,54 @@
 				</Card>
 			</TabsContent>
 
-			<!-- Path Routes -->
+			<!-- Path Routes — FIXED: unwrap .pathRoutes from response -->
 			<TabsContent value="routes">
 				<Card class="p-6 space-y-4">
 					<div class="flex items-center justify-between mb-4">
 						<div>
 							<h3 class="text-lg font-semibold">Path Routes</h3>
-							<p class="text-sm text-muted-foreground">Route specific paths to different backends</p>
+							<p class="text-sm text-muted-foreground">
+								Route specific paths to different backends
+							</p>
 						</div>
-						{#if !isNew}
-							<Button on:click={() => (showAddPathRoute = true)}>
-								<Plus class="h-4 w-4 mr-2" />
-								Add Route
-							</Button>
-						{/if}
+						<Button on:click={() => (showAddPathRoute = true)}>
+							<Plus class="h-4 w-4 mr-2" />
+							Add Route
+						</Button>
 					</div>
 
-					{#if isNew}
-						<Alert variant="warning" title="Save First">
-							Please save the site first to add path routes.
-						</Alert>
-					{:else if $pathRoutesQuery.isLoading}
+					{#if $pathRoutesQuery.isLoading}
 						<div class="flex justify-center py-8">
 							<Spinner />
 						</div>
-					{:else if $pathRoutesQuery.data?.length}
+					{:else if pathRoutes.length}
 						<Table>
 							<TableHeader>
 								<TableRow>
 									<TableHead>Path</TableHead>
-									<TableHead>Backend</TableHead>
-									<TableHead>Strip Path</TableHead>
-									<TableHead>Rewrite</TableHead>
+									<TableHead>Match Type</TableHead>
+									<TableHead>Redirect</TableHead>
+									<TableHead>Priority</TableHead>
+									<TableHead>Enabled</TableHead>
 									<TableHead></TableHead>
 								</TableRow>
 							</TableHeader>
 							<TableBody>
-								{#each $pathRoutesQuery.data as route}
+								{#each pathRoutes as route}
 									<TableRow>
 										<TableCell class="font-mono">{route.path}</TableCell>
-										<TableCell class="font-mono">{route.backend_address}</TableCell>
 										<TableCell>
-											<Badge variant={route.strip_path ? 'success' : 'secondary'}>
-												{route.strip_path ? 'Yes' : 'No'}
+											<Badge variant="outline">{route.matchType}</Badge>
+										</TableCell>
+										<TableCell class="font-mono">
+											{route.redirectUrl || '-'}
+										</TableCell>
+										<TableCell>{route.priority}</TableCell>
+										<TableCell>
+											<Badge variant={route.enabled ? 'success' : 'secondary'}>
+												{route.enabled ? 'Yes' : 'No'}
 											</Badge>
 										</TableCell>
-										<TableCell class="font-mono">{route.rewrite_path || '-'}</TableCell>
 										<TableCell>
 											<Button
 												variant="ghost"
@@ -657,11 +680,7 @@
 					</div>
 
 					{#if site.waf_enabled}
-						<Select
-							label="WAF Mode"
-							options={wafModeOptions}
-							bind:value={site.waf_mode}
-						/>
+						<Select label="WAF Mode" options={wafModeOptions} bind:value={site.waf_mode} />
 					{/if}
 
 					<div class="flex items-center justify-between">
@@ -676,7 +695,9 @@
 						<div class="flex items-center justify-between mb-4">
 							<div>
 								<p class="font-medium">GeoIP Blocking</p>
-								<p class="text-sm text-muted-foreground">Block requests from specific countries</p>
+								<p class="text-sm text-muted-foreground">
+									Block requests from specific countries
+								</p>
 							</div>
 							<Switch bind:checked={site.geo_block_enabled} />
 						</div>
@@ -705,7 +726,7 @@
 														class="ml-1 hover:text-destructive"
 														on:click={() => removeGeoCountry(country)}
 													>
-														×
+														&times;
 													</button>
 												</Badge>
 											{/each}
@@ -727,7 +748,9 @@
 					<div class="flex items-center justify-between">
 						<div>
 							<p class="font-medium">Enable Challenge Mode</p>
-							<p class="text-sm text-muted-foreground">Require JavaScript proof-of-work to access site</p>
+							<p class="text-sm text-muted-foreground">
+								Require JavaScript proof-of-work to access site
+							</p>
 						</div>
 						<Switch bind:checked={site.challenge_enabled} />
 					</div>
@@ -743,7 +766,9 @@
 									bind:value={site.challenge_difficulty}
 									class="mt-1"
 								/>
-								<p class="text-xs text-muted-foreground mt-1">Higher = harder to solve, more protection</p>
+								<p class="text-xs text-muted-foreground mt-1">
+									Higher = harder to solve, more protection
+								</p>
 							</div>
 							<div>
 								<label class="text-sm font-medium">Duration (hours)</label>
@@ -755,14 +780,18 @@
 									bind:value={site.challenge_duration}
 									class="mt-1"
 								/>
-								<p class="text-xs text-muted-foreground mt-1">How long solved challenges remain valid</p>
+								<p class="text-xs text-muted-foreground mt-1">
+									How long solved challenges remain valid
+								</p>
 							</div>
 						</div>
 
 						<div class="flex items-center justify-between">
 							<div>
 								<p class="font-medium">Bypass for Cloudflare Traffic</p>
-								<p class="text-sm text-muted-foreground">Skip challenge for requests from Cloudflare IPs</p>
+								<p class="text-sm text-muted-foreground">
+									Skip challenge for requests from Cloudflare IPs
+								</p>
 							</div>
 							<Switch bind:checked={site.challenge_bypass_cf} />
 						</div>
@@ -770,8 +799,9 @@
 						<Alert>
 							<AlertTriangle class="h-4 w-4" />
 							<div>
-								Challenge mode blocks bots and DDoS attacks by requiring clients to solve a computational puzzle.
-								This may slightly slow initial page loads for legitimate users.
+								Challenge mode blocks bots and DDoS attacks by requiring clients to solve a
+								computational puzzle. This may slightly slow initial page loads for legitimate
+								users.
 							</div>
 						</Alert>
 					{/if}
@@ -805,25 +835,22 @@
 							/>
 						</div>
 						<p class="text-sm text-muted-foreground">
-							Allow {site.rate_limit_requests} requests per {site.rate_limit_window} seconds per IP
+							Allow {site.rate_limit_requests} requests per {site.rate_limit_window} seconds per
+							IP
 						</p>
 					{/if}
 				</Card>
 			</TabsContent>
 
-			<!-- SSL/TLS -->
+			<!-- SSL/TLS — FIXED: unwrap .certificates from response -->
 			<TabsContent value="ssl">
 				<Card class="p-6 space-y-6">
-					<Select
-						label="SSL Mode"
-						options={sslModeOptions}
-						bind:value={site.ssl_mode}
-					/>
+					<Select label="SSL Mode" options={sslModeOptions} bind:value={site.ssl_mode} />
 
-					{#if site.ssl_mode === 'custom' && $certsQuery.data?.length}
+					{#if site.ssl_mode === 'custom' && certificates.length}
 						<Select
 							label="Certificate"
-							options={$certsQuery.data.map((c) => ({ value: c.id, label: c.domain }))}
+							options={certificates.map((c) => ({ value: c.id, label: c.domain }))}
 							bind:value={site.certificate_id}
 						/>
 					{/if}
@@ -836,7 +863,7 @@
 				</Card>
 			</TabsContent>
 
-			<!-- Custom Error Pages -->
+			<!-- Custom Error Pages — FIXED: handle Record data model -->
 			<TabsContent value="errors">
 				<Card class="p-6 space-y-4">
 					<div class="flex items-center justify-between mb-4">
@@ -844,23 +871,17 @@
 							<h3 class="text-lg font-semibold">Custom Error Pages</h3>
 							<p class="text-sm text-muted-foreground">Override default error pages</p>
 						</div>
-						{#if !isNew}
-							<Button on:click={() => (showAddErrorPage = true)}>
-								<Plus class="h-4 w-4 mr-2" />
-								Add Error Page
-							</Button>
-						{/if}
+						<Button on:click={() => (showAddErrorPage = true)}>
+							<Plus class="h-4 w-4 mr-2" />
+							Add Error Page
+						</Button>
 					</div>
 
-					{#if isNew}
-						<Alert variant="warning" title="Save First">
-							Please save the site first to add error pages.
-						</Alert>
-					{:else if $errorPagesQuery.isLoading}
+					{#if $errorPagesQuery.isLoading}
 						<div class="flex justify-center py-8">
 							<Spinner />
 						</div>
-					{:else if $errorPagesQuery.data?.length}
+					{:else if errorPagesList.length}
 						<Table>
 							<TableHeader>
 								<TableRow>
@@ -870,7 +891,7 @@
 								</TableRow>
 							</TableHeader>
 							<TableBody>
-								{#each $errorPagesQuery.data as errorPage}
+								{#each errorPagesList as errorPage}
 									<TableRow>
 										<TableCell>
 											<Badge variant="outline">{errorPage.code}</Badge>
@@ -882,7 +903,8 @@
 											<Button
 												variant="ghost"
 												size="icon"
-												on:click={() => $deleteErrorPageMutation.mutate(errorPage.id)}
+												on:click={() =>
+													$removeErrorPageMutation.mutate(errorPage.code)}
 											>
 												<Trash2 class="h-4 w-4 text-destructive" />
 											</Button>
@@ -897,7 +919,7 @@
 				</Card>
 			</TabsContent>
 
-			<!-- .well-known Files -->
+			<!-- .well-known Files — FIXED: unwrap .files from response -->
 			<TabsContent value="wellknown">
 				<Card class="p-6 space-y-4">
 					<div class="flex items-center justify-between mb-4">
@@ -905,35 +927,33 @@
 							<h3 class="text-lg font-semibold">.well-known Files</h3>
 							<p class="text-sm text-muted-foreground">Serve files at /.well-known/ path</p>
 						</div>
-						{#if !isNew}
-							<Button on:click={() => (showAddWellknown = true)}>
-								<Plus class="h-4 w-4 mr-2" />
-								Add File
-							</Button>
-						{/if}
+						<Button on:click={() => (showAddWellknown = true)}>
+							<Plus class="h-4 w-4 mr-2" />
+							Add File
+						</Button>
 					</div>
 
-					{#if isNew}
-						<Alert variant="warning" title="Save First">
-							Please save the site first to add .well-known files.
-						</Alert>
-					{:else if $wellknownQuery.isLoading}
+					{#if $wellknownQuery.isLoading}
 						<div class="flex justify-center py-8">
 							<Spinner />
 						</div>
-					{:else if $wellknownQuery.data?.length}
+					{:else if wellknownFiles.length}
 						<Table>
 							<TableHeader>
 								<TableRow>
 									<TableHead>Path</TableHead>
+									<TableHead>Content Type</TableHead>
 									<TableHead>Preview</TableHead>
 									<TableHead></TableHead>
 								</TableRow>
 							</TableHeader>
 							<TableBody>
-								{#each $wellknownQuery.data as file}
+								{#each wellknownFiles as file}
 									<TableRow>
 										<TableCell class="font-mono">/.well-known/{file.path}</TableCell>
+										<TableCell>
+											<Badge variant="outline">{file.contentType}</Badge>
+										</TableCell>
 										<TableCell class="truncate max-w-xs">
 											{file.content.substring(0, 100)}...
 										</TableCell>
@@ -962,11 +982,13 @@
 					<!-- Cloudflare & Access -->
 					<Card class="p-6 space-y-6">
 						<h3 class="text-lg font-semibold">Access Control</h3>
-						
+
 						<div class="flex items-center justify-between">
 							<div>
 								<p class="font-medium">Use Cloudflare IP Headers</p>
-								<p class="text-sm text-muted-foreground">Trust CF-Connecting-IP header for real client IP</p>
+								<p class="text-sm text-muted-foreground">
+									Trust CF-Connecting-IP header for real client IP
+								</p>
 							</div>
 							<Switch bind:checked={site.use_cf_ip_headers} />
 						</div>
@@ -974,7 +996,9 @@
 						<div class="flex items-center justify-between">
 							<div>
 								<p class="font-medium">Local Only</p>
-								<p class="text-sm text-muted-foreground">Only allow access from local network</p>
+								<p class="text-sm text-muted-foreground">
+									Only allow access from local network
+								</p>
 							</div>
 							<Switch bind:checked={site.local_only} />
 						</div>
@@ -994,18 +1018,22 @@
 								bind:value={site.ip_whitelist}
 								class="mt-1"
 							/>
-							<p class="text-xs text-muted-foreground mt-1">Comma-separated IPs or CIDR ranges to always allow</p>
+							<p class="text-xs text-muted-foreground mt-1">
+								Comma-separated IPs or CIDR ranges to always allow
+							</p>
 						</div>
 					</Card>
 
 					<!-- Basic Auth -->
 					<Card class="p-6 space-y-6">
 						<h3 class="text-lg font-semibold">Basic Authentication</h3>
-						
+
 						<div class="flex items-center justify-between">
 							<div>
 								<p class="font-medium">Enable Basic Auth</p>
-								<p class="text-sm text-muted-foreground">Require username/password to access site</p>
+								<p class="text-sm text-muted-foreground">
+									Require username/password to access site
+								</p>
 							</div>
 							<Switch bind:checked={site.enable_basic_auth} />
 						</div>
@@ -1013,7 +1041,11 @@
 						{#if site.enable_basic_auth}
 							<div class="grid grid-cols-2 gap-4">
 								<Input label="Username" bind:value={site.basic_auth_username} />
-								<Input label="Password" type="password" bind:value={site.basic_auth_password} />
+								<Input
+									label="Password"
+									type="password"
+									bind:value={site.basic_auth_password}
+								/>
 							</div>
 						{/if}
 					</Card>
@@ -1021,7 +1053,7 @@
 					<!-- Compression -->
 					<Card class="p-6 space-y-6">
 						<h3 class="text-lg font-semibold">Compression</h3>
-						
+
 						<div class="flex items-center justify-between">
 							<div>
 								<p class="font-medium">Enable Gzip</p>
@@ -1033,7 +1065,9 @@
 						<div class="flex items-center justify-between">
 							<div>
 								<p class="font-medium">Enable Brotli</p>
-								<p class="text-sm text-muted-foreground">Compress responses with Brotli (better than gzip)</p>
+								<p class="text-sm text-muted-foreground">
+									Compress responses with Brotli (better than gzip)
+								</p>
 							</div>
 							<Switch bind:checked={site.enable_brotli} />
 						</div>
@@ -1048,7 +1082,9 @@
 									bind:value={site.compression_level}
 									class="mt-1"
 								/>
-								<p class="text-xs text-muted-foreground mt-1">Higher = better compression but more CPU</p>
+								<p class="text-xs text-muted-foreground mt-1">
+									Higher = better compression but more CPU
+								</p>
 							</div>
 						{/if}
 					</Card>
@@ -1056,11 +1092,13 @@
 					<!-- WebSocket -->
 					<Card class="p-6 space-y-6">
 						<h3 class="text-lg font-semibold">WebSocket</h3>
-						
+
 						<div class="flex items-center justify-between">
 							<div>
 								<p class="font-medium">Enable WebSocket Proxying</p>
-								<p class="text-sm text-muted-foreground">Proxy WebSocket connections to backend</p>
+								<p class="text-sm text-muted-foreground">
+									Proxy WebSocket connections to backend
+								</p>
 							</div>
 							<Switch bind:checked={site.websocket_enabled} />
 						</div>
@@ -1077,7 +1115,7 @@
 					<!-- Load Balancing -->
 					<Card class="p-6 space-y-6">
 						<h3 class="text-lg font-semibold">Load Balancing</h3>
-						
+
 						<div>
 							<label class="text-sm font-medium">Method</label>
 							<select
@@ -1095,7 +1133,7 @@
 					<!-- NGINX Settings -->
 					<Card class="p-6 space-y-6">
 						<h3 class="text-lg font-semibold">NGINX Settings</h3>
-						
+
 						<div class="grid grid-cols-2 gap-4">
 							<div>
 								<label class="text-sm font-medium">Max Body Size</label>
@@ -1128,7 +1166,9 @@
 						<div class="flex items-center justify-between">
 							<div>
 								<p class="font-medium">Enable HSTS</p>
-								<p class="text-sm text-muted-foreground">HTTP Strict Transport Security</p>
+								<p class="text-sm text-muted-foreground">
+									HTTP Strict Transport Security
+								</p>
 							</div>
 							<Switch bind:checked={site.enable_hsts} />
 						</div>
@@ -1153,7 +1193,9 @@
 								bind:value={site.custom_nginx_directives}
 								class="mt-1 font-mono text-sm"
 							/>
-							<p class="text-xs text-muted-foreground mt-1">Raw NGINX config to include in server block</p>
+							<p class="text-xs text-muted-foreground mt-1">
+								Raw NGINX config to include in server block
+							</p>
 						</div>
 					</Card>
 				</div>
@@ -1186,19 +1228,19 @@
 	</div>
 </Modal>
 
-<!-- Add Backend Modal -->
+<!-- Add Backend Modal — FIXED: aligned with Backend type -->
 <Modal bind:open={showAddBackend} title="Add Backend" size="md">
 	<div class="space-y-4">
-		<Input label="Address" placeholder="127.0.0.1 or backend.local" bind:value={newBackend.address} />
+		<Input
+			label="Address"
+			placeholder="127.0.0.1 or backend.local"
+			bind:value={newBackend.address}
+		/>
 		<div class="grid grid-cols-2 gap-4">
 			<Input label="Port" type="number" min="1" max="65535" bind:value={newBackend.port} />
 			<Input label="Weight" type="number" min="1" bind:value={newBackend.weight} />
 		</div>
 		<Select label="Protocol" options={protocolOptions} bind:value={newBackend.protocol} />
-		<div class="flex items-center justify-between">
-			<span class="text-sm font-medium">Health Check</span>
-			<Switch bind:checked={newBackend.health_check} />
-		</div>
 	</div>
 	<div slot="footer">
 		<Button variant="outline" on:click={() => (showAddBackend = false)}>Cancel</Button>
@@ -1214,15 +1256,27 @@
 	</div>
 </Modal>
 
-<!-- Add Path Route Modal -->
+<!-- Add Path Route Modal — FIXED: aligned with PathRoute type -->
 <Modal bind:open={showAddPathRoute} title="Add Path Route" size="md">
 	<div class="space-y-4">
 		<Input label="Path" placeholder="/api" bind:value={newPathRoute.path} />
-		<Input label="Backend Address" placeholder="backend.local:8080" bind:value={newPathRoute.backend_address} />
-		<Input label="Rewrite Path (optional)" placeholder="/v1" bind:value={newPathRoute.rewrite_path} />
+		<Select
+			label="Match Type"
+			options={[
+				{ value: 'prefix', label: 'Prefix' },
+				{ value: 'exact', label: 'Exact' },
+				{ value: 'regex', label: 'Regex' }
+			]}
+			bind:value={newPathRoute.matchType}
+		/>
+		<Input
+			label="Redirect URL (optional)"
+			placeholder="https://other-site.com/path"
+			bind:value={newPathRoute.redirectUrl}
+		/>
 		<div class="flex items-center justify-between">
-			<span class="text-sm font-medium">Strip Path</span>
-			<Switch bind:checked={newPathRoute.strip_path} />
+			<span class="text-sm font-medium">Enabled</span>
+			<Switch bind:checked={newPathRoute.enabled} />
 		</div>
 	</div>
 	<div slot="footer">
@@ -1239,16 +1293,26 @@
 	</div>
 </Modal>
 
-<!-- Add Wellknown Modal -->
+<!-- Add Wellknown Modal — FIXED: includes contentType -->
 <Modal bind:open={showAddWellknown} title="Add .well-known File" size="lg">
 	<div class="space-y-4">
 		<Input label="Path" placeholder="security.txt" bind:value={newWellknown.path} />
+		<Input
+			label="Content Type"
+			placeholder="text/plain"
+			bind:value={newWellknown.contentType}
+		/>
 		<Textarea label="Content" rows={10} bind:value={newWellknown.content} />
 	</div>
 	<div slot="footer">
 		<Button variant="outline" on:click={() => (showAddWellknown = false)}>Cancel</Button>
 		<Button
-			on:click={() => $addWellknownMutation.mutate(newWellknown)}
+			on:click={() =>
+				$addWellknownMutation.mutate({
+					path: newWellknown.path || '',
+					content: newWellknown.content || '',
+					contentType: newWellknown.contentType || 'text/plain'
+				})}
 			disabled={$addWellknownMutation.isPending}
 		>
 			{#if $addWellknownMutation.isPending}
@@ -1259,35 +1323,22 @@
 	</div>
 </Modal>
 
-<!-- Add Error Page Modal -->
+<!-- Add/Edit Error Page Modal — FIXED: uses correct mutation + string code -->
 <Modal bind:open={showAddErrorPage} title="Add Error Page" size="lg">
 	<div class="space-y-4">
-		<Select
-			label="Error Code"
-			options={[
-				{ value: '400', label: '400 - Bad Request' },
-				{ value: '401', label: '401 - Unauthorized' },
-				{ value: '403', label: '403 - Forbidden' },
-				{ value: '404', label: '404 - Not Found' },
-				{ value: '500', label: '500 - Internal Server Error' },
-				{ value: '502', label: '502 - Bad Gateway' },
-				{ value: '503', label: '503 - Service Unavailable' },
-				{ value: '504', label: '504 - Gateway Timeout' }
-			]}
-			bind:value={newErrorPage.code}
-		/>
+		<Select label="Error Code" options={errorCodeOptions} bind:value={newErrorPage.code} />
 		<Textarea label="HTML Content" rows={15} bind:value={newErrorPage.content} />
 	</div>
 	<div slot="footer">
 		<Button variant="outline" on:click={() => (showAddErrorPage = false)}>Cancel</Button>
 		<Button
-			on:click={() => $addErrorPageMutation.mutate(newErrorPage)}
-			disabled={$addErrorPageMutation.isPending}
+			on:click={() => $saveErrorPageMutation.mutate(newErrorPage)}
+			disabled={$saveErrorPageMutation.isPending}
 		>
-			{#if $addErrorPageMutation.isPending}
+			{#if $saveErrorPageMutation.isPending}
 				<Spinner size="sm" class="mr-2" />
 			{/if}
-			Add
+			Save
 		</Button>
 	</div>
 </Modal>

@@ -36,19 +36,18 @@
 	let saveError = '';
 
 	// Create site mutation
-	const createMutation = createMutation({
+	const createSiteMutation = createMutation({
 		mutationFn: async (data: Partial<Site>) => {
 			// Create site first
 			const newSite = await sitesApi.create(data);
 			
 			// Then add backend if provided
 			if (backendAddress) {
-				await sitesApi.backends.create(newSite.id, {
+				await sitesApi.backends.add(newSite.id, {
 					address: backendAddress,
 					port: backendPort,
 					weight: 1,
-					protocol: 'http',
-					health_check: true
+					protocol: 'http'
 				});
 			}
 			
@@ -69,7 +68,7 @@
 			saveError = 'Domain is required';
 			return;
 		}
-		$createMutation.mutate(site);
+		$createSiteMutation.mutate(site);
 	}
 </script>
 
@@ -180,9 +179,9 @@
 		<Button variant="outline" href="/sites">Cancel</Button>
 		<Button
 			on:click={handleSubmit}
-			disabled={$createMutation.isPending}
+			disabled={$createSiteMutation.isPending}
 		>
-			{#if $createMutation.isPending}
+			{#if $createSiteMutation.isPending}
 				<Spinner size="sm" class="mr-2" />
 			{:else}
 				<Save class="h-4 w-4 mr-2" />

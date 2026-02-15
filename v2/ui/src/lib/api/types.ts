@@ -252,6 +252,14 @@ export interface BotWhitelistRule {
 	createdAt: string;
 }
 
+// === Well-Known Files ===
+export interface WellknownFile {
+	id: string;
+	path: string;
+	content: string;
+	contentType: string;
+}
+
 // === Certificates ===
 export interface Certificate {
 	id: string;
