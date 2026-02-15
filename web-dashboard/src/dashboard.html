@@ -1474,6 +1474,15 @@ Sitemap: https://example.com/sitemap.xml"></textarea>
                                     🗑️ Clean All Old Data
                                 </button>
                             </div>
+                            
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">
+                                <button class="btn-secondary" onclick="clearStatsCache()" style="background: #06b6d4;">
+                                    📊 Clear Stats Cache
+                                </button>
+                                <button class="btn-danger" onclick="truncateAllLogs()" style="background: #7f1d1d;">
+                                    💣 Truncate ALL Logs
+                                </button>
+                            </div>
 
                             <div style="margin-top: 1rem; padding: 0.75rem; border-left: 4px solid #ffc107; border-radius: 4px;">
                                 <strong>⚠️ Warning:</strong> This action cannot be undone. Make sure you have backups if needed.
@@ -3097,8 +3106,53 @@ Sitemap: https://example.com/sitemap.xml"></textarea>
         </div>
     </div>
 
+    <!-- Global Loading Overlay -->
+    <div id="globalLoader" class="global-loader" style="display: none;">
+        <div class="loader-content">
+            <div class="loader-spinner"></div>
+            <div class="loader-text">Loading...</div>
+        </div>
+    </div>
+    
+    <style>
+        .global-loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            backdrop-filter: blur(4px);
+        }
+        .loader-content {
+            text-align: center;
+            color: white;
+        }
+        .loader-spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .loader-text {
+            font-size: 1.1rem;
+            font-weight: 500;
+        }
+    </style>
+
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="toast.js?v=2"></script>
-    <script src="app.js?v=6"></script>
+    <script src="app.js?v=7"></script>
 </body>
 </html>

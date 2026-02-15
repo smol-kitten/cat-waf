@@ -229,5 +229,111 @@ if (preg_match('#/cleanup/orphan-configs$#', $requestUri)) {
     exit;
 }
 
+// Clear stats cache
+// POST /api/cleanup/stats-cache - Clear the stats cache tables (useful for debugging)
+if (preg_match('#/cleanup/stats-cache$#', $requestUri)) {
+    if ($method !== 'POST' && $method !== 'DELETE') {
+        http_response_code(405);
+        echo json_encode(['error' => 'Method not allowed']);
+        exit;
+    }
+    
+    try {
+        $results = [];
+        
+        // Clear stats cache tables
+        $tables = ['stats_cache_hourly', 'stats_cache_daily', 'stats_top_ips', 'stats_top_domains'];
+        
+        foreach ($tables as $table) {
+            try {
+                $stmt = $db->query("DELETE FROM {$table}");
+                $results[$table . '_deleted'] = $stmt->rowCount();
+            } catch (PDOException $e) {
+                // Table doesn't exist - skip
+                $results[$table . '_deleted'] = 0;
+            }
+        }
+        
+        echo json_encode([
+            'success' => true,
+            'message' => 'Stats cache cleared. Cache will rebuild on next refresh cycle.',
+            'results' => $results
+        ]);
+        
+    } catch (Exception $e) {
+        error_log("Stats cache cleanup error: " . $e->getMessage());
+        http_response_code(500);
+        echo json_encode([
+            'error' => 'Failed to clear stats cache',
+            'details' => $e->getMessage()
+        ]);
+    }
+    
+    exit;
+}
+
+// Truncate all logs (nuclear option)
+// POST /api/cleanup/truncate-all - Instantly clear all log data (no recovery!)
+if (preg_match('#/cleanup/truncate-all$#', $requestUri)) {
+    if ($method !== 'POST' && $method !== 'DELETE') {
+        http_response_code(405);
+        echo json_encode(['error' => 'Method not allowed']);
+        exit;
+    }
+    
+    // Extra confirmation required
+    $confirm = $_GET['confirm'] ?? null;
+    if ($confirm !== 'yes') {
+        http_response_code(400);
+        echo json_encode([
+            'error' => 'Confirmation required',
+            'message' => 'Add ?confirm=yes to truncate all log data. This cannot be undone!'
+        ]);
+        exit;
+    }
+    
+    try {
+        $results = [];
+        
+        // Tables to truncate
+        $tables = [
+            'access_logs',
+            'request_telemetry',
+            'modsec_events',
+            'bot_detections',
+            'stats_cache_hourly',
+            'stats_cache_daily',
+            'stats_top_ips',
+            'stats_top_domains'
+        ];
+        
+        foreach ($tables as $table) {
+            try {
+                $db->exec("TRUNCATE TABLE {$table}");
+                $results[$table] = 'truncated';
+            } catch (PDOException $e) {
+                // Table doesn't exist - skip
+                $results[$table] = 'skipped';
+            }
+        }
+        
+        echo json_encode([
+            'success' => true,
+            'message' => 'All log and cache tables truncated',
+            'results' => $results
+        ]);
+        
+    } catch (Exception $e) {
+        error_log("Truncate all error: " . $e->getMessage());
+        http_response_code(500);
+        echo json_encode([
+            'error' => 'Failed to truncate tables',
+            'details' => $e->getMessage()
+        ]);
+    }
+    
+    exit;
+}
+
 http_response_code(404);
 echo json_encode(['error' => 'Endpoint not found']);

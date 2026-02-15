@@ -48,6 +48,61 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// Global Loading Indicator Functions
+let loadingTimeout = null;
+let loadingCount = 0;
+
+function showLoading(message = 'Loading...') {
+    loadingCount++;
+    const loader = document.getElementById('globalLoader');
+    const loaderText = loader?.querySelector('.loader-text');
+    
+    if (loader) {
+        if (loaderText) loaderText.textContent = message;
+        loader.style.display = 'flex';
+    }
+    
+    // Safety timeout - auto-hide after 30 seconds
+    clearTimeout(loadingTimeout);
+    loadingTimeout = setTimeout(() => {
+        hideLoading(true);
+        showToast('Operation timed out', 'warning');
+    }, 30000);
+}
+
+function hideLoading(force = false) {
+    if (force) {
+        loadingCount = 0;
+    } else {
+        loadingCount = Math.max(0, loadingCount - 1);
+    }
+    
+    if (loadingCount === 0) {
+        const loader = document.getElementById('globalLoader');
+        if (loader) {
+            loader.style.display = 'none';
+        }
+        clearTimeout(loadingTimeout);
+    }
+}
+
+// Quick loading indicator for short operations
+function withLoading(asyncFn, message = 'Loading...') {
+    return async (...args) => {
+        showLoading(message);
+        try {
+            return await asyncFn(...args);
+        } finally {
+            hideLoading();
+        }
+    };
+}
+
+// Expose globally
+window.showLoading = showLoading;
+window.hideLoading = hideLoading;
+window.withLoading = withLoading;
+
 // Load environment defaults from backend
 async function loadEnvironmentDefaults() {
 }
@@ -6021,6 +6076,96 @@ async function cleanupData(type) {
 
 window.cleanupData = cleanupData;
 window.loadCleanupStats = loadCleanupStats;
+
+// Clear stats cache (force dashboard to recalculate)
+async function clearStatsCache() {
+    if (!confirm('Clear the dashboard stats cache?\n\nThis will force the dashboard to recalculate all statistics from raw data. The cache will rebuild automatically.')) {
+        return;
+    }
+    
+    try {
+        showToast('Clearing stats cache...', 'info');
+        
+        const response = await fetch(`${API_BASE_URL}/cleanup/stats-cache`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${API_TOKEN}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.error || `HTTP ${response.status}`);
+        }
+        
+        const result = await response.json();
+        showToast('📊 Stats cache cleared. Dashboard will refresh momentarily.', 'success');
+        
+        // Reload dashboard data
+        setTimeout(() => loadDashboardData(), 1000);
+        
+    } catch (error) {
+        console.error('Clear stats cache error:', error);
+        showToast(`Failed to clear stats cache: ${error.message}`, 'error');
+    }
+}
+
+// Truncate all logs (nuclear option)
+async function truncateAllLogs() {
+    const firstConfirm = confirm(
+        '💣 DANGER: TRUNCATE ALL LOGS\n\n' +
+        'This will IMMEDIATELY DELETE:\n' +
+        '• ALL access logs\n' +
+        '• ALL telemetry data\n' +
+        '• ALL security events\n' +
+        '• ALL bot detections\n' +
+        '• ALL stats cache\n\n' +
+        'This action CANNOT be undone!\n\n' +
+        'Are you ABSOLUTELY SURE?'
+    );
+    
+    if (!firstConfirm) return;
+    
+    const confirmText = prompt('Type "TRUNCATE ALL" to confirm this destructive action:');
+    if (confirmText !== 'TRUNCATE ALL') {
+        showToast('Truncate cancelled - confirmation text did not match', 'info');
+        return;
+    }
+    
+    showLoading('Truncating all logs...');
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/cleanup/truncate-all?confirm=yes`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${API_TOKEN}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.error || `HTTP ${response.status}`);
+        }
+        
+        const result = await response.json();
+        showToast('💣 All log tables truncated. Database is now empty.', 'success');
+        
+        // Reload cleanup stats and dashboard
+        await loadCleanupStats();
+        await loadDashboardData();
+        
+    } catch (error) {
+        console.error('Truncate all error:', error);
+        showToast(`Failed to truncate logs: ${error.message}`, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+window.clearStatsCache = clearStatsCache;
+window.truncateAllLogs = truncateAllLogs;
 
 // System Reset Functions
 async function triggerSystemReset(autoRestore) {
