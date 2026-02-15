@@ -44,6 +44,51 @@ header('Content-Type: application/json');
 
 
 // ════════════════════════════════════════════════════════════
+// HELPER FUNCTIONS (must be defined before routing calls them)
+// ════════════════════════════════════════════════════════════
+
+/**
+ * Extract registrable base domain from any subdomain.
+ * sub.example.com → example.com,  sub.example.co.uk → example.co.uk
+ */
+if (!function_exists('extractRootDomain')) {
+function extractRootDomain(string $domain): string {
+    $domain = preg_replace('/^\*\./', '', $domain);
+    $parts  = explode('.', $domain);
+    $n      = count($parts);
+
+    $ccSLDs = [
+        'co.uk','com.au','co.nz','co.za','com.br','com.mx',
+        'co.jp','co.in','co.kr','ac.uk','gov.uk','org.uk',
+    ];
+    if ($n >= 3 && in_array($parts[$n-2].'.'.$parts[$n-1], $ccSLDs)) {
+        return implode('.', array_slice($parts, -3));
+    }
+    return $n >= 2 ? implode('.', array_slice($parts, -2)) : $domain;
+}
+}
+
+/** Sanitize domain for shell/path use. */
+if (!function_exists('sanitizeDomain')) {
+function sanitizeDomain(string $domain): string {
+    return preg_replace('/[^a-z0-9._-]/i', '', $domain);
+}
+}
+
+/** Run a command inside a container. Returns [output, exitCode]. */
+if (!function_exists('dockerExec')) {
+function dockerExec(string $container, string $cmd): array {
+    $full = sprintf("docker exec %s sh -c %s 2>&1",
+        escapeshellarg($container),
+        escapeshellarg($cmd)
+    );
+    exec($full, $output, $rc);
+    return [implode("\n", $output), $rc];
+}
+}
+
+
+// ════════════════════════════════════════════════════════════
 // ROUTING
 // ════════════════════════════════════════════════════════════
 
@@ -95,51 +140,6 @@ switch ($method) {
     case 'POST':   $action === 'renew' ? renewCertificate($domain) : issueCertificate($domain); break;
     case 'DELETE':  removeCertificate($domain); break;
     default:       http_response_code(405); echo json_encode(['error' => 'Method not allowed']);
-}
-
-
-// ════════════════════════════════════════════════════════════
-// HELPER FUNCTIONS
-// ════════════════════════════════════════════════════════════
-
-/**
- * Extract registrable base domain from any subdomain.
- * sub.example.com → example.com,  sub.example.co.uk → example.co.uk
- */
-if (!function_exists('extractRootDomain')) {
-function extractRootDomain(string $domain): string {
-    $domain = preg_replace('/^\*\./', '', $domain);
-    $parts  = explode('.', $domain);
-    $n      = count($parts);
-
-    $ccSLDs = [
-        'co.uk','com.au','co.nz','co.za','com.br','com.mx',
-        'co.jp','co.in','co.kr','ac.uk','gov.uk','org.uk',
-    ];
-    if ($n >= 3 && in_array($parts[$n-2].'.'.$parts[$n-1], $ccSLDs)) {
-        return implode('.', array_slice($parts, -3));
-    }
-    return $n >= 2 ? implode('.', array_slice($parts, -2)) : $domain;
-}
-}
-
-/** Sanitize domain for shell/path use. */
-if (!function_exists('sanitizeDomain')) {
-function sanitizeDomain(string $domain): string {
-    return preg_replace('/[^a-z0-9._-]/i', '', $domain);
-}
-}
-
-/** Run a command inside a container. Returns [output, exitCode]. */
-if (!function_exists('dockerExec')) {
-function dockerExec(string $container, string $cmd): array {
-    $full = sprintf("docker exec %s sh -c %s 2>&1",
-        escapeshellarg($container),
-        escapeshellarg($cmd)
-    );
-    exec($full, $output, $rc);
-    return [implode("\n", $output), $rc];
-}
 }
 
 /** Run a command with env vars via docker exec -e. Returns [output, exitCode]. */

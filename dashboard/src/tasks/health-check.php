@@ -107,12 +107,22 @@ if (!empty($backendIssues)) {
 }
 
 // Check SSL certificates expiring soon (7 days)
-$sslStmt = $pdo->query("
-    SELECT domain, ssl_expiry 
-    FROM sites 
-    WHERE ssl_enabled = 1 AND ssl_expiry IS NOT NULL AND ssl_expiry < DATE_ADD(NOW(), INTERVAL 7 DAY)
-");
-$expiringSsl = $sslStmt->fetchAll(PDO::FETCH_ASSOC);
+// Check cert files directly — the sites table doesn't have an ssl_expiry column
+$sslSites = $pdo->query("SELECT domain FROM sites WHERE ssl_enabled = 1 AND enabled = 1")->fetchAll(PDO::FETCH_ASSOC);
+$expiringSsl = [];
+
+foreach ($sslSites as $sslSite) {
+    $certPath = "/etc/nginx/certs/{$sslSite['domain']}/fullchain.pem";
+    if (!file_exists($certPath)) continue;
+    
+    $certData = @openssl_x509_parse(@file_get_contents($certPath));
+    if (!$certData || !isset($certData['validTo_time_t'])) continue;
+    
+    $daysLeft = (int)floor(($certData['validTo_time_t'] - time()) / 86400);
+    if ($daysLeft < 7) {
+        $expiringSsl[] = ['domain' => $sslSite['domain'], 'days_left' => $daysLeft];
+    }
+}
 
 if (!empty($expiringSsl)) {
     $domains = array_column($expiringSsl, 'domain');

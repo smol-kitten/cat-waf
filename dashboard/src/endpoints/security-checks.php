@@ -303,8 +303,9 @@ function checkSSLExpiry($db) {
 }
 
 function checkModSecurityStatus() {
-    // Check if ModSecurity is loaded in NGINX
-    exec('nginx -V 2>&1 | grep -i modsecurity', $output, $returnVar);
+    // Check if ModSecurity is loaded in the WAF NGINX container
+    $nginxContainer = getenv('NGINX_CONTAINER_NAME') ?: 'waf-nginx';
+    exec("docker exec {$nginxContainer} nginx -V 2>&1 | grep -i modsecurity", $output, $returnVar);
     
     if ($returnVar === 0 && !empty($output)) {
         return ['healthy', 'ModSecurity module loaded', []];
@@ -315,7 +316,7 @@ function checkModSecurityStatus() {
 
 function checkFail2banStatus() {
     // Try to detect the NGINX container name dynamically
-    $nginxContainer = getenv('NGINX_CONTAINER_NAME') ?: 'cat-waf-nginx-1';
+    $nginxContainer = getenv('NGINX_CONTAINER_NAME') ?: 'waf-nginx';
     
     exec("docker exec {$nginxContainer} sh -c \"command -v fail2ban-client\" 2>&1", $output, $returnVar);
     
@@ -347,7 +348,8 @@ function checkDiskSpace() {
 }
 
 function checkNginxStatus() {
-    exec('docker exec cat-waf-nginx-1 nginx -t 2>&1', $output, $returnVar);
+    $nginxContainer = getenv('NGINX_CONTAINER_NAME') ?: 'waf-nginx';
+    exec("docker exec {$nginxContainer} nginx -t 2>&1", $output, $returnVar);
     
     if ($returnVar === 0) {
         return ['healthy', 'NGINX configuration valid', []];
