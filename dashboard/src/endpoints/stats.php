@@ -183,18 +183,19 @@ function getCachedStats($db, $period) {
  * Get stats directly from access_logs (fallback, slower)
  */
 function getDirectStats($db, $period) {
-    $interval = match($period) {
-        '1h' => 'INTERVAL 1 HOUR',
-        '24h' => 'INTERVAL 24 HOUR',
-        '7d' => 'INTERVAL 7 DAY',
-        '30d' => 'INTERVAL 30 DAY',
-        default => 'INTERVAL 24 HOUR'
+    // Convert period to hours for parameterized queries
+    $hours = match($period) {
+        '1h' => 1,
+        '24h' => 24,
+        '7d' => 168,
+        '30d' => 720,
+        default => 24
     };
     
     $stats = [];
     
     // Single optimized query for basic stats
-    $stmt = $db->query("
+    $stmt = $db->prepare("
         SELECT 
             COUNT(*) as total_requests,
             SUM(CASE WHEN blocked = 1 THEN 1 ELSE 0 END) as blocked_requests,
@@ -204,8 +205,9 @@ function getDirectStats($db, $period) {
             SUM(CASE WHEN status_code >= 400 AND status_code < 500 THEN 1 ELSE 0 END) as status_4xx,
             SUM(CASE WHEN status_code >= 500 THEN 1 ELSE 0 END) as status_5xx
         FROM access_logs 
-        WHERE timestamp > DATE_SUB(NOW(), $interval)
+        WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
     ");
+    $stmt->execute([$hours]);
     $result = $stmt->fetch();
     
     $stats['total_requests'] = (int)($result['total_requests'] ?? 0);
@@ -220,30 +222,32 @@ function getDirectStats($db, $period) {
     ];
     
     // Top domains (with limit on subquery for speed)
-    $stmt = $db->query("
+    $stmt = $db->prepare("
         SELECT domain, COUNT(*) as count 
         FROM access_logs 
-        WHERE timestamp > DATE_SUB(NOW(), $interval)
+        WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
           AND domain IS NOT NULL
         GROUP BY domain
         ORDER BY count DESC
         LIMIT 10
     ");
+    $stmt->execute([$hours]);
     $stats['top_domains'] = $stmt->fetchAll();
     
     // Top IPs
-    $stmt = $db->query("
+    $stmt = $db->prepare("
         SELECT ip_address, COUNT(*) as count 
         FROM access_logs 
-        WHERE timestamp > DATE_SUB(NOW(), $interval)
+        WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
         GROUP BY ip_address
         ORDER BY count DESC
         LIMIT 10
     ");
+    $stmt->execute([$hours]);
     $stats['top_ips'] = $stmt->fetchAll();
     
     // Requests over time by status code
-    $stmt = $db->query("
+    $stmt = $db->prepare("
         SELECT 
             DATE_FORMAT(timestamp, '%Y-%m-%d %H:00:00') as hour,
             COUNT(*) as count,
@@ -252,10 +256,11 @@ function getDirectStats($db, $period) {
             SUM(CASE WHEN status_code >= 400 AND status_code < 500 THEN 1 ELSE 0 END) as status_4xx,
             SUM(CASE WHEN status_code >= 500 THEN 1 ELSE 0 END) as status_5xx
         FROM access_logs 
-        WHERE timestamp > DATE_SUB(NOW(), $interval)
+        WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
         GROUP BY hour
         ORDER BY hour
     ");
+    $stmt->execute([$hours]);
     $timeData = $stmt->fetchAll();
     
     // Format for Chart.js

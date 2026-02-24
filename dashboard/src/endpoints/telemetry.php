@@ -24,26 +24,27 @@ function handleTelemetry($method, $params, $db) {
             
             // Average response time (convert to milliseconds, exclude NULLs and long-running connections)
             // Exclude: WebSocket (101), long-polling (>60s), SSE connections
-            $stmt = $db->query("
+            $stmt = $db->prepare("
                 SELECT AVG(response_time) as avg_time
                 FROM request_telemetry 
-                WHERE timestamp > DATE_SUB(NOW(), INTERVAL $hours HOUR)
+                WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
                   AND response_time IS NOT NULL
                   AND response_time > 0
                   AND response_time < 60
                   AND status_code != 101
             ");
+            $stmt->execute([$hours]);
             $result = $stmt->fetch();
             $stats['avg_response_time'] = $result && $result['avg_time'] ? round($result['avg_time'] * 1000, 1) : 0;
             
             // Median response time (separate query using variables)
             $db->query("SET @row_index := -1");
-            $stmt = $db->query("
+            $stmt = $db->prepare("
                 SELECT AVG(response_time) as median_time
                 FROM (
                     SELECT @row_index := @row_index + 1 AS row_index, response_time
                     FROM request_telemetry
-                    WHERE timestamp > DATE_SUB(NOW(), INTERVAL $hours HOUR)
+                    WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
                       AND response_time IS NOT NULL
                       AND response_time > 0
                       AND response_time < 60
@@ -52,28 +53,31 @@ function handleTelemetry($method, $params, $db) {
                 ) AS subquery
                 WHERE row_index IN (FLOOR(@row_index / 2), CEIL(@row_index / 2))
             ");
+            $stmt->execute([$hours]);
             $result = $stmt->fetch();
             $stats['median_response_time'] = $result && $result['median_time'] ? round($result['median_time'] * 1000, 1) : 0;
             
             // Requests per minute
-            $stmt = $db->query("
+            $stmt = $db->prepare("
                 SELECT COUNT(*) as count 
                 FROM request_telemetry 
-                WHERE timestamp > DATE_SUB(NOW(), INTERVAL $hours HOUR)
+                WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
             ");
+            $stmt->execute([$hours]);
             $result = $stmt->fetch();
             $totalRequests = $result ? (int)$result['count'] : 0;
             $stats['requests_per_minute'] = $hours > 0 ? round($totalRequests / ($hours * 60), 0) : 0;
        
             // Error rate (only 5xx server errors, not 4xx client errors or 3xx redirects)
-            $stmt = $db->query("
+            $stmt = $db->prepare("
                 SELECT 
                     COUNT(*) as total,
                     SUM(CASE WHEN status_code >= 500 THEN 1 ELSE 0 END) as errors
                 FROM request_telemetry 
-                WHERE timestamp > DATE_SUB(NOW(), INTERVAL $hours HOUR)
+                WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
                   AND status_code IS NOT NULL
             ");
+            $stmt->execute([$hours]);
             $result = $stmt->fetch();
             if ($result && $result['total'] > 0) {
                 $stats['error_rate'] = round(($result['errors'] / $result['total']) * 100, 2);
