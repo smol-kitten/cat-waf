@@ -8,7 +8,7 @@
 global $db;
 
 $method = $_SERVER['REQUEST_METHOD'];
-$requestUri = $_SERVER['REQUEST_URI'];
+$requestUri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
 // Parse cleanup type from URI
 if (preg_match('#/cleanup/(logs|telemetry|modsec|all)$#', $requestUri, $matches)) {

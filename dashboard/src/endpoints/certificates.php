@@ -342,19 +342,12 @@ function reloadNginx(): void {
 if (php_sapi_name() !== 'cli') {
 
 $method     = $_SERVER['REQUEST_METHOD'];
-$requestUri = $_SERVER['REQUEST_URI'];
+$requestUri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
-// Debug logging - uncomment to trace routing issues
-// error_log("certificates.php: Received request - Method: {$method}, URI: {$requestUri}");
-
-// Only process requests that are actually for /certificates/
-if (strpos($requestUri, '/certificates') === false) {
-    // This shouldn't happen - means index.php routing is broken
-    error_log("certificates.php: ERROR - Received non-certificates request: {$requestUri}");
-    http_response_code(400);
-    echo json_encode(['error' => 'Invalid certificates request', 'debug_uri' => $requestUri]);
-    exit;
-}
+// Only process routing when the request is actually for /certificates/
+// When require_once'd from other files (e.g. sites.php for helper functions),
+// the URL won't contain /certificates — skip routing but keep functions available.
+if (strpos($requestUri, '/certificates') !== false) {
 
 // renew-all
 if (preg_match('#/certificates/renew-all$#', $requestUri)) {
@@ -402,6 +395,8 @@ switch ($method) {
     case 'DELETE':  removeCertificate($domain); break;
     default:       http_response_code(405); echo json_encode(['error' => 'Method not allowed']);
 }
+
+} // end if (request is for /certificates)
 
 } // end if (not CLI)
 
