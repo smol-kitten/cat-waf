@@ -74,7 +74,9 @@ function getNotificationSettings($db) {
             $key = $row['setting_key'];
             $value = $row['setting_value'];
             
-            if (strpos($key, 'password') !== false || strpos($key, 'token') !== false) {
+            if (strpos($key, 'password') !== false || strpos($key, 'token') !== false 
+                || strpos($key, 'secret') !== false || strpos($key, 'api_key') !== false
+                || strpos($key, 'webhook_url') !== false) {
                 $value = $value ? '********' : '';
             }
             
@@ -211,10 +213,10 @@ function testEmailNotification($db) {
         }
         
         // TODO: Implement actual email sending with PHPMailer or similar
-        // For now, return a placeholder response
+        // Return a clear info message explaining email is not yet available
         return [
-            'success' => false,
-            'error' => 'Email sending not yet implemented'
+            'success' => true,
+            'info' => 'Email notifications are not yet available. Use webhook/Discord notifications instead. Email support requires PHPMailer integration.'
         ];
     } catch (Exception $e) {
         return [
@@ -346,26 +348,37 @@ function updateNotificationSettings($db) {
  */
 function logNotification($db, $type, $title, $message, $success = true) {
     try {
-        // Check if table exists, create if not
-        $db->exec("
-            CREATE TABLE IF NOT EXISTS notification_history (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                notification_type VARCHAR(50) NOT NULL,
-                title VARCHAR(255),
-                message TEXT,
-                success TINYINT(1) DEFAULT 1,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_type (notification_type),
-                INDEX idx_created (created_at)
-            )
-        ");
-        
         $stmt = $db->prepare("
             INSERT INTO notification_history (notification_type, title, message, success)
             VALUES (?, ?, ?, ?)
         ");
         $stmt->execute([$type, $title, $message, $success ? 1 : 0]);
-    } catch (Exception $e) {
-        error_log("Failed to log notification: " . $e->getMessage());
+    } catch (PDOException $e) {
+        // Table might not exist - create it and retry once
+        if (strpos($e->getMessage(), "doesn't exist") !== false) {
+            try {
+                $db->exec("
+                    CREATE TABLE IF NOT EXISTS notification_history (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        notification_type VARCHAR(50) NOT NULL,
+                        title VARCHAR(255),
+                        message TEXT,
+                        success TINYINT(1) DEFAULT 1,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        INDEX idx_type (notification_type),
+                        INDEX idx_created (created_at)
+                    )
+                ");
+                $stmt = $db->prepare("
+                    INSERT INTO notification_history (notification_type, title, message, success)
+                    VALUES (?, ?, ?, ?)
+                ");
+                $stmt->execute([$type, $title, $message, $success ? 1 : 0]);
+            } catch (Exception $e2) {
+                error_log("Failed to create/insert notification_history: " . $e2->getMessage());
+            }
+        } else {
+            error_log("Failed to log notification: " . $e->getMessage());
+        }
     }
 }

@@ -313,7 +313,22 @@ export const settingsApi = {
 		cleanup: (options: { olderThanDays: number; types: string[] }) =>
 			api.post<{ deleted: number }>('/settings/system/cleanup', options),
 		testNotifications: (type: string) =>
-			api.post<{ success: boolean; message: string }>('/settings/notifications/test', { type })
+			api.post<{ success: boolean; message: string }>('/settings/notifications/test', { type }),
+		disk: () =>
+			api.get<{
+				disk: {
+					totalBytes: number;
+					freeBytes: number;
+					usedBytes: number;
+					percentUsed: number;
+					status: string;
+				};
+			}>('/settings/system/disk'),
+		emergencyCleanup: () =>
+			api.post<{ success: boolean; message: string; results: Record<string, unknown> }>(
+				'/settings/system/emergency-cleanup',
+				{}
+			)
 	}
 };
 

@@ -61,21 +61,21 @@ function getUnifiedSecurityEvents($db) {
         $severity = $_GET['severity'] ?? null;
         $since = $_GET['since'] ?? '24h';
         
-        // Convert since to datetime
-        $sinceMap = [
-            '1h' => 'DATE_SUB(NOW(), INTERVAL 1 HOUR)',
-            '24h' => 'DATE_SUB(NOW(), INTERVAL 24 HOUR)',
-            '7d' => 'DATE_SUB(NOW(), INTERVAL 7 DAY)',
-            '30d' => 'DATE_SUB(NOW(), INTERVAL 30 DAY)'
+        // Convert since to hours for parameterized queries
+        $sinceHoursMap = [
+            '1h' => 1,
+            '24h' => 24,
+            '7d' => 168,
+            '30d' => 720
         ];
-        $sinceClause = $sinceMap[$since] ?? 'DATE_SUB(NOW(), INTERVAL 24 HOUR)';
+        $sinceHours = $sinceHoursMap[$since] ?? 24;
         
         $events = [];
         
         // 1. ModSecurity Events
         if (!$type || $type === 'modsec' || $type === 'all') {
             $severityFilter = '';
-            $params = [];
+            $params = [$sinceHours];
             if ($severity) {
                 $severityFilter = 'AND severity = ?';
                 $params[] = $severity;
@@ -100,7 +100,7 @@ function getUnifiedSecurityEvents($db) {
                         ELSE 'info'
                     END as level
                 FROM modsec_events
-                WHERE timestamp > $sinceClause
+                WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
                 $severityFilter
                 ORDER BY timestamp DESC
                 LIMIT ?
@@ -132,12 +132,12 @@ function getUnifiedSecurityEvents($db) {
                     END as level,
                     CONCAT(method, ' ', COALESCE(request_uri, '/'), ' (', status_code, ')') as message
                 FROM access_logs
-                WHERE timestamp > $sinceClause
+                WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
                 AND (status_code >= 400 OR blocked = 1)
                 ORDER BY timestamp DESC
                 LIMIT ?
             ");
-            $stmt->execute([$limit]);
+            $stmt->execute([$sinceHours, $limit]);
             $accessEvents = $stmt->fetchAll(PDO::FETCH_ASSOC);
             $events = array_merge($events, $accessEvents);
         }
@@ -162,11 +162,11 @@ function getUnifiedSecurityEvents($db) {
                     END as level,
                     CONCAT('Bot detected: ', COALESCE(bot_name, 'unknown'), ' (', COALESCE(bot_type, 'unknown'), ')') as message
                 FROM bot_detections
-                WHERE timestamp > $sinceClause
+                WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
                 ORDER BY timestamp DESC
                 LIMIT ?
             ");
-            $stmt->execute([$limit]);
+            $stmt->execute([$sinceHours, $limit]);
             $botEvents = $stmt->fetchAll(PDO::FETCH_ASSOC);
             $events = array_merge($events, $botEvents);
         }
@@ -187,11 +187,11 @@ function getUnifiedSecurityEvents($db) {
                     'critical' as level,
                     CONCAT('IP Banned: ', reason) as message
                 FROM banned_ips
-                WHERE created_at > $sinceClause
+                WHERE created_at > DATE_SUB(NOW(), INTERVAL ? HOUR)
                 ORDER BY created_at DESC
                 LIMIT ?
             ");
-            $stmt->execute([$limit]);
+            $stmt->execute([$sinceHours, $limit]);
             $banEvents = $stmt->fetchAll(PDO::FETCH_ASSOC);
             $events = array_merge($events, $banEvents);
         }
@@ -240,35 +240,35 @@ function getUnifiedSecurityEvents($db) {
 function getSecuritySummary($db) {
     try {
         $period = $_GET['period'] ?? '24h';
-        $periodMap = [
-            '1h' => 'DATE_SUB(NOW(), INTERVAL 1 HOUR)',
-            '24h' => 'DATE_SUB(NOW(), INTERVAL 24 HOUR)',
-            '7d' => 'DATE_SUB(NOW(), INTERVAL 7 DAY)',
-            '30d' => 'DATE_SUB(NOW(), INTERVAL 30 DAY)'
+        $periodHoursMap = [
+            '1h' => 1,
+            '24h' => 24,
+            '7d' => 168,
+            '30d' => 720
         ];
-        $since = $periodMap[$period] ?? 'DATE_SUB(NOW(), INTERVAL 24 HOUR)';
+        $sinceHours = $periodHoursMap[$period] ?? 24;
         
         // ModSec stats
-        $stmt = $db->prepare("SELECT COUNT(*) as count FROM modsec_events WHERE timestamp > $since");
-        $stmt->execute();
+        $stmt = $db->prepare("SELECT COUNT(*) as count FROM modsec_events WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)");
+        $stmt->execute([$sinceHours]);
         $modsecTotal = $stmt->fetch()['count'] ?? 0;
         
-        $stmt = $db->prepare("SELECT COUNT(*) as count FROM modsec_events WHERE timestamp > $since AND action = 'blocked'");
-        $stmt->execute();
+        $stmt = $db->prepare("SELECT COUNT(*) as count FROM modsec_events WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR) AND action = 'blocked'");
+        $stmt->execute([$sinceHours]);
         $modsecBlocked = $stmt->fetch()['count'] ?? 0;
         
         // Bot stats
-        $stmt = $db->prepare("SELECT COUNT(*) as count FROM bot_detections WHERE timestamp > $since");
-        $stmt->execute();
+        $stmt = $db->prepare("SELECT COUNT(*) as count FROM bot_detections WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)");
+        $stmt->execute([$sinceHours]);
         $botTotal = $stmt->fetch()['count'] ?? 0;
         
-        $stmt = $db->prepare("SELECT COUNT(*) as count FROM bot_detections WHERE timestamp > $since AND action = 'blocked'");
-        $stmt->execute();
+        $stmt = $db->prepare("SELECT COUNT(*) as count FROM bot_detections WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR) AND action = 'blocked'");
+        $stmt->execute([$sinceHours]);
         $botBlocked = $stmt->fetch()['count'] ?? 0;
         
         // Access log errors
-        $stmt = $db->prepare("SELECT COUNT(*) as count FROM access_logs WHERE timestamp > $since AND status_code >= 400");
-        $stmt->execute();
+        $stmt = $db->prepare("SELECT COUNT(*) as count FROM access_logs WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR) AND status_code >= 400");
+        $stmt->execute([$sinceHours]);
         $accessErrors = $stmt->fetch()['count'] ?? 0;
         
         // Active bans
@@ -283,9 +283,9 @@ function getSecuritySummary($db) {
         $stmt = $db->prepare("
             SELECT COUNT(DISTINCT ip_address) as count 
             FROM modsec_events 
-            WHERE timestamp > $since AND action = 'blocked'
+            WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR) AND action = 'blocked'
         ");
-        $stmt->execute();
+        $stmt->execute([$sinceHours]);
         $uniqueAttackers = $stmt->fetch()['count'] ?? 0;
         
         sendResponse([
@@ -410,12 +410,12 @@ function getEventTimeline($db) {
             $points = 30;
         }
         
-        $periodMap = [
-            '24h' => 'DATE_SUB(NOW(), INTERVAL 24 HOUR)',
-            '7d' => 'DATE_SUB(NOW(), INTERVAL 7 DAY)',
-            '30d' => 'DATE_SUB(NOW(), INTERVAL 30 DAY)'
+        $periodHoursMap = [
+            '24h' => 24,
+            '7d' => 168,
+            '30d' => 720
         ];
-        $since = $periodMap[$period] ?? 'DATE_SUB(NOW(), INTERVAL 24 HOUR)';
+        $sinceHours = $periodHoursMap[$period] ?? 24;
         
         // ModSec events timeline
         $stmt = $db->prepare("
@@ -424,11 +424,11 @@ function getEventTimeline($db) {
                 COUNT(*) as count,
                 SUM(CASE WHEN action = 'blocked' THEN 1 ELSE 0 END) as blocked
             FROM modsec_events
-            WHERE timestamp > $since
+            WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
             GROUP BY time_bucket
             ORDER BY time_bucket ASC
         ");
-        $stmt->execute();
+        $stmt->execute([$sinceHours]);
         $modsecTimeline = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         // Bot detections timeline
@@ -438,11 +438,11 @@ function getEventTimeline($db) {
                 COUNT(*) as count,
                 SUM(CASE WHEN action = 'blocked' THEN 1 ELSE 0 END) as blocked
             FROM bot_detections
-            WHERE timestamp > $since
+            WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
             GROUP BY time_bucket
             ORDER BY time_bucket ASC
         ");
-        $stmt->execute();
+        $stmt->execute([$sinceHours]);
         $botTimeline = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         sendResponse([

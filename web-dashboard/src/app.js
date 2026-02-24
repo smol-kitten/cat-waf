@@ -22,11 +22,10 @@ let envDefaults = {}; // Store environment defaults
 
 // Keyboard Shortcuts
 document.addEventListener('keydown', (e) => {
-    // Ctrl/Cmd + K: Quick search (planned)
+    // Ctrl/Cmd + K: Quick search
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
-        console.log('Quick search coming soon!');
-        showToast('Quick search coming soon! 🔍', 'info');
+        showQuickSearch();
     }
     
     // Ctrl/Cmd + S: Save (if in edit mode)
@@ -5920,7 +5919,78 @@ function showModal(title, content) {
     });
 }
 
-// View raw NGINX config for the current site
+// Quick Search (Ctrl+K)
+function showQuickSearch() {
+    // Remove existing quick search if open
+    const existing = document.querySelector('.quick-search-overlay');
+    if (existing) { existing.remove(); return; }
+
+    const pages = [
+        { name: 'Dashboard', icon: '📊', action: () => showPage('dashboard') },
+        { name: 'Sites', icon: '🌐', action: () => showPage('sites') },
+        { name: 'Security Center', icon: '🛡️', action: () => showPage('security') },
+        { name: 'Bans', icon: '🚫', action: () => showPage('bans') },
+        { name: 'Certificates', icon: '🔒', action: () => showPage('certificates') },
+        { name: 'Analytics', icon: '📈', action: () => showPage('analytics') },
+        { name: 'Logs', icon: '📋', action: () => showPage('logs') },
+        { name: 'Insights', icon: '💡', action: () => showPage('insights') },
+        { name: 'Alerts', icon: '🔔', action: () => showPage('alerts') },
+        { name: 'Bot Protection', icon: '🤖', action: () => showPage('bot-protection') },
+        { name: 'Settings', icon: '⚙️', action: () => showPage('settings') },
+        { name: 'Cleanup', icon: '🗑️', action: () => showPage('cleanup') },
+    ];
+
+    const overlay = document.createElement('div');
+    overlay.className = 'quick-search-overlay';
+    overlay.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:flex; align-items:flex-start; justify-content:center; z-index:10001; padding-top:20vh;';
+    overlay.innerHTML = `
+        <div style="background:var(--bg-primary); border-radius:12px; width:90%; max-width:500px; box-shadow:0 8px 30px rgba(0,0,0,0.4); overflow:hidden;">
+            <div style="padding:1rem; border-bottom:1px solid var(--border);">
+                <input type="text" id="quickSearchInput" placeholder="Search pages..." 
+                    style="width:100%; padding:0.75rem; border:none; background:transparent; font-size:1.1rem; color:var(--text-primary); outline:none;" autofocus>
+            </div>
+            <div id="quickSearchResults" style="max-height:300px; overflow-y:auto; padding:0.5rem;"></div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const input = document.getElementById('quickSearchInput');
+    const results = document.getElementById('quickSearchResults');
+
+    function renderResults(filter) {
+        const filtered = filter ? pages.filter(p => p.name.toLowerCase().includes(filter.toLowerCase())) : pages;
+        results.innerHTML = filtered.map((p, i) => `
+            <div class="quick-search-item" data-index="${i}" style="padding:0.75rem 1rem; cursor:pointer; border-radius:8px; display:flex; align-items:center; gap:0.75rem; ${i === 0 ? 'background:var(--bg-secondary);' : ''}"
+                 onmouseenter="this.style.background='var(--bg-secondary)'" onmouseleave="this.style.background='transparent'">
+                <span style="font-size:1.2rem;">${p.icon}</span>
+                <span style="color:var(--text-primary); font-weight:500;">${p.name}</span>
+            </div>
+        `).join('');
+        
+        // Add click handlers
+        results.querySelectorAll('.quick-search-item').forEach((item, idx) => {
+            item.addEventListener('click', () => {
+                overlay.remove();
+                filtered[idx].action();
+            });
+        });
+    }
+
+    renderResults('');
+    input.focus();
+    input.addEventListener('input', () => renderResults(input.value));
+    
+    // Close on Escape or background click
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') overlay.remove();
+        if (e.key === 'Enter') {
+            const firstItem = results.querySelector('.quick-search-item');
+            if (firstItem) firstItem.click();
+        }
+    });
+}
+window.showQuickSearch = showQuickSearch;
 async function viewRawConfig() {
     const id = currentSiteData?.id || currentSiteId;
     if (!id) {
@@ -5971,11 +6041,88 @@ async function loadCleanupStats() {
             `${(modsec.total || 0).toLocaleString()} total (${(modsec.older_than_30_days || 0).toLocaleString()} > 30d)`;
         document.getElementById('cleanupBots').textContent = 
             `${(bots.total || 0).toLocaleString()} total (${(bots.older_than_30_days || 0).toLocaleString()} > 30d)`;
+
+        // Load disk usage
+        loadDiskUsage();
             
     } catch (error) {
         console.error('Error loading cleanup stats:', error);
     }
 }
+
+async function loadDiskUsage() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/cleanup/disk`, {
+            headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!data.disk) return;
+
+        const disk = data.disk;
+        const container = document.getElementById('diskUsageContainer');
+        if (!container) return;
+
+        const statusColor = disk.status === 'critical' ? '#dc3545' : 
+                           disk.status === 'danger' ? '#dc3545' :
+                           disk.status === 'warning' ? '#ffc107' : '#28a745';
+        const barColor = disk.status === 'critical' || disk.status === 'danger' ? '#dc3545' :
+                        disk.status === 'warning' ? '#ffc107' : '#28a745';
+
+        container.innerHTML = `
+            <div style="margin-bottom: 8px;">
+                <span style="font-size: 0.85em; color: #666;">Disk: ${disk.used} ${disk.unit} / ${disk.total} ${disk.unit}</span>
+                <span style="float: right; color: ${statusColor}; font-weight: bold;">${disk.percent_used}%</span>
+            </div>
+            <div style="background: #333; border-radius: 6px; height: 10px; overflow: hidden;">
+                <div style="width: ${Math.min(disk.percent_used, 100)}%; height: 100%; background: ${barColor}; border-radius: 6px; transition: width 0.3s;"></div>
+            </div>
+            <div style="margin-top: 4px; font-size: 0.8em; color: #888;">${disk.free} ${disk.unit} free</div>
+            ${disk.status === 'critical' || disk.status === 'danger' ? `
+                <div style="margin-top: 8px; padding: 8px; background: rgba(220,53,69,0.15); border: 1px solid #dc3545; border-radius: 6px;">
+                    <span style="color: #dc3545;">⚠️ Disk space ${disk.status}! </span>
+                    <button onclick="emergencyCleanup()" style="background: #dc3545; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer;">Emergency Cleanup</button>
+                </div>
+            ` : ''}
+        `;
+    } catch (error) {
+        console.error('Error loading disk usage:', error);
+    }
+}
+
+async function emergencyCleanup() {
+    if (!confirm('⚠️ Emergency Cleanup\n\nThis will aggressively delete access logs, telemetry, bot detections older than 7 days, and clear all stats caches to free disk space.\n\nContinue?')) {
+        return;
+    }
+    
+    try {
+        showToast('Running emergency cleanup...', 'info');
+        const response = await fetch(`${API_BASE_URL}/cleanup/emergency`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${API_TOKEN}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Emergency cleanup failed: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        showToast(`✅ ${result.message}`, 'success');
+        
+        // Reload stats
+        await loadCleanupStats();
+        
+    } catch (error) {
+        console.error('Emergency cleanup error:', error);
+        showToast(`Failed: ${error.message}`, 'error');
+    }
+}
+
+window.emergencyCleanup = emergencyCleanup;
+window.loadDiskUsage = loadDiskUsage;
 
 async function saveDevModeSetting() {
     const enabled = document.getElementById('dev_mode_headers')?.checked;
@@ -9235,8 +9382,89 @@ async function acknowledgeAlert(id) {
 }
 
 function showAddAlertModal() {
-    showToast('Add alert modal coming soon!', 'info');
+    const modalHtml = `
+        <div style="display: grid; gap: 1rem;">
+            <div>
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Rule Name</label>
+                <input type="text" id="alertRuleName" class="setting-input" placeholder="e.g., High Error Rate Alert" style="width: 100%;">
+            </div>
+            <div>
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Alert Type</label>
+                <select id="alertRuleType" class="setting-input" style="width: 100%;">
+                    <option value="error_rate">Error Rate Threshold</option>
+                    <option value="modsec_blocks">ModSecurity Blocks</option>
+                    <option value="bot_detections">Bot Detections</option>
+                    <option value="ban_count">Ban Count</option>
+                    <option value="response_time">Response Time</option>
+                </select>
+            </div>
+            <div>
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Threshold</label>
+                <input type="number" id="alertRuleThreshold" class="setting-input" placeholder="e.g., 50" min="1" style="width: 100%;">
+            </div>
+            <div>
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Time Window</label>
+                <select id="alertRuleWindow" class="setting-input" style="width: 100%;">
+                    <option value="5m">5 minutes</option>
+                    <option value="15m">15 minutes</option>
+                    <option value="1h" selected>1 hour</option>
+                    <option value="24h">24 hours</option>
+                </select>
+            </div>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.5rem;">
+                <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn-primary" onclick="createAlertRule()">Create Rule</button>
+            </div>
+        </div>
+    `;
+    
+    showModal('Create Alert Rule', modalHtml);
 }
+
+async function createAlertRule() {
+    const name = document.getElementById('alertRuleName')?.value?.trim();
+    const type = document.getElementById('alertRuleType')?.value;
+    const threshold = parseInt(document.getElementById('alertRuleThreshold')?.value);
+    const window = document.getElementById('alertRuleWindow')?.value;
+    
+    if (!name) {
+        showToast('Please enter a rule name', 'error');
+        return;
+    }
+    if (!threshold || threshold < 1) {
+        showToast('Please enter a valid threshold', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/alerts`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${API_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                name,
+                type,
+                threshold,
+                time_window: window,
+                enabled: true
+            })
+        });
+        
+        if (!response.ok) throw new Error('Failed to create alert rule');
+        
+        showToast('Alert rule created successfully', 'success');
+        closeModal();
+        await loadAlertRules();
+        
+    } catch (error) {
+        console.error('Error creating alert rule:', error);
+        showToast('Failed to create alert rule', 'error');
+    }
+}
+
+window.createAlertRule = createAlertRule;
 
 // Export functions
 window.loadInsightsConfig = loadInsightsConfig;

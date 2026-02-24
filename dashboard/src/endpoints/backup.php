@@ -499,6 +499,14 @@ function importBackup() {
 }
 
 function getTableColumns($db, $table) {
+    // Whitelist allowed table names for safety
+    $allowedTables = ['sites', 'request_telemetry', 'bot_detections', 'security_events', 
+                      'custom_block_rules', 'modsec_events', 'access_logs', 'banned_ips',
+                      'settings', 'api_tokens', 'rate_limit_rules'];
+    if (!in_array($table, $allowedTables)) {
+        error_log("getTableColumns: rejected table name '$table'");
+        return [];
+    }
     try {
         $stmt = $db->query("SHOW COLUMNS FROM `$table`");
         $columns = [];

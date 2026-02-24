@@ -3,6 +3,8 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"os"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog/log"
 )
 
 // Module implements the auth module
@@ -34,7 +37,13 @@ func (m *Module) Init(ctx context.Context, db *pgxpool.Pool, redis *redis.Client
 	m.redis = redis
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
-		jwtSecret = "catwaf-default-secret-change-me"
+		// Generate a random secret for this instance instead of using a hardcoded default
+		randomBytes := make([]byte, 32)
+		if _, err := rand.Read(randomBytes); err != nil {
+			return err
+		}
+		jwtSecret = hex.EncodeToString(randomBytes)
+		log.Warn().Msg("JWT_SECRET not set - generated random secret. Sessions will not persist across restarts. Set JWT_SECRET env var for production use.")
 	}
 	m.jwtSecret = []byte(jwtSecret)
 	m.handler = &Handler{module: m}

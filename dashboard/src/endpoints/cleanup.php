@@ -8,7 +8,7 @@
 global $db;
 
 $method = $_SERVER['REQUEST_METHOD'];
-$requestUri = $_SERVER['REQUEST_URI'];
+$requestUri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
 // Parse cleanup type from URI
 if (preg_match('#/cleanup/(logs|telemetry|modsec|all)$#', $requestUri, $matches)) {
@@ -328,6 +328,108 @@ if (preg_match('#/cleanup/truncate-all$#', $requestUri)) {
         http_response_code(500);
         echo json_encode([
             'error' => 'Failed to truncate tables',
+            'details' => $e->getMessage()
+        ]);
+    }
+    
+    exit;
+}
+
+// Disk usage info
+// GET /api/cleanup/disk - Get current disk usage
+if (preg_match('#/cleanup/disk$#', $requestUri)) {
+    if ($method !== 'GET') {
+        http_response_code(405);
+        echo json_encode(['error' => 'Method not allowed']);
+        exit;
+    }
+    
+    $diskFree = @disk_free_space('/');
+    $diskTotal = @disk_total_space('/');
+    
+    if ($diskFree === false || $diskTotal === false || $diskTotal == 0) {
+        echo json_encode(['success' => true, 'disk' => ['error' => 'Unable to read disk space']]);
+        exit;
+    }
+    
+    $percentUsed = round(100 - (($diskFree / $diskTotal) * 100), 2);
+    $status = 'ok';
+    if ($percentUsed > 95) $status = 'critical';
+    elseif ($percentUsed > 90) $status = 'danger';
+    elseif ($percentUsed > 80) $status = 'warning';
+    
+    echo json_encode([
+        'success' => true,
+        'disk' => [
+            'total' => round($diskTotal / 1024 / 1024 / 1024, 2),
+            'free' => round($diskFree / 1024 / 1024 / 1024, 2),
+            'used' => round(($diskTotal - $diskFree) / 1024 / 1024 / 1024, 2),
+            'percent_used' => $percentUsed,
+            'status' => $status,
+            'unit' => 'GB'
+        ]
+    ]);
+    
+    exit;
+}
+
+// Emergency cleanup (auto-triggered when disk is critical)
+// POST /api/cleanup/emergency - Aggressive cleanup to free disk space
+if (preg_match('#/cleanup/emergency$#', $requestUri)) {
+    if ($method !== 'POST') {
+        http_response_code(405);
+        echo json_encode(['error' => 'Method not allowed']);
+        exit;
+    }
+    
+    try {
+        $results = [];
+        $cutoff7d = date('Y-m-d H:i:s', strtotime('-7 days'));
+        
+        // Stage 1: Delete access logs older than 7 days
+        $stmt = $db->prepare("DELETE FROM access_logs WHERE timestamp < ?");
+        $stmt->execute([$cutoff7d]);
+        $results['access_logs_deleted'] = $stmt->rowCount();
+        
+        // Stage 2: Delete telemetry older than 7 days
+        $stmt = $db->prepare("DELETE FROM request_telemetry WHERE timestamp < ?");
+        $stmt->execute([$cutoff7d]);
+        $results['telemetry_deleted'] = $stmt->rowCount();
+        
+        // Stage 3: Delete old bot detections
+        $stmt = $db->prepare("DELETE FROM bot_detections WHERE timestamp < ?");
+        $stmt->execute([$cutoff7d]);
+        $results['bot_detections_deleted'] = $stmt->rowCount();
+        
+        // Stage 4: Clear all stats caches
+        $cacheTables = ['stats_cache_hourly', 'stats_cache_daily', 'stats_top_ips', 'stats_top_domains'];
+        foreach ($cacheTables as $table) {
+            try {
+                $db->exec("TRUNCATE TABLE {$table}");
+                $results[$table] = 'truncated';
+            } catch (PDOException $e) {
+                $results[$table] = 'skipped';
+            }
+        }
+        
+        // Report final disk status
+        $diskFree = @disk_free_space('/');
+        $diskTotal = @disk_total_space('/');
+        if ($diskFree !== false && $diskTotal !== false && $diskTotal > 0) {
+            $results['disk_percent_used'] = round(100 - (($diskFree / $diskTotal) * 100), 2);
+        }
+        
+        echo json_encode([
+            'success' => true,
+            'message' => 'Emergency cleanup completed - deleted data older than 7 days and cleared caches',
+            'results' => $results
+        ]);
+        
+    } catch (Exception $e) {
+        error_log("Emergency cleanup error: " . $e->getMessage());
+        http_response_code(500);
+        echo json_encode([
+            'error' => 'Emergency cleanup failed',
             'details' => $e->getMessage()
         ]);
     }
