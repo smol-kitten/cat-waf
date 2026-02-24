@@ -68,9 +68,10 @@ if (file_exists('/proc/meminfo')) {
     }
 }
 
-// Check backend health for each site
-$sites = $pdo->query("SELECT id, domain, backend_url FROM sites WHERE enabled = 1")->fetchAll(PDO::FETCH_ASSOC);
+// Check backend health for each site (only sites with health checks enabled)
+$sites = $pdo->query("SELECT id, domain, backend_url FROM sites WHERE enabled = 1 AND health_check_enabled = 1")->fetchAll(PDO::FETCH_ASSOC);
 $backendIssues = [];
+$backendIssueDomains = [];
 
 foreach ($sites as $site) {
     $url = $site['backend_url'];
@@ -92,6 +93,7 @@ foreach ($sites as $site) {
     
     if ($httpCode === 0 || $httpCode >= 500) {
         $backendIssues[] = "{$site['domain']}: " . ($error ?: "HTTP {$httpCode}");
+        $backendIssueDomains[] = $site['domain'];
     }
 }
 
@@ -144,15 +146,73 @@ foreach ($checks as $name => $check) {
     echo "{$icon} {$name}: {$check['message']}\n";
 }
 
+/**
+ * Extract a stable issue key from issue text.
+ * Uses category + domain/identifier instead of full error text to prevent
+ * resolved/new loops caused by variable error details (e.g. timeout durations).
+ */
+function extractStableIssueKey($issueText) {
+    // Backend issues: "Backend issues: domain1: error, domain2: error"
+    if (strpos($issueText, 'Backend issues:') === 0) {
+        // Extract domain names from the backend issues text
+        $details = substr($issueText, strlen('Backend issues: '));
+        // Get just the domain parts (before the colon in each entry)
+        preg_match_all('/([a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*)\s*:/i', $details, $matches);
+        $domains = !empty($matches[1]) ? $matches[1] : ['unknown'];
+        sort($domains);
+        return 'backend_down:' . implode(',', $domains);
+    }
+    
+    // Disk space: "Disk space critical: XX% used"
+    if (strpos($issueText, 'Disk space') !== false) {
+        return 'disk_space_critical';
+    }
+    
+    // Memory: "Memory usage high: XX%"
+    if (strpos($issueText, 'Memory usage') !== false) {
+        return 'memory_usage_high';
+    }
+    
+    // NGINX: "NGINX is not running"
+    if (strpos($issueText, 'NGINX') !== false) {
+        return 'nginx_down';
+    }
+    
+    // Database: "Database: error"
+    if (strpos($issueText, 'Database:') === 0) {
+        return 'database_error';
+    }
+    
+    // SSL: "SSL certificates expiring: domain1, domain2"
+    if (strpos($issueText, 'SSL certificates expiring') !== false) {
+        $parts = explode(': ', $issueText, 2);
+        return 'ssl_expiring:' . ($parts[1] ?? 'unknown');
+    }
+    
+    // Fallback: use the full text for unknown issue types
+    return $issueText;
+}
+
 // ONE-TIME ALERT SYSTEM: Only alert on NEW issues, not recurring ones
 // Track issues and only notify when they first appear
 $newIssues = [];
 $resolvedIssues = [];
 
+// Check if health_check alert rule exists and is enabled before sending notifications
+$healthRuleStmt = $pdo->query("SELECT id, enabled FROM alert_rules WHERE rule_type = 'health_check' LIMIT 1");
+$healthRule = $healthRuleStmt->fetch(PDO::FETCH_ASSOC);
+$notificationsEnabled = $healthRule && (int)$healthRule['enabled'] === 1;
+
+// Build stable issue keys based on category + domain, not variable error text
+// This prevents loops where slightly different error messages create new/resolved cycles
+$currentIssueKeys = [];
+
 foreach ($issues as $issueText) {
-    // Create a unique key for this issue
-    $issueKey = md5($issueText);
+    // Extract a stable key from the issue text (category-based, not error-message-based)
+    $stableKey = extractStableIssueKey($issueText);
+    $issueKey = md5($stableKey);
     $issueType = 'health_check';
+    $currentIssueKeys[$issueKey] = true;
     
     // Check if this issue already exists and is unresolved
     $stmt = $pdo->prepare("
@@ -163,9 +223,9 @@ foreach ($issues as $issueText) {
     $existingIssue = $stmt->fetch(PDO::FETCH_ASSOC);
     
     if ($existingIssue) {
-        // Issue already tracked and unresolved - update last_detected but don't alert again
-        $stmt = $pdo->prepare("UPDATE active_issues SET last_detected = NOW() WHERE id = ?");
-        $stmt->execute([$existingIssue['id']]);
+        // Issue already tracked and unresolved - update last_detected and details but don't alert again
+        $stmt = $pdo->prepare("UPDATE active_issues SET last_detected = NOW(), details = ? WHERE id = ?");
+        $stmt->execute([json_encode(['message' => $issueText, 'stable_key' => $stableKey]), $existingIssue['id']]);
         echo "Issue still active (already alerted): $issueText\n";
     } else {
         // New issue - insert and mark for alerting
@@ -173,7 +233,7 @@ foreach ($issues as $issueText) {
             INSERT INTO active_issues (issue_type, issue_key, alert_sent, details)
             VALUES (?, ?, 1, ?)
         ");
-        $stmt->execute([$issueType, $issueKey, json_encode(['message' => $issueText])]);
+        $stmt->execute([$issueType, $issueKey, json_encode(['message' => $issueText, 'stable_key' => $stableKey])]);
         $newIssues[] = $issueText;
         echo "NEW issue detected: $issueText\n";
     }
@@ -181,7 +241,7 @@ foreach ($issues as $issueText) {
 
 // Check for resolved issues - mark issues that no longer appear
 $stmt = $pdo->prepare("
-    SELECT id, details FROM active_issues 
+    SELECT id, issue_key, details FROM active_issues 
     WHERE issue_type = 'health_check' AND resolved_at IS NULL
 ");
 $stmt->execute();
@@ -189,17 +249,9 @@ $activeIssues = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 foreach ($activeIssues as $activeIssue) {
     $details = json_decode($activeIssue['details'], true);
-    $wasFound = false;
     
-    foreach ($issues as $issueText) {
-        $issueKey = md5($issueText);
-        if (isset($details['message']) && md5($details['message']) === md5($issueText)) {
-            $wasFound = true;
-            break;
-        }
-    }
-    
-    if (!$wasFound) {
+    // Use the stable issue_key stored in the DB to match against current keys
+    if (!isset($currentIssueKeys[$activeIssue['issue_key']])) {
         // Issue has been resolved
         $stmt = $pdo->prepare("UPDATE active_issues SET resolved_at = NOW() WHERE id = ?");
         $stmt->execute([$activeIssue['id']]);
@@ -208,8 +260,8 @@ foreach ($activeIssues as $activeIssue) {
     }
 }
 
-// Send notification only for NEW issues
-if (!empty($newIssues)) {
+// Send notification only for NEW issues (and only if alert rule is enabled)
+if (!empty($newIssues) && $notificationsEnabled) {
     echo "\n⚠ NEW issues detected! Sending notification...\n";
     
     try {
@@ -222,8 +274,6 @@ if (!empty($newIssues)) {
         );
         
         // Also store in alert_history for dashboard visibility
-        $healthRuleStmt = $pdo->query("SELECT id FROM alert_rules WHERE rule_type = 'health_check' LIMIT 1");
-        $healthRule = $healthRuleStmt->fetch();
         if ($healthRule) {
             $stmt = $pdo->prepare("INSERT INTO alert_history (alert_rule_id, alert_data) VALUES (?, ?)");
             $stmt->execute([$healthRule['id'], json_encode(['issues' => $newIssues])]);
@@ -233,12 +283,14 @@ if (!empty($newIssues)) {
     } catch (Exception $e) {
         echo "Failed to send notification: " . $e->getMessage() . "\n";
     }
+} elseif (!empty($newIssues)) {
+    echo "\nNew issues detected but notifications disabled (alert rule disabled or deleted).\n";
 } else {
     echo "\nNo NEW issues (existing issues already alerted).\n";
 }
 
-// Optionally notify when issues are resolved
-if (!empty($resolvedIssues)) {
+// Optionally notify when issues are resolved (only if notifications enabled)
+if (!empty($resolvedIssues) && $notificationsEnabled) {
     echo "\n✅ Issues resolved: " . count($resolvedIssues) . "\n";
     try {
         $notifier = new WebhookNotifier($pdo);
@@ -251,6 +303,8 @@ if (!empty($resolvedIssues)) {
     } catch (Exception $e) {
         // Silent fail for resolution notifications
     }
+} elseif (!empty($resolvedIssues)) {
+    echo "\n✅ Issues resolved: " . count($resolvedIssues) . " (notifications disabled)\n";
 }
 
 echo "\nHealth check complete\n";

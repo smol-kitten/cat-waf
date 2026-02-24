@@ -3710,9 +3710,21 @@ async function loadSiteEditor(siteId) {
         }
         
         if (domainEl) {
-            domainEl.textContent = `ID: ${currentSiteData.id} | Status: ${currentSiteData.enabled ? 'Enabled' : 'Disabled'}`;
+            const sslStatus = currentSiteData.ssl_enabled ? '🔒 SSL' : '🔓 No SSL';
+            const modsecStatus = currentSiteData.enable_modsecurity ? '🛡️ WAF' : '';
+            const statusParts = [`ID: ${currentSiteData.id}`, sslStatus];
+            if (modsecStatus) statusParts.push(modsecStatus);
+            domainEl.textContent = statusParts.join(' · ');
         } else {
             console.error('editorSiteDomain element not found');
+        }
+        
+        // Update status badge color
+        const statusBadge = document.getElementById('editorSiteStatusBadge');
+        if (statusBadge) {
+            statusBadge.style.background = currentSiteData.enabled ? 'var(--success)' : 'var(--text-muted)';
+            statusBadge.title = currentSiteData.enabled ? 'Site Enabled' : 'Site Disabled';
+            statusBadge.setAttribute('aria-label', currentSiteData.enabled ? 'Site Enabled' : 'Site Disabled');
         }
         
         // Setup editor tabs
@@ -3844,7 +3856,45 @@ function loadEditorTab(tab) {
 
 function renderGeneralTab() {
     const data = currentSiteData;
+    
+    // Build feature status indicators
+    const features = [];
+    if (data.ssl_enabled) features.push('<span style="color: var(--success);">🔒 SSL</span>');
+    else features.push('<span style="color: var(--text-muted);">🔓 No SSL</span>');
+    if (data.enable_modsecurity) features.push('<span style="color: var(--success);">🛡️ WAF</span>');
+    if (data.enable_rate_limit) features.push('<span style="color: var(--success);">🚦 Rate Limit</span>');
+    if (data.enable_bot_protection) features.push('<span style="color: var(--success);">🤖 Bot Protection</span>');
+    if (data.challenge_enabled) features.push('<span style="color: var(--warning);">🧩 JS Challenge</span>');
+    if (data.enable_geoip_blocking) features.push('<span style="color: var(--info);">🌍 GeoIP</span>');
+    
+    const backendsInfo = (() => {
+        try {
+            const backends = JSON.parse(data.backends || '[]');
+            if (backends.length === 0) return '<span style="color: var(--danger);">⚠️ No backends</span>';
+            if (backends.length === 1) return `<span style="color: var(--success);">✅ 1 backend</span>`;
+            return `<span style="color: var(--success);">✅ ${backends.length} backends (${data.lb_method || 'round_robin'})</span>`;
+        } catch { return '<span style="color: var(--text-muted);">—</span>'; }
+    })();
+    
     return `
+        <div class="editor-panel" style="background: linear-gradient(135deg, var(--bg-card), var(--bg-secondary)); border: 1px solid var(--border);">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+                <div>
+                    <h3 style="margin: 0 0 0.5rem 0;">📊 Site Overview</h3>
+                    <p style="margin: 0; color: var(--text-muted);">${data.domain || 'Unknown'}</p>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: ${data.enabled ? 'var(--success)' : 'var(--text-muted)'};"></span>
+                    <span style="color: ${data.enabled ? 'var(--success)' : 'var(--text-muted)'}; font-weight: 600;">${data.enabled ? 'Active' : 'Disabled'}</span>
+                </div>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border);">
+                ${features.join('')}
+                <span style="color: var(--border);">|</span>
+                ${backendsInfo}
+            </div>
+        </div>
+        
         <div class="editor-panel">
             <h3>🌐 Basic Configuration</h3>
             <p>Configure domain and backend server settings</p>
@@ -3878,6 +3928,7 @@ function renderGeneralTab() {
                     <input type="checkbox" id="edit_enabled" ${data.enabled ? 'checked' : ''}>
                     <span>Site Enabled</span>
                 </label>
+                <small style="color: var(--text-muted); display: block; margin-top: 0.25rem;">When disabled, the site will not accept traffic</small>
             </div>
 
         </div>
@@ -9325,7 +9376,7 @@ async function toggleAlertRule(id) {
                 'Authorization': `Bearer ${API_TOKEN}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ enabled: !data.rule.enabled })
+            body: JSON.stringify({ enabled: data.rule.enabled ? 0 : 1 })
         });
         
         if (!updateResponse.ok) throw new Error('Failed to toggle alert rule');
@@ -9444,11 +9495,13 @@ async function createAlertRule() {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                name,
-                type,
-                threshold,
-                time_window: window,
-                enabled: true
+                rule_name: name,
+                rule_type: type,
+                config: {
+                    threshold: threshold,
+                    time_window: window
+                },
+                enabled: 1
             })
         });
         
