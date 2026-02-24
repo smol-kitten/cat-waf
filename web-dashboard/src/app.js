@@ -5971,11 +5971,88 @@ async function loadCleanupStats() {
             `${(modsec.total || 0).toLocaleString()} total (${(modsec.older_than_30_days || 0).toLocaleString()} > 30d)`;
         document.getElementById('cleanupBots').textContent = 
             `${(bots.total || 0).toLocaleString()} total (${(bots.older_than_30_days || 0).toLocaleString()} > 30d)`;
+
+        // Load disk usage
+        loadDiskUsage();
             
     } catch (error) {
         console.error('Error loading cleanup stats:', error);
     }
 }
+
+async function loadDiskUsage() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/cleanup/disk`, {
+            headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!data.disk) return;
+
+        const disk = data.disk;
+        const container = document.getElementById('diskUsageContainer');
+        if (!container) return;
+
+        const statusColor = disk.status === 'critical' ? '#dc3545' : 
+                           disk.status === 'danger' ? '#dc3545' :
+                           disk.status === 'warning' ? '#ffc107' : '#28a745';
+        const barColor = disk.status === 'critical' || disk.status === 'danger' ? '#dc3545' :
+                        disk.status === 'warning' ? '#ffc107' : '#28a745';
+
+        container.innerHTML = `
+            <div style="margin-bottom: 8px;">
+                <span style="font-size: 0.85em; color: #666;">Disk: ${disk.used} ${disk.unit} / ${disk.total} ${disk.unit}</span>
+                <span style="float: right; color: ${statusColor}; font-weight: bold;">${disk.percent_used}%</span>
+            </div>
+            <div style="background: #333; border-radius: 6px; height: 10px; overflow: hidden;">
+                <div style="width: ${Math.min(disk.percent_used, 100)}%; height: 100%; background: ${barColor}; border-radius: 6px; transition: width 0.3s;"></div>
+            </div>
+            <div style="margin-top: 4px; font-size: 0.8em; color: #888;">${disk.free} ${disk.unit} free</div>
+            ${disk.status === 'critical' || disk.status === 'danger' ? `
+                <div style="margin-top: 8px; padding: 8px; background: rgba(220,53,69,0.15); border: 1px solid #dc3545; border-radius: 6px;">
+                    <span style="color: #dc3545;">⚠️ Disk space ${disk.status}! </span>
+                    <button onclick="emergencyCleanup()" style="background: #dc3545; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer;">Emergency Cleanup</button>
+                </div>
+            ` : ''}
+        `;
+    } catch (error) {
+        console.error('Error loading disk usage:', error);
+    }
+}
+
+async function emergencyCleanup() {
+    if (!confirm('⚠️ Emergency Cleanup\n\nThis will aggressively delete data older than 7 days and clear all caches to free disk space.\n\nContinue?')) {
+        return;
+    }
+    
+    try {
+        showToast('Running emergency cleanup...', 'info');
+        const response = await fetch(`${API_BASE_URL}/cleanup/emergency`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${API_TOKEN}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Emergency cleanup failed: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        showToast(`✅ ${result.message}`, 'success');
+        
+        // Reload stats
+        await loadCleanupStats();
+        
+    } catch (error) {
+        console.error('Emergency cleanup error:', error);
+        showToast(`Failed: ${error.message}`, 'error');
+    }
+}
+
+window.emergencyCleanup = emergencyCleanup;
+window.loadDiskUsage = loadDiskUsage;
 
 async function saveDevModeSetting() {
     const enabled = document.getElementById('dev_mode_headers')?.checked;

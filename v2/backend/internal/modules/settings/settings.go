@@ -4,11 +4,14 @@ package settings
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"runtime"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/sys/unix"
 )
 
 // Module implements the settings module
@@ -51,6 +54,8 @@ func (m *Module) RegisterRoutes(router fiber.Router) {
 	settings.Post("/system/cleanup", m.CleanupData)
 	settings.Post("/system/reset", m.SystemReset)
 	settings.Get("/system/cleanup-stats", m.GetCleanupStats)
+	settings.Get("/system/disk", m.GetDiskUsage)
+	settings.Post("/system/emergency-cleanup", m.EmergencyCleanup)
 	
 	// Notifications
 	settings.Post("/notifications/test", m.TestNotifications)
@@ -370,11 +375,15 @@ func (m *Module) SaveBackupSettings(c *fiber.Ctx) error {
 }
 
 func (m *Module) GetSystemInfo(c *fiber.Ctx) error {
+	hostname, _ := os.Hostname()
+	disk := getDiskUsage("/")
+
 	return c.JSON(fiber.Map{
 		"version":    "2.0.0",
-		"goVersion":  "1.22",
+		"goVersion":  runtime.Version(),
 		"uptime":     0,
-		"hostname":   "",
+		"hostname":   hostname,
+		"disk":       disk,
 	})
 }
 
@@ -435,4 +444,81 @@ func (m *Module) GetCleanupStats(c *fiber.Ctx) error {
 func (m *Module) TestNotifications(c *fiber.Ctx) error {
 	// Would send test notifications via configured channels
 	return c.JSON(fiber.Map{"success": true, "message": "Test notifications sent"})
+}
+
+// getDiskUsage returns disk usage info for the given path.
+func getDiskUsage(path string) fiber.Map {
+	var stat unix.Statfs_t
+	if err := unix.Statfs(path, &stat); err != nil {
+		return fiber.Map{"error": err.Error()}
+	}
+
+	total := stat.Blocks * uint64(stat.Bsize)
+	free := stat.Bavail * uint64(stat.Bsize)
+	used := total - free
+	percentUsed := float64(0)
+	if total > 0 {
+		percentUsed = float64(used) / float64(total) * 100
+	}
+
+	return fiber.Map{
+		"totalBytes":   total,
+		"freeBytes":    free,
+		"usedBytes":    used,
+		"percentUsed":  int(percentUsed),
+		"status":       diskStatus(percentUsed),
+	}
+}
+
+func diskStatus(percentUsed float64) string {
+	if percentUsed > 95 {
+		return "critical"
+	} else if percentUsed > 90 {
+		return "danger"
+	} else if percentUsed > 80 {
+		return "warning"
+	}
+	return "ok"
+}
+
+func (m *Module) GetDiskUsage(c *fiber.Ctx) error {
+	return c.JSON(fiber.Map{"disk": getDiskUsage("/")})
+}
+
+// EmergencyCleanup performs aggressive cleanup when disk space is critically low.
+// It deletes old data in stages to free space quickly.
+func (m *Module) EmergencyCleanup(c *fiber.Ctx) error {
+	tenantID := c.Locals("tenantId").(uuid.UUID)
+	ctx := c.Context()
+	results := fiber.Map{}
+
+	// Stage 1: Delete security events older than 7 days
+	r1, _ := m.db.Exec(ctx,
+		`DELETE FROM security_events WHERE tenant_id = $1 AND created_at < NOW() - INTERVAL '7 days'`,
+		tenantID,
+	)
+	results["events_deleted"] = r1.RowsAffected()
+
+	// Stage 2: Delete insights older than 7 days
+	r2, _ := m.db.Exec(ctx,
+		`DELETE FROM insights_hourly WHERE tenant_id = $1 AND hour < NOW() - INTERVAL '7 days'`,
+		tenantID,
+	)
+	results["insights_deleted"] = r2.RowsAffected()
+
+	// Stage 3: Delete expired bans
+	r3, _ := m.db.Exec(ctx,
+		`DELETE FROM banned_ips WHERE tenant_id = $1 AND expires_at < NOW()`,
+		tenantID,
+	)
+	results["expired_bans_deleted"] = r3.RowsAffected()
+
+	disk := getDiskUsage("/")
+	results["disk_after"] = disk
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Emergency cleanup completed",
+		"results": results,
+	})
 }

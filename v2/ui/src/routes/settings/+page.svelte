@@ -32,7 +32,8 @@
 		Bot,
 		Lock,
 		Mail,
-		AlertTriangle
+		AlertTriangle,
+		HardDrive
 	} from 'lucide-svelte';
 
 	const queryClient = useQueryClient();
@@ -153,8 +154,42 @@
 		mutationFn: () => settingsApi.cleanup(),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: ['settings'] });
+			queryClient.invalidateQueries({ queryKey: ['disk-usage'] });
 		}
 	});
+
+	const diskQuery = createQuery({
+		queryKey: ['disk-usage'],
+		queryFn: () => settingsApi.system.disk(),
+		refetchInterval: 60000
+	});
+
+	const emergencyCleanupMutation = createMutation({
+		mutationFn: () => settingsApi.system.emergencyCleanup(),
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: ['settings'] });
+			queryClient.invalidateQueries({ queryKey: ['disk-usage'] });
+		}
+	});
+
+	function getDiskStatusColor(status: string): string {
+		switch (status) {
+			case 'critical':
+				return 'text-red-600';
+			case 'danger':
+				return 'text-red-500';
+			case 'warning':
+				return 'text-yellow-500';
+			default:
+				return 'text-green-500';
+		}
+	}
+
+	function formatDiskBytes(bytes: number): string {
+		if (bytes >= 1024 * 1024 * 1024) return (bytes / 1024 / 1024 / 1024).toFixed(1) + ' GB';
+		if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+		return (bytes / 1024).toFixed(1) + ' KB';
+	}
 
 	async function handleBackup() {
 		const data = await settingsApi.backup();
@@ -835,6 +870,60 @@
 						</p>
 					</div>
 
+					<div>
+						<h3 class="text-lg font-semibold mb-4">
+							<HardDrive class="h-5 w-5 inline mr-1" />
+							Disk Usage
+						</h3>
+						{#if $diskQuery.data?.disk}
+							{@const disk = $diskQuery.data.disk}
+							<div class="space-y-2">
+								<div class="flex justify-between text-sm">
+									<span>Used: {formatDiskBytes(disk.usedBytes)} / {formatDiskBytes(disk.totalBytes)}</span>
+									<span class={getDiskStatusColor(disk.status)}>{disk.percentUsed}%</span>
+								</div>
+								<div class="w-full bg-muted rounded-full h-3">
+									<div
+										class="h-3 rounded-full transition-all {disk.status === 'critical' || disk.status === 'danger'
+											? 'bg-red-500'
+											: disk.status === 'warning'
+												? 'bg-yellow-500'
+												: 'bg-green-500'}"
+										style="width: {Math.min(disk.percentUsed, 100)}%"
+									/>
+								</div>
+								<p class="text-sm text-muted-foreground">
+									{formatDiskBytes(disk.freeBytes)} free
+								</p>
+								{#if disk.status === 'critical' || disk.status === 'danger'}
+									<Alert variant="destructive" title="Disk Space {disk.status === 'critical' ? 'Critical' : 'Low'}">
+										Disk usage is at {disk.percentUsed}%. Use emergency cleanup to free space immediately.
+									</Alert>
+									<Button
+										variant="destructive"
+										on:click={() => {
+											if (confirm('This will aggressively delete old data (>7 days) to free disk space. Continue?')) {
+												$emergencyCleanupMutation.mutate();
+											}
+										}}
+										disabled={$emergencyCleanupMutation.isPending}
+									>
+										{#if $emergencyCleanupMutation.isPending}
+											<Spinner size="sm" class="mr-2" />
+										{:else}
+											<AlertTriangle class="h-4 w-4 mr-2" />
+										{/if}
+										Emergency Cleanup
+									</Button>
+								{/if}
+							</div>
+						{:else if $diskQuery.isLoading}
+							<Spinner size="sm" />
+						{:else}
+							<p class="text-sm text-muted-foreground">Unable to load disk usage info.</p>
+						{/if}
+					</div>
+
 					{#if $regenerateConfigsMutation.isSuccess}
 						<Alert variant="success" title="Success">
 							Configuration files regenerated successfully.
@@ -844,6 +933,12 @@
 					{#if $cleanupMutation.isSuccess}
 						<Alert variant="success" title="Success">
 							Cleanup completed successfully.
+						</Alert>
+					{/if}
+
+					{#if $emergencyCleanupMutation.isSuccess}
+						<Alert variant="success" title="Emergency Cleanup Complete">
+							Emergency cleanup completed. Old data has been removed to free disk space.
 						</Alert>
 					{/if}
 				</Card>
