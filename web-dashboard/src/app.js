@@ -9325,7 +9325,7 @@ async function toggleAlertRule(id) {
                 'Authorization': `Bearer ${API_TOKEN}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ enabled: !data.rule.enabled })
+            body: JSON.stringify({ enabled: data.rule.enabled ? 0 : 1 })
         });
         
         if (!updateResponse.ok) throw new Error('Failed to toggle alert rule');
@@ -9444,11 +9444,13 @@ async function createAlertRule() {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                name,
-                type,
-                threshold,
-                time_window: window,
-                enabled: true
+                rule_name: name,
+                rule_type: type,
+                config: {
+                    threshold: threshold,
+                    time_window: window
+                },
+                enabled: 1
             })
         });
         

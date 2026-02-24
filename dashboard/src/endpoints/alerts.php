@@ -117,7 +117,7 @@ function createAlertRule($db) {
         $stmt->execute([
             $data['rule_name'],
             $data['rule_type'],
-            $data['enabled'] ?? 1,
+            (int)($data['enabled'] ?? 1),
             $data['site_id'] ?? null,
             $config
         ]);
@@ -149,7 +149,7 @@ function updateAlertRule($db, $id) {
         
         if (isset($data['enabled'])) {
             $updates[] = 'enabled = ?';
-            $values[] = $data['enabled'];
+            $values[] = (int)$data['enabled'];
         }
         
         if (isset($data['site_id'])) {
