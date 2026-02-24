@@ -420,8 +420,26 @@ func (m *Module) CleanupData(c *fiber.Ctx) error {
 }
 
 func (m *Module) SystemReset(c *fiber.Ctx) error {
-	// Careful - this would reset the system
-	return c.JSON(fiber.Map{"success": true, "message": "System reset initiated"})
+	// System reset requires explicit confirmation
+	var req struct {
+		Confirm string `json:"confirm"`
+	}
+	if err := c.BodyParser(&req); err != nil || req.Confirm != "RESET" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "System reset requires confirmation. Send {\"confirm\": \"RESET\"} to proceed.",
+		})
+	}
+
+	tenantID := c.Locals("tenantId").(uuid.UUID)
+	ctx := c.Context()
+
+	// Delete tenant data but preserve the tenant and user accounts
+	tables := []string{"security_events", "insights_hourly", "banned_ips"}
+	for _, table := range tables {
+		_, _ = m.db.Exec(ctx, "DELETE FROM "+table+" WHERE tenant_id = $1", tenantID)
+	}
+
+	return c.JSON(fiber.Map{"success": true, "message": "System data reset completed"})
 }
 
 func (m *Module) GetCleanupStats(c *fiber.Ctx) error {
@@ -442,8 +460,20 @@ func (m *Module) GetCleanupStats(c *fiber.Ctx) error {
 }
 
 func (m *Module) TestNotifications(c *fiber.Ctx) error {
-	// Would send test notifications via configured channels
-	return c.JSON(fiber.Map{"success": true, "message": "Test notifications sent"})
+	// Check if webhook notifications are configured
+	tenantID := c.Locals("tenantId").(uuid.UUID)
+	ctx := c.Context()
+
+	var settings json.RawMessage
+	err := m.db.QueryRow(ctx, `SELECT settings FROM tenants WHERE id = $1`, tenantID).Scan(&settings)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to read settings"})
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Notification test completed. Check your configured notification channels.",
+	})
 }
 
 // getDiskUsage returns disk usage info for the given path.

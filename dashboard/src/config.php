@@ -22,8 +22,18 @@ error_reporting(E_ALL);
 ini_set('display_errors', '0');
 ini_set('log_errors', '1');
 
-// CORS headers
-header('Access-Control-Allow-Origin: *');
+// CORS headers - restrict to same-origin and configured origins
+$allowedOrigin = getenv('CORS_ALLOWED_ORIGIN') ?: '*';
+if ($allowedOrigin === '*') {
+    // In Docker deployment, allow all origins by default but prefer explicit configuration
+    header('Access-Control-Allow-Origin: *');
+} else {
+    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+    $allowedOrigins = array_map('trim', explode(',', $allowedOrigin));
+    if (in_array($origin, $allowedOrigins)) {
+        header('Access-Control-Allow-Origin: ' . $origin);
+    }
+}
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
 header('Content-Type: application/json');
@@ -60,8 +70,12 @@ function authenticate() {
     $token = str_replace('Bearer ', '', $token);
     
     // If no Authorization header, check for query parameter token (for backup/updater scripts)
+    // NOTE: Query parameter tokens are less secure as they may appear in logs and browser history
     if (empty($token)) {
         $token = $_GET['token'] ?? '';
+        if (!empty($token)) {
+            error_log("WARNING: API token passed via query parameter. Consider using Authorization header instead.");
+        }
     }
     
     if (empty($token)) {
