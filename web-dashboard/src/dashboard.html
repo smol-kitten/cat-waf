@@ -2300,19 +2300,22 @@ Sitemap: https://example.com/sitemap.xml"></textarea>
 
                 <!-- Site Editor Page -->
                 <div class="page" id="site-editor-page">
-                    <div class="editor-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-                        <div>
-                            <h2 id="editorSiteTitle" style="margin: 0;">Edit Site</h2>
-                            <p id="editorSiteDomain" style="color: var(--text-muted); margin: 0.5rem 0 0 0;"></p>
+                    <div class="editor-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; flex-wrap: wrap; gap: 1rem;">
+                        <div style="display: flex; align-items: center; gap: 1rem;">
+                            <div id="editorSiteStatusBadge" style="width: 12px; height: 12px; border-radius: 50%; background: var(--success); flex-shrink: 0;"></div>
+                            <div>
+                                <h2 id="editorSiteTitle" style="margin: 0;">Edit Site</h2>
+                                <p id="editorSiteDomain" style="color: var(--text-muted); margin: 0.25rem 0 0 0; font-size: 0.875rem;"></p>
+                            </div>
                         </div>
-                        <div style="display: flex; gap: 1rem; align-items: center;">
+                        <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
                             <div id="autoSaveStatus" style="display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); font-size: 0.875rem;">
                                 <span id="autoSaveIcon">💾</span>
                                 <span id="autoSaveText">Auto-save enabled</span>
                             </div>
                             <button class="btn-secondary" onclick="verifyCurrentSiteConfig()" style="background: #17a2b8; color: white;" title="Verify configuration for issues">
                                 <span>🔍</span>
-                                <span>Verify Config</span>
+                                <span>Verify</span>
                             </button>
                             <button class="btn-secondary" onclick="navigateToPage('sites')">
                                 <span>←</span>
@@ -2324,17 +2327,17 @@ Sitemap: https://example.com/sitemap.xml"></textarea>
                     <!-- Editor Tabs -->
                     <div class="tabs-container" style="margin-bottom: 2rem;">
                         <div class="tabs">
-                            <button class="tab-btn active" data-editor-tab="general">General</button>
-                            <button class="tab-btn" data-editor-tab="security">Security</button>
-                            <button class="tab-btn" data-editor-tab="performance">Performance</button>
-                            <button class="tab-btn" data-editor-tab="backends">Backends</button>
-                            <button class="tab-btn" data-editor-tab="path-routing">Path Routing</button>
-                            <button class="tab-btn" data-editor-tab="ssl">SSL/TLS</button>
-                            <button class="tab-btn" data-editor-tab="access">Access Control</button>
-                            <button class="tab-btn" data-editor-tab="error-pages">Error Pages</button>
-                            <button class="tab-btn" data-editor-tab="wellknown">Well-Known Files</button>
-                            <button class="tab-btn" data-editor-tab="rsl">RSL/Licensing</button>
-                            <button class="tab-btn" data-editor-tab="advanced">Advanced</button>
+                            <button class="tab-btn active" data-editor-tab="general">🌐 General</button>
+                            <button class="tab-btn" data-editor-tab="security">🛡️ Security</button>
+                            <button class="tab-btn" data-editor-tab="performance">⚡ Performance</button>
+                            <button class="tab-btn" data-editor-tab="backends">🖥️ Backends</button>
+                            <button class="tab-btn" data-editor-tab="path-routing">🔀 Routing</button>
+                            <button class="tab-btn" data-editor-tab="ssl">🔐 SSL/TLS</button>
+                            <button class="tab-btn" data-editor-tab="access">🔒 Access</button>
+                            <button class="tab-btn" data-editor-tab="error-pages">📄 Errors</button>
+                            <button class="tab-btn" data-editor-tab="wellknown">📋 Well-Known</button>
+                            <button class="tab-btn" data-editor-tab="rsl">📜 RSL</button>
+                            <button class="tab-btn" data-editor-tab="advanced">⚙️ Advanced</button>
                         </div>
                     </div>
 
@@ -2448,40 +2451,24 @@ Sitemap: https://example.com/sitemap.xml"></textarea>
                         <input type="checkbox" id="siteGeoIP" onchange="toggleGeoIPConfig()">
                         <span>Enable GeoIP Blocking</span>
                     </label>
+                    <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">
+                        Block or allow access based on visitor's country
+                    </small>
                 </div>
                 
                 <div id="geoipConfigGroup" style="display: none;">
                     <div class="form-group">
                         <label>Blocked Countries (ISO codes, comma-separated)</label>
                         <input type="text" id="siteBlockedCountries" placeholder="CN,RU,KP" class="form-input">
-                        <small style="color: var(--text-muted);">Leave empty to allow all</small>
+                        <small style="color: var(--text-muted);">
+                            Common codes: CN (China), RU (Russia), KP (North Korea), IR (Iran), VN (Vietnam)
+                            <br>Full list: <a href="https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2" target="_blank" style="color: var(--primary-color);">ISO 3166-1 alpha-2</a>
+                        </small>
                     </div>
                     <div class="form-group">
                         <label>Allowed Countries (optional, overrides blocked)</label>
                         <input type="text" id="siteAllowedCountries" placeholder="US,GB,DE" class="form-input">
                     </div>
-                </div>
-                
-                <hr style="border-color: var(--border-color); margin: 1.5rem 0;">
-                <h4 style="color: var(--primary-color); margin-bottom: 1rem;">🌍 GeoIP Blocking</h4>
-                
-                <div class="form-group">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="siteGeoIPEnabled">
-                        <span>Enable GeoIP Blocking</span>
-                    </label>
-                    <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">
-                        Block or allow access based on visitor's country
-                    </small>
-                </div>
-                
-                <div class="form-group">
-                    <label>Blocked Countries (ISO codes, comma-separated)</label>
-                    <input type="text" id="siteGeoBlockedCountries" placeholder="CN,RU,KP" class="form-input">
-                    <small style="color: var(--text-muted);">
-                        Common codes: CN (China), RU (Russia), KP (North Korea), IR (Iran), VN (Vietnam)
-                        <br>Full list: <a href="https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2" target="_blank" style="color: var(--primary-color);">ISO 3166-1 alpha-2</a>
-                    </small>
                 </div>
                 
                 <hr style="border-color: var(--border-color); margin: 1.5rem 0;">
