@@ -6021,7 +6021,7 @@ async function loadDiskUsage() {
 }
 
 async function emergencyCleanup() {
-    if (!confirm('⚠️ Emergency Cleanup\n\nThis will aggressively delete data older than 7 days and clear all caches to free disk space.\n\nContinue?')) {
+    if (!confirm('⚠️ Emergency Cleanup\n\nThis will aggressively delete access logs, telemetry, bot detections older than 7 days, and clear all stats caches to free disk space.\n\nContinue?')) {
         return;
     }
     

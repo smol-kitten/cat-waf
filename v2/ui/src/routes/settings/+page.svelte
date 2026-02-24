@@ -902,7 +902,7 @@
 									<Button
 										variant="destructive"
 										on:click={() => {
-											if (confirm('This will aggressively delete old data (>7 days) to free disk space. Continue?')) {
+											if (confirm('This will aggressively delete security events, insights, and expired bans older than 7 days, and clear all caches to free disk space. Continue?')) {
 												$emergencyCleanupMutation.mutate();
 											}
 										}}

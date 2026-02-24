@@ -454,7 +454,8 @@ func getDiskUsage(path string) fiber.Map {
 	}
 
 	total := stat.Blocks * uint64(stat.Bsize)
-	free := stat.Bavail * uint64(stat.Bsize)
+	free := stat.Bfree * uint64(stat.Bsize)
+	available := stat.Bavail * uint64(stat.Bsize)
 	used := total - free
 	percentUsed := float64(0)
 	if total > 0 {
@@ -462,11 +463,11 @@ func getDiskUsage(path string) fiber.Map {
 	}
 
 	return fiber.Map{
-		"totalBytes":   total,
-		"freeBytes":    free,
-		"usedBytes":    used,
-		"percentUsed":  int(percentUsed),
-		"status":       diskStatus(percentUsed),
+		"totalBytes":     total,
+		"freeBytes":      available,
+		"usedBytes":      used,
+		"percentUsed":    int(percentUsed),
+		"status":         diskStatus(percentUsed),
 	}
 }
 
