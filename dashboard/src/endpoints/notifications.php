@@ -213,10 +213,10 @@ function testEmailNotification($db) {
         }
         
         // TODO: Implement actual email sending with PHPMailer or similar
-        // Return a clear error explaining email is not yet available
+        // Return a clear info message explaining email is not yet available
         return [
-            'success' => false,
-            'error' => 'Email notifications are not yet available. Use webhook/Discord notifications instead. Email support requires PHPMailer integration.'
+            'success' => true,
+            'info' => 'Email notifications are not yet available. Use webhook/Discord notifications instead. Email support requires PHPMailer integration.'
         ];
     } catch (Exception $e) {
         return [

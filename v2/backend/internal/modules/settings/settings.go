@@ -434,10 +434,10 @@ func (m *Module) SystemReset(c *fiber.Ctx) error {
 	ctx := c.Context()
 
 	// Delete tenant data but preserve the tenant and user accounts
-	tables := []string{"security_events", "insights_hourly", "banned_ips"}
-	for _, table := range tables {
-		_, _ = m.db.Exec(ctx, "DELETE FROM "+table+" WHERE tenant_id = $1", tenantID)
-	}
+	// Use explicit queries instead of dynamic table names to avoid SQL injection
+	_, _ = m.db.Exec(ctx, "DELETE FROM security_events WHERE tenant_id = $1", tenantID)
+	_, _ = m.db.Exec(ctx, "DELETE FROM insights_hourly WHERE tenant_id = $1", tenantID)
+	_, _ = m.db.Exec(ctx, "DELETE FROM banned_ips WHERE tenant_id = $1", tenantID)
 
 	return c.JSON(fiber.Map{"success": true, "message": "System data reset completed"})
 }
