@@ -157,7 +157,7 @@ function extractStableIssueKey($issueText) {
         // Extract domain names from the backend issues text
         $details = substr($issueText, strlen('Backend issues: '));
         // Get just the domain parts (before the colon in each entry)
-        preg_match_all('/([a-z0-9.-]+)\s*:/i', $details, $matches);
+        preg_match_all('/([a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*)\s*:/i', $details, $matches);
         $domains = !empty($matches[1]) ? $matches[1] : ['unknown'];
         sort($domains);
         return 'backend_down:' . implode(',', $domains);

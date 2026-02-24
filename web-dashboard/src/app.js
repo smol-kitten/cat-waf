@@ -3724,6 +3724,7 @@ async function loadSiteEditor(siteId) {
         if (statusBadge) {
             statusBadge.style.background = currentSiteData.enabled ? 'var(--success)' : 'var(--text-muted)';
             statusBadge.title = currentSiteData.enabled ? 'Site Enabled' : 'Site Disabled';
+            statusBadge.setAttribute('aria-label', currentSiteData.enabled ? 'Site Enabled' : 'Site Disabled');
         }
         
         // Setup editor tabs
