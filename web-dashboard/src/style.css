@@ -208,6 +208,17 @@ body {
     margin-bottom: var(--spacing-xs);
 }
 
+.header-left {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.header-left .breadcrumbs {
+    width: 100%;
+}
+
 .breadcrumbs {
     display: flex;
     gap: var(--spacing-sm);
@@ -2374,12 +2385,34 @@ tbody tr:hover {
 /* Mobile Menu Button (hidden by default) */
 .mobile-menu-btn {
     display: none;
+    align-items: center;
+    justify-content: center;
     padding: var(--spacing-sm);
     background: none;
     border: none;
     color: var(--text-primary);
     font-size: 1.5rem;
     cursor: pointer;
+    flex-shrink: 0;
+}
+
+/* Sidebar overlay for mobile */
+.sidebar-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 99;
+    opacity: 0;
+    transition: opacity 0.3s ease-out;
+}
+
+.sidebar-overlay.active {
+    display: block;
+    opacity: 1;
 }
 
 /* Accessibility Improvements */

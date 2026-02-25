@@ -150,9 +150,29 @@ while (true) {
         
         // Get position file for this specific log
         $posFile = $posFilePrefix . basename($logFile) . '.pos';
+        $inodeFile = $posFilePrefix . basename($logFile) . '.inode';
         $lastPos = 0;
+        $lastInode = 0;
         if (file_exists($posFile)) {
             $lastPos = (int)file_get_contents($posFile);
+        }
+        if (file_exists($inodeFile)) {
+            $lastInode = (int)file_get_contents($inodeFile);
+        }
+
+        // Detect file truncation or rotation
+        clearstatcache(true, $logFile);
+        $currentSize = filesize($logFile);
+        $currentInode = fileinode($logFile);
+        
+        if ($currentSize < $lastPos) {
+            echo "[LOG] File truncated: $logFile (size: $currentSize < pos: $lastPos). Resetting position to 0.\n";
+            $lastPos = 0;
+        }
+        
+        if ($lastInode > 0 && $currentInode !== $lastInode) {
+            echo "[LOG] File rotated: $logFile (inode changed: $lastInode -> $currentInode). Resetting position to 0.\n";
+            $lastPos = 0;
         }
 
         $handle = fopen($logFile, 'r');
@@ -390,8 +410,9 @@ while (true) {
         }  // Close if (preg_match)
         }  // Close while (($line = fgets))
 
-        // Save position for this log file
+        // Save position and inode for this log file
         file_put_contents($posFile, $lastPos);
+        file_put_contents($inodeFile, fileinode($logFile));
 
         fclose($handle);
     }
@@ -517,10 +538,30 @@ function parseModSecAuditLog() {
         return;
     }
     
-    // Get last read position
+    // Get last read position and inode
+    $modsecInodeFile = $modsecPosFile . '.inode';
     $lastPos = 0;
+    $lastInode = 0;
     if (file_exists($modsecPosFile)) {
         $lastPos = (int)file_get_contents($modsecPosFile);
+    }
+    if (file_exists($modsecInodeFile)) {
+        $lastInode = (int)file_get_contents($modsecInodeFile);
+    }
+    
+    // Detect file truncation or rotation
+    clearstatcache(true, $modsecAuditLog);
+    $currentSize = filesize($modsecAuditLog);
+    $currentInode = fileinode($modsecAuditLog);
+    
+    if ($currentSize < $lastPos) {
+        echo "[LOG] ModSec audit log truncated (size: $currentSize < pos: $lastPos). Resetting position to 0.\n";
+        $lastPos = 0;
+    }
+    
+    if ($lastInode > 0 && $currentInode !== $lastInode) {
+        echo "[LOG] ModSec audit log rotated (inode changed: $lastInode -> $currentInode). Resetting position to 0.\n";
+        $lastPos = 0;
     }
     
     $handle = fopen($modsecAuditLog, 'r');
@@ -572,8 +613,9 @@ function parseModSecAuditLog() {
         }
     }
     
-    // Save position
+    // Save position and inode
     file_put_contents($modsecPosFile, $lastPos);
+    file_put_contents($modsecInodeFile, fileinode($modsecAuditLog));
     fclose($handle);
 }
 
