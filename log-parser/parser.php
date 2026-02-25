@@ -10,10 +10,35 @@ $posDir = '/var/log/.parser';
 $posFilePrefix = $posDir . '/parser_';
 $modsecPosFile = $posDir . '/parser_modsec.pos';
 
-// Ensure position directory exists
-if (!is_dir($posDir)) {
-    @mkdir($posDir, 0755, true);
+/**
+ * Ensure the parser position directory exists.
+ * Called at startup AND before every position-file write because
+ * the directory lives on a shared Docker volume and may be removed
+ * by other containers or cleanup operations at runtime.
+ */
+function ensurePosDir(string $dir): void {
+    if (!is_dir($dir)) {
+        if (!@mkdir($dir, 0755, true) && !is_dir($dir)) {
+            echo "[WARN] Could not create position directory: $dir\n";
+        }
+    }
 }
+
+/**
+ * Safely write a position/inode file with automatic directory re-creation.
+ */
+function safeFilePut(string $path, string $data, string $posDir): void {
+    ensurePosDir($posDir);
+    if (@file_put_contents($path, $data) === false) {
+        // Second attempt after explicit re-creation
+        ensurePosDir($posDir);
+        if (@file_put_contents($path, $data) === false) {
+            echo "[WARN] Failed to write position file: $path\n";
+        }
+    }
+}
+
+ensurePosDir($posDir);
 
 // Queue configuration
 $QUEUE_BUFFER_SIZE = (int)(getenv('QUEUE_BUFFER_SIZE') ?: 500);
@@ -116,17 +141,27 @@ if ($USE_QUEUE) {
 
 echo "Starting log parser...\n";
 
-// Cleanup old data on startup to prevent bloat
+// Cleanup old data on startup to prevent bloat - use batched deletes to avoid locking tables
 echo "Cleaning up old data (older than 90 days)...\n";
-try {
-    $pdo->exec("DELETE FROM access_logs WHERE timestamp < DATE_SUB(NOW(), INTERVAL 90 DAY)");
-    $pdo->exec("DELETE FROM request_telemetry WHERE timestamp < DATE_SUB(NOW(), INTERVAL 90 DAY)");
-    $pdo->exec("DELETE FROM modsec_events WHERE timestamp < DATE_SUB(NOW(), INTERVAL 90 DAY)");
-    $pdo->exec("DELETE FROM bot_detections WHERE timestamp < DATE_SUB(NOW(), INTERVAL 90 DAY)");
-    echo "Cleanup complete.\n";
-} catch (Exception $e) {
-    error_log("Cleanup failed: " . $e->getMessage());
+$cleanupTables = ['access_logs', 'request_telemetry', 'modsec_events', 'bot_detections'];
+foreach ($cleanupTables as $table) {
+    try {
+        $totalDeleted = 0;
+        do {
+            $stmt = $pdo->prepare("DELETE FROM {$table} WHERE timestamp < DATE_SUB(NOW(), INTERVAL 90 DAY) LIMIT 10000");
+            $stmt->execute();
+            $deleted = $stmt->rowCount();
+            $totalDeleted += $deleted;
+            if ($deleted > 0) {
+                echo "[CLEANUP] Deleted {$deleted} rows from {$table} (total: {$totalDeleted})...\n";
+                usleep(100000); // 100ms pause between batches to avoid lock contention
+            }
+        } while ($deleted >= 10000);
+    } catch (Exception $e) {
+        echo "[CLEANUP] Warning: {$table} cleanup failed: " . $e->getMessage() . "\n";
+    }
 }
+echo "Cleanup complete.\n";
 
 while (true) {
     // Periodic health check and reconnect if needed
@@ -423,8 +458,8 @@ while (true) {
         }  // Close while (($line = fgets))
 
         // Save position and inode for this log file
-        file_put_contents($posFile, $lastPos);
-        file_put_contents($inodeFile, fileinode($logFile));
+        safeFilePut($posFile, (string)$lastPos, $posDir);
+        safeFilePut($inodeFile, (string)fileinode($logFile), $posDir);
 
         fclose($handle);
     }
@@ -543,7 +578,7 @@ function sanitizeUri($uri) {
 
 // Parse ModSecurity audit log
 function parseModSecAuditLog() {
-    global $pdo, $modsecAuditLog, $modsecPosFile;
+    global $pdo, $modsecAuditLog, $modsecPosFile, $posDir;
     
     if (!file_exists($modsecAuditLog)) {
         echo "[DEBUG] ModSec audit log not found: $modsecAuditLog\n";
@@ -626,8 +661,8 @@ function parseModSecAuditLog() {
     }
     
     // Save position and inode
-    file_put_contents($modsecPosFile, $lastPos);
-    file_put_contents($modsecInodeFile, fileinode($modsecAuditLog));
+    safeFilePut($modsecPosFile, (string)$lastPos, $posDir);
+    safeFilePut($modsecInodeFile, (string)fileinode($modsecAuditLog), $posDir);
     fclose($handle);
 }
 

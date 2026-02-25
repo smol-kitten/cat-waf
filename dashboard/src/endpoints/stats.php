@@ -194,21 +194,50 @@ function getDirectStats($db, $period) {
     
     $stats = [];
     
+    // Set a per-session query timeout (10 seconds) to prevent login-blocking queries
+    try {
+        $db->exec("SET SESSION max_execution_time = 10000");
+    } catch (PDOException $e) {
+        // Older MariaDB versions may not support this, continue regardless
+    }
+    
+    // Try request_telemetry first (less redundant, has same data since migration 34),
+    // fall back to access_logs for backward compatibility
+    $sourceTable = 'access_logs';
+    try {
+        $check = $db->query("SELECT 1 FROM request_telemetry LIMIT 1");
+        if ($check) {
+            // Check if request_telemetry has the blocked column (migration 34)
+            $cols = $db->query("SHOW COLUMNS FROM request_telemetry LIKE 'blocked'")->fetch();
+            if ($cols) {
+                $sourceTable = 'request_telemetry';
+            }
+        }
+    } catch (PDOException $e) {
+        // Fall back to access_logs
+    }
+    
     // Single optimized query for basic stats
-    $stmt = $db->prepare("
-        SELECT 
-            COUNT(*) as total_requests,
-            SUM(CASE WHEN blocked = 1 THEN 1 ELSE 0 END) as blocked_requests,
-            COUNT(DISTINCT ip_address) as unique_ips,
-            SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as status_2xx,
-            SUM(CASE WHEN status_code >= 300 AND status_code < 400 THEN 1 ELSE 0 END) as status_3xx,
-            SUM(CASE WHEN status_code >= 400 AND status_code < 500 THEN 1 ELSE 0 END) as status_4xx,
-            SUM(CASE WHEN status_code >= 500 THEN 1 ELSE 0 END) as status_5xx
-        FROM access_logs 
-        WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
-    ");
-    $stmt->execute([$hours]);
-    $result = $stmt->fetch();
+    try {
+        $stmt = $db->prepare("
+            SELECT 
+                COUNT(*) as total_requests,
+                SUM(CASE WHEN blocked = 1 THEN 1 ELSE 0 END) as blocked_requests,
+                COUNT(DISTINCT ip_address) as unique_ips,
+                SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as status_2xx,
+                SUM(CASE WHEN status_code >= 300 AND status_code < 400 THEN 1 ELSE 0 END) as status_3xx,
+                SUM(CASE WHEN status_code >= 400 AND status_code < 500 THEN 1 ELSE 0 END) as status_4xx,
+                SUM(CASE WHEN status_code >= 500 THEN 1 ELSE 0 END) as status_5xx
+            FROM {$sourceTable} 
+            WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
+        ");
+        $stmt->execute([$hours]);
+        $result = $stmt->fetch();
+    } catch (PDOException $e) {
+        // Query timed out or failed - return empty stats rather than blocking
+        error_log("Stats query timed out for {$sourceTable}: " . $e->getMessage());
+        $result = null;
+    }
     
     $stats['total_requests'] = (int)($result['total_requests'] ?? 0);
     $stats['blocked_requests'] = (int)($result['blocked_requests'] ?? 0);
@@ -222,46 +251,59 @@ function getDirectStats($db, $period) {
     ];
     
     // Top domains (with limit on subquery for speed)
-    $stmt = $db->prepare("
-        SELECT domain, COUNT(*) as count 
-        FROM access_logs 
-        WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
-          AND domain IS NOT NULL
-        GROUP BY domain
-        ORDER BY count DESC
-        LIMIT 10
-    ");
-    $stmt->execute([$hours]);
-    $stats['top_domains'] = $stmt->fetchAll();
+    try {
+        $domainCol = ($sourceTable === 'access_logs') ? 'domain' : 'domain';
+        $stmt = $db->prepare("
+            SELECT {$domainCol} as domain, COUNT(*) as count 
+            FROM {$sourceTable} 
+            WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
+              AND {$domainCol} IS NOT NULL
+            GROUP BY {$domainCol}
+            ORDER BY count DESC
+            LIMIT 10
+        ");
+        $stmt->execute([$hours]);
+        $stats['top_domains'] = $stmt->fetchAll();
+    } catch (PDOException $e) {
+        $stats['top_domains'] = [];
+    }
     
     // Top IPs
-    $stmt = $db->prepare("
-        SELECT ip_address, COUNT(*) as count 
-        FROM access_logs 
-        WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
-        GROUP BY ip_address
-        ORDER BY count DESC
-        LIMIT 10
-    ");
-    $stmt->execute([$hours]);
-    $stats['top_ips'] = $stmt->fetchAll();
+    try {
+        $stmt = $db->prepare("
+            SELECT ip_address, COUNT(*) as count 
+            FROM {$sourceTable} 
+            WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
+            GROUP BY ip_address
+            ORDER BY count DESC
+            LIMIT 10
+        ");
+        $stmt->execute([$hours]);
+        $stats['top_ips'] = $stmt->fetchAll();
+    } catch (PDOException $e) {
+        $stats['top_ips'] = [];
+    }
     
     // Requests over time by status code
-    $stmt = $db->prepare("
-        SELECT 
-            DATE_FORMAT(timestamp, '%Y-%m-%d %H:00:00') as hour,
-            COUNT(*) as count,
-            SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as status_2xx,
-            SUM(CASE WHEN status_code >= 300 AND status_code < 400 THEN 1 ELSE 0 END) as status_3xx,
-            SUM(CASE WHEN status_code >= 400 AND status_code < 500 THEN 1 ELSE 0 END) as status_4xx,
-            SUM(CASE WHEN status_code >= 500 THEN 1 ELSE 0 END) as status_5xx
-        FROM access_logs 
-        WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
-        GROUP BY hour
-        ORDER BY hour
-    ");
-    $stmt->execute([$hours]);
-    $timeData = $stmt->fetchAll();
+    try {
+        $stmt = $db->prepare("
+            SELECT 
+                DATE_FORMAT(timestamp, '%Y-%m-%d %H:00:00') as hour,
+                COUNT(*) as count,
+                SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as status_2xx,
+                SUM(CASE WHEN status_code >= 300 AND status_code < 400 THEN 1 ELSE 0 END) as status_3xx,
+                SUM(CASE WHEN status_code >= 400 AND status_code < 500 THEN 1 ELSE 0 END) as status_4xx,
+                SUM(CASE WHEN status_code >= 500 THEN 1 ELSE 0 END) as status_5xx
+            FROM {$sourceTable} 
+            WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
+            GROUP BY hour
+            ORDER BY hour
+        ");
+        $stmt->execute([$hours]);
+        $timeData = $stmt->fetchAll();
+    } catch (PDOException $e) {
+        $timeData = [];
+    }
     
     // Format for Chart.js
     $stats['labels'] = [];
