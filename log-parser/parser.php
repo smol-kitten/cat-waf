@@ -10,15 +10,46 @@ $posDir = '/var/log/.parser';
 $posFilePrefix = $posDir . '/parser_';
 $modsecPosFile = $posDir . '/parser_modsec.pos';
 
-// Ensure position directory exists
-if (!is_dir($posDir)) {
-    @mkdir($posDir, 0755, true);
+/**
+ * Ensure the parser position directory exists.
+ * Called at startup AND before every position-file write because
+ * the directory lives on a shared Docker volume and may be removed
+ * by other containers or cleanup operations at runtime.
+ */
+function ensurePosDir(string $dir): void {
+    if (!is_dir($dir)) {
+        if (!@mkdir($dir, 0755, true) && !is_dir($dir)) {
+            echo "[WARN] Could not create position directory: $dir\n";
+        }
+    }
 }
+
+/**
+ * Safely write a position/inode file with automatic directory re-creation.
+ */
+function safeFilePut(string $path, string $data, string $posDir): void {
+    ensurePosDir($posDir);
+    if (@file_put_contents($path, $data) === false) {
+        // Second attempt after explicit re-creation
+        ensurePosDir($posDir);
+        if (@file_put_contents($path, $data) === false) {
+            echo "[WARN] Failed to write position file: $path\n";
+        }
+    }
+}
+
+ensurePosDir($posDir);
 
 // Queue configuration
 $QUEUE_BUFFER_SIZE = (int)(getenv('QUEUE_BUFFER_SIZE') ?: 500);
 $QUEUE_FLUSH_INTERVAL = (int)(getenv('QUEUE_FLUSH_INTERVAL') ?: 5);
 $USE_QUEUE = getenv('USE_LOG_QUEUE') !== 'false'; // Enabled by default
+
+// Skip redundant access_logs writes (request_telemetry now captures all data)
+$SKIP_ACCESS_LOGS = getenv('SKIP_ACCESS_LOGS') === 'true';
+if ($SKIP_ACCESS_LOGS) {
+    echo "[CONFIG] access_logs writes disabled (SKIP_ACCESS_LOGS=true), using request_telemetry only\n";
+}
 
 // Load bot patterns from bot-protection.conf
 $botPatterns = [
@@ -110,17 +141,27 @@ if ($USE_QUEUE) {
 
 echo "Starting log parser...\n";
 
-// Cleanup old data on startup to prevent bloat
+// Cleanup old data on startup to prevent bloat - use batched deletes to avoid locking tables
 echo "Cleaning up old data (older than 90 days)...\n";
-try {
-    $pdo->exec("DELETE FROM access_logs WHERE timestamp < DATE_SUB(NOW(), INTERVAL 90 DAY)");
-    $pdo->exec("DELETE FROM request_telemetry WHERE timestamp < DATE_SUB(NOW(), INTERVAL 90 DAY)");
-    $pdo->exec("DELETE FROM modsec_events WHERE timestamp < DATE_SUB(NOW(), INTERVAL 90 DAY)");
-    $pdo->exec("DELETE FROM bot_detections WHERE timestamp < DATE_SUB(NOW(), INTERVAL 90 DAY)");
-    echo "Cleanup complete.\n";
-} catch (Exception $e) {
-    error_log("Cleanup failed: " . $e->getMessage());
+$cleanupTables = ['access_logs', 'request_telemetry', 'modsec_events', 'bot_detections'];
+foreach ($cleanupTables as $table) {
+    try {
+        $totalDeleted = 0;
+        do {
+            $stmt = $pdo->prepare("DELETE FROM {$table} WHERE timestamp < DATE_SUB(NOW(), INTERVAL 90 DAY) LIMIT 10000");
+            $stmt->execute();
+            $deleted = $stmt->rowCount();
+            $totalDeleted += $deleted;
+            if ($deleted > 0) {
+                echo "[CLEANUP] Deleted {$deleted} rows from {$table} (total: {$totalDeleted})...\n";
+                usleep(100000); // 100ms pause between batches to avoid lock contention
+            }
+        } while ($deleted >= 10000);
+    } catch (Exception $e) {
+        echo "[CLEANUP] Warning: {$table} cleanup failed: " . $e->getMessage() . "\n";
+    }
 }
+echo "Cleanup complete.\n";
 
 while (true) {
     // Periodic health check and reconnect if needed
@@ -150,9 +191,29 @@ while (true) {
         
         // Get position file for this specific log
         $posFile = $posFilePrefix . basename($logFile) . '.pos';
+        $inodeFile = $posFilePrefix . basename($logFile) . '.inode';
         $lastPos = 0;
+        $lastInode = 0;
         if (file_exists($posFile)) {
             $lastPos = (int)file_get_contents($posFile);
+        }
+        if (file_exists($inodeFile)) {
+            $lastInode = (int)file_get_contents($inodeFile);
+        }
+
+        // Detect file truncation or rotation
+        clearstatcache(true, $logFile);
+        $currentSize = filesize($logFile);
+        $currentInode = fileinode($logFile);
+        
+        if ($currentSize < $lastPos) {
+            echo "[LOG] File truncated: $logFile (size: $currentSize < pos: $lastPos). Resetting position to 0.\n";
+            $lastPos = 0;
+        }
+        
+        if ($lastInode > 0 && $currentInode !== $lastInode) {
+            echo "[LOG] File rotated: $logFile (inode changed: $lastInode -> $currentInode). Resetting position to 0.\n";
+            $lastPos = 0;
         }
 
         $handle = fopen($logFile, 'r');
@@ -235,37 +296,39 @@ while (true) {
                 if ($status === 403) $blockedReason = 'forbidden';
                 if ($status === 429) $blockedReason = 'rate_limited';
                 
-                // Insert into access_logs (via queue or direct)
-                $accessLogData = [
-                    'domain' => $host,
-                    'ip_address' => $clientIp,
-                    'request_uri' => $uri,
-                    'method' => $method,
-                    'status_code' => $status,
-                    'bytes_sent' => $bodyBytes,
-                    'user_agent' => $userAgent,
-                    'referer' => $referer,
-                    'response_time' => $requestTime,
-                    'blocked' => $blocked,
-                    'blocked_reason' => $blockedReason,
-                    'timestamp' => $logTime
-                ];
-                
-                if ($logQueue) {
-                    $logQueue->addAccessLog($accessLogData);
-                } else {
-                    $stmt = $pdo->prepare("
-                        INSERT INTO access_logs (
-                            domain, ip_address, request_uri, method,
-                            status_code, bytes_sent, user_agent, referer, 
-                            response_time, blocked, blocked_reason, timestamp
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ");
-                    $stmt->execute([
-                        $host, $clientIp, $uri, $method,
-                        $status, $bodyBytes, $userAgent, $referer,
-                        $requestTime, $blocked, $blockedReason, $logTime
-                    ]);
+                // Insert into access_logs (via queue or direct) - can be skipped with SKIP_ACCESS_LOGS=true
+                if (!$SKIP_ACCESS_LOGS) {
+                    $accessLogData = [
+                        'domain' => $host,
+                        'ip_address' => $clientIp,
+                        'request_uri' => $uri,
+                        'method' => $method,
+                        'status_code' => $status,
+                        'bytes_sent' => $bodyBytes,
+                        'user_agent' => $userAgent,
+                        'referer' => $referer,
+                        'response_time' => $requestTime,
+                        'blocked' => $blocked,
+                        'blocked_reason' => $blockedReason,
+                        'timestamp' => $logTime
+                    ];
+                    
+                    if ($logQueue) {
+                        $logQueue->addAccessLog($accessLogData);
+                    } else {
+                        $stmt = $pdo->prepare("
+                            INSERT INTO access_logs (
+                                domain, ip_address, request_uri, method,
+                                status_code, bytes_sent, user_agent, referer, 
+                                response_time, blocked, blocked_reason, timestamp
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ");
+                        $stmt->execute([
+                            $host, $clientIp, $uri, $method,
+                            $status, $bodyBytes, $userAgent, $referer,
+                            $requestTime, $blocked, $blockedReason, $logTime
+                        ]);
+                    }
                 }
                 
                 // Record bot detection if bot identified
@@ -341,6 +404,9 @@ while (true) {
                         'cache_status' => $cacheStatus,
                         'backend_server' => $upstreamAddr,
                         'user_agent' => $userAgent,
+                        'referer' => $referer,
+                        'blocked' => $blocked,
+                        'blocked_reason' => $blockedReason,
                         'timestamp' => $logTime
                     ];
                     
@@ -351,13 +417,14 @@ while (true) {
                             INSERT INTO request_telemetry (
                                 domain, uri, method, status_code, ip_address,
                                 bytes_sent, response_time,
-                                cache_status, backend_server, user_agent, timestamp
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                cache_status, backend_server, user_agent,
+                                referer, blocked, blocked_reason, timestamp
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ");
                         $telemetryStmt->execute([
                             $host, $uri, $method, $status, $clientIp,
                             $bodyBytes, $responseTime, $cacheStatus, $upstreamAddr,
-                            $userAgent, $logTime
+                            $userAgent, $referer, $blocked, $blockedReason, $logTime
                         ]);
                     }
                 } catch (PDOException $e) {
@@ -390,8 +457,9 @@ while (true) {
         }  // Close if (preg_match)
         }  // Close while (($line = fgets))
 
-        // Save position for this log file
-        file_put_contents($posFile, $lastPos);
+        // Save position and inode for this log file
+        safeFilePut($posFile, (string)$lastPos, $posDir);
+        safeFilePut($inodeFile, (string)fileinode($logFile), $posDir);
 
         fclose($handle);
     }
@@ -510,17 +578,37 @@ function sanitizeUri($uri) {
 
 // Parse ModSecurity audit log
 function parseModSecAuditLog() {
-    global $pdo, $modsecAuditLog, $modsecPosFile;
+    global $pdo, $modsecAuditLog, $modsecPosFile, $posDir;
     
     if (!file_exists($modsecAuditLog)) {
         echo "[DEBUG] ModSec audit log not found: $modsecAuditLog\n";
         return;
     }
     
-    // Get last read position
+    // Get last read position and inode
+    $modsecInodeFile = $modsecPosFile . '.inode';
     $lastPos = 0;
+    $lastInode = 0;
     if (file_exists($modsecPosFile)) {
         $lastPos = (int)file_get_contents($modsecPosFile);
+    }
+    if (file_exists($modsecInodeFile)) {
+        $lastInode = (int)file_get_contents($modsecInodeFile);
+    }
+    
+    // Detect file truncation or rotation
+    clearstatcache(true, $modsecAuditLog);
+    $currentSize = filesize($modsecAuditLog);
+    $currentInode = fileinode($modsecAuditLog);
+    
+    if ($currentSize < $lastPos) {
+        echo "[LOG] ModSec audit log truncated (size: $currentSize < pos: $lastPos). Resetting position to 0.\n";
+        $lastPos = 0;
+    }
+    
+    if ($lastInode > 0 && $currentInode !== $lastInode) {
+        echo "[LOG] ModSec audit log rotated (inode changed: $lastInode -> $currentInode). Resetting position to 0.\n";
+        $lastPos = 0;
     }
     
     $handle = fopen($modsecAuditLog, 'r');
@@ -572,8 +660,9 @@ function parseModSecAuditLog() {
         }
     }
     
-    // Save position
-    file_put_contents($modsecPosFile, $lastPos);
+    // Save position and inode
+    safeFilePut($modsecPosFile, (string)$lastPos, $posDir);
+    safeFilePut($modsecInodeFile, (string)fileinode($modsecAuditLog), $posDir);
     fclose($handle);
 }
 

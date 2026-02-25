@@ -9,6 +9,6 @@ RUN apk add --no-cache \
 WORKDIR /app
 
 # Copy application code
-COPY parser.php LogQueue.php /app/
+COPY parser.php LogQueue.php emergency-cleanup.php /app/
 
 CMD ["php", "parser.php"]

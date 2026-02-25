@@ -580,6 +580,21 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
         $server_name = $domain;
     }
     
+    // Validate that no other enabled site's exact domain falls under this wildcard.
+    // If so, log a warning so the admin knows about the overlap.
+    // Nginx resolves this correctly (exact > wildcard), but only when both configs are loaded.
+    if ($wildcard_subdomains && $domain !== '_') {
+        $overlapStmt = $db->prepare("
+            SELECT domain FROM sites 
+            WHERE domain LIKE ? AND domain != ? AND enabled = 1 AND wildcard_subdomains = 0
+        ");
+        $overlapStmt->execute(['%.' . $domain, $domain]);
+        $overlapping = $overlapStmt->fetchAll(PDO::FETCH_COLUMN);
+        if (!empty($overlapping)) {
+            error_log("[WARN] Wildcard site *.{$domain} overlaps with exact-match site(s): " . implode(', ', $overlapping) . ". Nginx will prefer the exact matches.");
+        }
+    }
+    
     // Create upstream name (sanitize domain)
     $upstream_name = preg_replace('/[^a-z0-9_]/', '_', strtolower($domain)) . '_backend';
     
@@ -715,6 +730,7 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
     // Add RSL/OLP location blocks to HTTP (for non-SSL or when redirect disabled)
     if (!$ssl_enabled || $disable_http_redirect) {
         $config .= generateRSLLocation($siteData);
+        $config .= generateCatWafLocation($siteData);
         // Add path-based routing for HTTP
         $config .= generatePathBasedRouting($siteId, $db, $enable_waf_headers, $enable_telemetry);
     }
@@ -734,8 +750,9 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
                                                $enable_rate_limit, $rate_limit_burst, $custom_rate_limit);
         } else {
             // Redirect to HTTPS
+            // Use $host (actual request hostname) instead of $server_name (which may be a wildcard pattern like *.example.com)
             $config .= "    location / {\n";
-            $config .= "        return 301 https://\$server_name\$request_uri;\n";
+            $config .= "        return 301 https://\$host\$request_uri;\n";
             $config .= "    }\n";
         }
     } else {
@@ -841,6 +858,9 @@ function generateSiteConfig($siteId, $siteData, $returnString = false) {
         
         // Add RSL/OLP location blocks if enabled for this site
         $config .= generateRSLLocation($siteData);
+        
+        // Add CatWAF virtual path for analytics/telemetry JS injection
+        $config .= generateCatWafLocation($siteData);
         
         // Add path-based routing location blocks (sub-page routing)
         $config .= generatePathBasedRouting($siteId, $db, $enable_waf_headers, $enable_telemetry);
@@ -1253,6 +1273,67 @@ function generateRSLLocation($siteData, $dashboardHost = 'dashboard:80') {
     $block .= "        proxy_set_header X-RSL-Site-ID \"{$siteId}\";\n";
     $block .= "        proxy_set_header X-RSL-Domain \"{$domain}\";\n";
     $block .= "        add_header Content-Type \"application/json\";\n";
+    $block .= "    }\n\n";
+    
+    return $block;
+}
+
+/**
+ * Generate /.cat-waf/ virtual location block for WAF-managed resources
+ * Serves analytics JS, telemetry pixel, and WAF metadata without proxying to backend.
+ * This enables client-side telemetry collection via a lightweight JS snippet.
+ */
+function generateCatWafLocation($siteData, $dashboardHost = 'dashboard:80') {
+    $block = "";
+    
+    $enable_telemetry = $siteData['enable_telemetry'] ?? 1;
+    if (!$enable_telemetry) {
+        return $block;
+    }
+    
+    $siteId = $siteData['id'] ?? 0;
+    $domain = $siteData['domain'] ?? '';
+    
+    $block .= "    # CatWAF virtual path - analytics and telemetry resources\n";
+    $block .= "    location ^~ /.cat-waf/ {\n";
+    $block .= "        # Analytics JS snippet - collects page views and performance metrics\n";
+    $block .= "        location = /.cat-waf/analytics.js {\n";
+    $block .= "            proxy_pass http://{$dashboardHost}/telemetry/analytics.js?site_id={$siteId};\n";
+    $block .= "            proxy_set_header Host \$host;\n";
+    $block .= "            proxy_set_header X-Real-IP \$remote_addr;\n";
+    $block .= "            proxy_set_header X-Forwarded-Proto \$scheme;\n";
+    $block .= "            add_header Content-Type \"application/javascript; charset=utf-8\" always;\n";
+    $block .= "            add_header Cache-Control \"public, max-age=3600\" always;\n";
+    $block .= "            add_header Access-Control-Allow-Origin \"*\" always;\n";
+    $block .= "        }\n\n";
+    
+    $block .= "        # Telemetry beacon endpoint - receives client-side metrics\n";
+    $block .= "        location = /.cat-waf/beacon {\n";
+    $block .= "            proxy_pass http://{$dashboardHost}/telemetry/beacon;\n";
+    $block .= "            proxy_set_header Host \$host;\n";
+    $block .= "            proxy_set_header X-Real-IP \$remote_addr;\n";
+    $block .= "            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;\n";
+    $block .= "            proxy_set_header X-Forwarded-Proto \$scheme;\n";
+    $block .= "            proxy_set_header X-CatWAF-Site-ID \"{$siteId}\";\n";
+    $block .= "            proxy_set_header X-CatWAF-Domain \"{$domain}\";\n";
+    $block .= "            add_header Access-Control-Allow-Origin \"*\" always;\n";
+    $block .= "            add_header Access-Control-Allow-Methods \"POST, OPTIONS\" always;\n";
+    $block .= "            add_header Access-Control-Allow-Headers \"Content-Type\" always;\n";
+    $block .= "            if (\$request_method = OPTIONS) {\n";
+    $block .= "                return 204;\n";
+    $block .= "            }\n";
+    $block .= "        }\n\n";
+    
+    $block .= "        # Tracking pixel - 1x1 transparent GIF for basic page view counting\n";
+    $block .= "        location = /.cat-waf/pixel.gif {\n";
+    $block .= "            empty_gif;\n";
+    $block .= "            access_log /var/log/nginx/{$domain}-access.log waf;\n";
+    $block .= "            add_header Cache-Control \"no-cache, no-store, must-revalidate\" always;\n";
+    $block .= "            add_header X-CatWAF-Tracked \"true\" always;\n";
+    $block .= "        }\n\n";
+    
+    $block .= "        # Block everything else under /.cat-waf/\n";
+    $block .= "        return 404;\n";
     $block .= "    }\n\n";
     
     return $block;

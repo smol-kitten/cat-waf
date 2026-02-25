@@ -89,11 +89,15 @@
             </div>
         </aside>
 
+        <!-- Sidebar overlay for mobile -->
+        <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
         <!-- Main Content -->
         <main class="main-content">
             <!-- Header -->
             <header class="header">
                 <div class="header-left">
+                    <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Toggle navigation menu">☰</button>
                     <h1 class="page-title">Dashboard</h1>
                     <div class="breadcrumbs">
                         <span class="breadcrumb">Home</span>
@@ -3148,5 +3152,35 @@ Sitemap: https://example.com/sitemap.xml"></textarea>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="toast.js?v=2"></script>
     <script src="app.js?v=7"></script>
+    <script>
+        // Mobile sidebar toggle
+        (function() {
+            var menuBtn = document.getElementById('mobileMenuBtn');
+            var sidebar = document.querySelector('.sidebar');
+            var overlay = document.getElementById('sidebarOverlay');
+
+            function toggleSidebar() {
+                sidebar.classList.toggle('open');
+                overlay.classList.toggle('active');
+            }
+
+            function closeSidebar() {
+                sidebar.classList.remove('open');
+                overlay.classList.remove('active');
+            }
+
+            if (menuBtn) menuBtn.addEventListener('click', toggleSidebar);
+            if (overlay) overlay.addEventListener('click', closeSidebar);
+
+            // Close sidebar when a nav item is clicked on mobile
+            document.querySelectorAll('.sidebar .nav-item').forEach(function(item) {
+                item.addEventListener('click', function() {
+                    if (window.innerWidth <= 1024) {
+                        closeSidebar();
+                    }
+                });
+            });
+        })();
+    </script>
 </body>
 </html>
