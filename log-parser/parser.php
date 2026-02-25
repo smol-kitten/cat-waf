@@ -20,6 +20,12 @@ $QUEUE_BUFFER_SIZE = (int)(getenv('QUEUE_BUFFER_SIZE') ?: 500);
 $QUEUE_FLUSH_INTERVAL = (int)(getenv('QUEUE_FLUSH_INTERVAL') ?: 5);
 $USE_QUEUE = getenv('USE_LOG_QUEUE') !== 'false'; // Enabled by default
 
+// Skip redundant access_logs writes (request_telemetry now captures all data)
+$SKIP_ACCESS_LOGS = getenv('SKIP_ACCESS_LOGS') === 'true';
+if ($SKIP_ACCESS_LOGS) {
+    echo "[CONFIG] access_logs writes disabled (SKIP_ACCESS_LOGS=true), using request_telemetry only\n";
+}
+
 // Load bot patterns from bot-protection.conf
 $botPatterns = [
     // Bad bots (from bot-protection.conf)
@@ -255,37 +261,39 @@ while (true) {
                 if ($status === 403) $blockedReason = 'forbidden';
                 if ($status === 429) $blockedReason = 'rate_limited';
                 
-                // Insert into access_logs (via queue or direct)
-                $accessLogData = [
-                    'domain' => $host,
-                    'ip_address' => $clientIp,
-                    'request_uri' => $uri,
-                    'method' => $method,
-                    'status_code' => $status,
-                    'bytes_sent' => $bodyBytes,
-                    'user_agent' => $userAgent,
-                    'referer' => $referer,
-                    'response_time' => $requestTime,
-                    'blocked' => $blocked,
-                    'blocked_reason' => $blockedReason,
-                    'timestamp' => $logTime
-                ];
-                
-                if ($logQueue) {
-                    $logQueue->addAccessLog($accessLogData);
-                } else {
-                    $stmt = $pdo->prepare("
-                        INSERT INTO access_logs (
-                            domain, ip_address, request_uri, method,
-                            status_code, bytes_sent, user_agent, referer, 
-                            response_time, blocked, blocked_reason, timestamp
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ");
-                    $stmt->execute([
-                        $host, $clientIp, $uri, $method,
-                        $status, $bodyBytes, $userAgent, $referer,
-                        $requestTime, $blocked, $blockedReason, $logTime
-                    ]);
+                // Insert into access_logs (via queue or direct) - can be skipped with SKIP_ACCESS_LOGS=true
+                if (!$SKIP_ACCESS_LOGS) {
+                    $accessLogData = [
+                        'domain' => $host,
+                        'ip_address' => $clientIp,
+                        'request_uri' => $uri,
+                        'method' => $method,
+                        'status_code' => $status,
+                        'bytes_sent' => $bodyBytes,
+                        'user_agent' => $userAgent,
+                        'referer' => $referer,
+                        'response_time' => $requestTime,
+                        'blocked' => $blocked,
+                        'blocked_reason' => $blockedReason,
+                        'timestamp' => $logTime
+                    ];
+                    
+                    if ($logQueue) {
+                        $logQueue->addAccessLog($accessLogData);
+                    } else {
+                        $stmt = $pdo->prepare("
+                            INSERT INTO access_logs (
+                                domain, ip_address, request_uri, method,
+                                status_code, bytes_sent, user_agent, referer, 
+                                response_time, blocked, blocked_reason, timestamp
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ");
+                        $stmt->execute([
+                            $host, $clientIp, $uri, $method,
+                            $status, $bodyBytes, $userAgent, $referer,
+                            $requestTime, $blocked, $blockedReason, $logTime
+                        ]);
+                    }
                 }
                 
                 // Record bot detection if bot identified
@@ -361,6 +369,9 @@ while (true) {
                         'cache_status' => $cacheStatus,
                         'backend_server' => $upstreamAddr,
                         'user_agent' => $userAgent,
+                        'referer' => $referer,
+                        'blocked' => $blocked,
+                        'blocked_reason' => $blockedReason,
                         'timestamp' => $logTime
                     ];
                     
@@ -371,13 +382,14 @@ while (true) {
                             INSERT INTO request_telemetry (
                                 domain, uri, method, status_code, ip_address,
                                 bytes_sent, response_time,
-                                cache_status, backend_server, user_agent, timestamp
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                cache_status, backend_server, user_agent,
+                                referer, blocked, blocked_reason, timestamp
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ");
                         $telemetryStmt->execute([
                             $host, $uri, $method, $status, $clientIp,
                             $bodyBytes, $responseTime, $cacheStatus, $upstreamAddr,
-                            $userAgent, $logTime
+                            $userAgent, $referer, $blocked, $blockedReason, $logTime
                         ]);
                     }
                 } catch (PDOException $e) {

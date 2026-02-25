@@ -181,7 +181,7 @@ class LogQueue {
         $values = [];
         
         foreach ($this->telemetryBuffer as $t) {
-            $placeholders[] = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+            $placeholders[] = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
             $values = array_merge($values, [
                 $t['domain'],
                 $t['uri'],
@@ -193,11 +193,14 @@ class LogQueue {
                 $t['cache_status'],
                 $t['backend_server'],
                 $t['user_agent'] ?? null,
+                $t['referer'] ?? null,
+                $t['blocked'] ?? 0,
+                $t['blocked_reason'] ?? null,
                 $t['timestamp']
             ]);
         }
         
-        $sql = "INSERT INTO request_telemetry (domain, uri, method, status_code, ip_address, bytes_sent, response_time, cache_status, backend_server, user_agent, timestamp) VALUES " . implode(', ', $placeholders);
+        $sql = "INSERT INTO request_telemetry (domain, uri, method, status_code, ip_address, bytes_sent, response_time, cache_status, backend_server, user_agent, referer, blocked, blocked_reason, timestamp) VALUES " . implode(', ', $placeholders);
         
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($values);
