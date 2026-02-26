@@ -1,11 +1,25 @@
 <?php
 
 function handleTelemetry($method, $params, $db) {
+    $action = $params[0] ?? 'stats';
+    
+    // analytics.js and beacon are public endpoints - handle before method check
+    if ($action === 'analytics.js') {
+        serveAnalyticsJs($db);
+        return;
+    }
+    
+    if ($action === 'beacon') {
+        if ($method !== 'POST') {
+            sendResponse(['error' => 'Method not allowed'], 405);
+        }
+        handleBeacon($db);
+        return;
+    }
+    
     if ($method !== 'GET') {
         sendResponse(['error' => 'Method not allowed'], 405);
     }
-    
-    $action = $params[0] ?? 'stats';
     
     switch ($action) {
         case 'stats':
@@ -617,4 +631,151 @@ function handleTelemetry($method, $params, $db) {
         default:
             sendResponse(['error' => 'Unknown action'], 404);
     }
+}
+
+/**
+ * Serve analytics.js - lightweight client-side telemetry collector
+ * This endpoint is public (no auth required) so it can be injected into monitored sites
+ */
+function serveAnalyticsJs($db) {
+    $siteId = isset($_GET['site_id']) ? (int)$_GET['site_id'] : 0;
+    
+    header('Content-Type: application/javascript; charset=utf-8');
+    header('Cache-Control: public, max-age=3600');
+    header('Access-Control-Allow-Origin: *');
+    
+    // Lightweight analytics snippet that collects page performance metrics
+    // and sends them to the beacon endpoint
+    $js = <<<'JSEOF'
+(function() {
+    'use strict';
+    var SITE_ID = __SITE_ID__;
+    var BEACON_URL = '/.cat-waf/beacon';
+    var sent = false;
+
+    function collect() {
+        if (sent) return;
+        sent = true;
+        var perf = window.performance;
+        var timing = perf && perf.timing ? perf.timing : {};
+        var nav = perf && perf.getEntriesByType ? perf.getEntriesByType('navigation')[0] : null;
+
+        var data = {
+            site_id: SITE_ID,
+            url: location.href,
+            ref: document.referrer || '',
+            ua: navigator.userAgent,
+            sr: screen.width + 'x' + screen.height,
+            ts: Date.now()
+        };
+
+        // Performance timing (Navigation Timing API)
+        if (nav) {
+            data.dns = Math.round(nav.domainLookupEnd - nav.domainLookupStart);
+            data.tcp = Math.round(nav.connectEnd - nav.connectStart);
+            data.ttfb = Math.round(nav.responseStart - nav.requestStart);
+            data.dl = Math.round(nav.responseEnd - nav.responseStart);
+            data.dom = Math.round(nav.domContentLoadedEventEnd - nav.responseEnd);
+            data.load = Math.round(nav.loadEventEnd - nav.startTime);
+        } else if (timing.navigationStart) {
+            data.dns = timing.domainLookupEnd - timing.domainLookupStart;
+            data.tcp = timing.connectEnd - timing.connectStart;
+            data.ttfb = timing.responseStart - timing.requestStart;
+            data.dl = timing.responseEnd - timing.responseStart;
+            data.dom = timing.domContentLoadedEventEnd - timing.responseEnd;
+            data.load = timing.loadEventEnd - timing.navigationStart;
+        }
+
+        // Send via Beacon API (non-blocking) or fallback to fetch
+        var payload = JSON.stringify(data);
+        if (navigator.sendBeacon) {
+            navigator.sendBeacon(BEACON_URL, payload);
+        } else {
+            fetch(BEACON_URL, {
+                method: 'POST',
+                body: payload,
+                keepalive: true
+            }).catch(function(){});
+        }
+    }
+
+    // Collect after page load
+    if (document.readyState === 'complete') {
+        setTimeout(collect, 100);
+    } else {
+        window.addEventListener('load', function() {
+            setTimeout(collect, 100);
+        });
+    }
+})();
+JSEOF;
+
+    // Replace site ID placeholder
+    $js = str_replace('__SITE_ID__', (string)$siteId, $js);
+    
+    echo $js;
+    exit;
+}
+
+/**
+ * Handle beacon endpoint - receives client-side telemetry data
+ * This endpoint is public (no auth required)
+ */
+function handleBeacon($db) {
+    header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Methods: POST, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type');
+    
+    $input = file_get_contents('php://input');
+    $data = json_decode($input, true);
+    
+    if (!$data || !isset($data['site_id'])) {
+        http_response_code(204);
+        exit;
+    }
+    
+    // Validate site_id exists
+    $siteId = (int)$data['site_id'];
+    
+    try {
+        // Store client-side performance metrics
+        $stmt = $db->prepare("
+            INSERT INTO request_telemetry (
+                domain, uri, method, status_code, ip_address,
+                bytes_sent, response_time, cache_status, backend_server,
+                user_agent, referer, blocked, blocked_reason, timestamp
+            ) VALUES (
+                (SELECT domain FROM sites WHERE id = ? LIMIT 1),
+                ?, 'GET', 200, ?,
+                0, ?, 'CLIENT', 'browser',
+                ?, ?, 0, NULL, NOW()
+            )
+        ");
+        
+        $clientIp = $_SERVER['HTTP_X_REAL_IP'] ?? $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $responseTime = isset($data['load']) ? $data['load'] / 1000.0 : null; // Convert ms to seconds
+        $uri = isset($data['url']) ? parse_url($data['url'], PHP_URL_PATH) ?? '/' : '/';
+        // Truncate URI to prevent oversized inserts
+        if (strlen($uri) > 500) {
+            $uri = substr($uri, 0, 500);
+        }
+        $userAgent = substr($data['ua'] ?? '', 0, 500);
+        $referer = substr($data['ref'] ?? '', 0, 500);
+        
+        $stmt->execute([
+            $siteId,
+            $uri,
+            $clientIp,
+            $responseTime,
+            $userAgent,
+            $referer
+        ]);
+    } catch (PDOException $e) {
+        // Silently ignore errors - don't expose internal details to clients
+        error_log("Beacon insert error: " . $e->getMessage());
+    }
+    
+    // Always return 204 No Content for beacons
+    http_response_code(204);
+    exit;
 }

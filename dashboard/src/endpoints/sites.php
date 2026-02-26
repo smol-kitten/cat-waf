@@ -1037,7 +1037,7 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
         $block .= "    add_header Referrer-Policy \"strict-origin-when-cross-origin\" always;\n\n";
     }
     
-    // Telemetry headers
+    // Telemetry headers and script injection
     if ($enable_telemetry) {
         $block .= "    # Telemetry\n";
         $block .= "    add_header X-Request-ID \$request_id always;\n";
@@ -1045,6 +1045,12 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
         // X-Backend-Server removed - exposes internal backend topology to end users (security risk)
         // $block .= "    add_header X-Backend-Server \$upstream_addr always;\n";
         $block .= "\n";
+        
+        // Inject analytics.js into HTML responses via sub_filter
+        $block .= "    # Auto-inject analytics script into HTML pages\n";
+        $block .= "    sub_filter '</head>' '<script src=\"/.cat-waf/analytics.js\" defer></script></head>';\n";
+        $block .= "    sub_filter_once on;\n";
+        $block .= "    sub_filter_types text/html;\n\n";
     }
     
     // Development mode headers - check if enabled in settings
@@ -1084,41 +1090,23 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
     
       
     // Image optimization proxy (if enabled)
+    // Routes image requests through the CatWAF image optimizer for on-the-fly
+    // resizing, format conversion (WebP/AVIF), and caching
     if ($enable_image_opt) {
-        $block .= "    # Image optimization\n";
-        $block .= "    location ~* \\.(jpg|jpeg|png)$ {\n";
-        
-        // Add JavaScript Challenge check for images too
-        if ($challenge_enabled) {
-            $block .= "        # JavaScript Challenge Mode\n";
-            $block .= "        set \$challenge_passed 0;\n";
-            $block .= "        \n";
-            $block .= "        if (\$cookie_waf_challenge) {\n";
-            $block .= "            set \$challenge_passed 1;\n";
-            $block .= "        }\n";
-            $block .= "        if (\$cookie_waf_difficulty != '{$challenge_difficulty}') {\n";
-            $block .= "            set \$challenge_passed 0;\n";
-            $block .= "        }\n\n";
-            
-            // Bypass for Cloudflare if enabled
-            if ($challenge_bypass_cf) {
-                $block .= "        # Bypass challenge for Cloudflare\n";
-                $block .= "        # Check CF-Connecting-IP header instead of CF-Visitor to preserve Host header\n";
-                $block .= "        if (\$http_cf_connecting_ip != \"\") {\n";
-                $block .= "            set \$challenge_passed 1;\n";
-                $block .= "        }\n\n";
-            }
-            
-            $block .= "        # Redirect to challenge if not verified\n";
-            $block .= "        if (\$challenge_passed = 0) {\n";
-            $block .= "            return 302 /challenge.html?difficulty={$challenge_difficulty}&duration={$challenge_duration}&redirect=\$scheme://\$host\$request_uri;\n";
-            $block .= "        }\n\n";
-        }
-        
-        $block .= "        proxy_pass http://{$upstream};\n";
-        $block .= "        image_filter resize 1920 -;\n";
-        $block .= "        image_filter_jpeg_quality {$image_quality};\n";
-        $block .= "        image_filter_buffer 20M;\n";
+        $imageMaxWidth = $siteData['image_max_width'] ?? 1920;
+        $imageWebpConversion = $siteData['image_webp_conversion'] ?? 1;
+        $block .= "    # On-the-fly image optimization\n";
+        $block .= "    location ~* \\.(jpg|jpeg|png|gif)$ {\n";
+        $block .= "        # Proxy to CatWAF image optimizer\n";
+        $block .= "        proxy_pass http://dashboard:80/image-optimize?domain={$domain}&url=\$uri&w={$imageMaxWidth}&q={$image_quality};\n";
+        $block .= "        proxy_set_header Host \$host;\n";
+        $block .= "        proxy_set_header Accept \$http_accept;\n";
+        $block .= "        proxy_set_header X-Real-IP \$remote_addr;\n";
+        $block .= "        proxy_set_header X-CatWAF-Domain \"{$domain}\";\n";
+        $block .= "        proxy_cache_valid 200 30d;\n";
+        $block .= "        expires 30d;\n";
+        $block .= "        add_header Vary Accept;\n";
+        $block .= "        add_header X-Image-Optimized \"CatWAF\" always;\n";
         $block .= "    }\n\n";
     }
     

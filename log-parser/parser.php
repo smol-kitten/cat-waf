@@ -46,9 +46,19 @@ $QUEUE_FLUSH_INTERVAL = (int)(getenv('QUEUE_FLUSH_INTERVAL') ?: 5);
 $USE_QUEUE = getenv('USE_LOG_QUEUE') !== 'false'; // Enabled by default
 
 // Skip redundant access_logs writes (request_telemetry now captures all data)
-$SKIP_ACCESS_LOGS = getenv('SKIP_ACCESS_LOGS') === 'true';
+// Default to true to avoid duplicate data - set SKIP_ACCESS_LOGS=false to re-enable
+$SKIP_ACCESS_LOGS = getenv('SKIP_ACCESS_LOGS') !== 'false';
 if ($SKIP_ACCESS_LOGS) {
-    echo "[CONFIG] access_logs writes disabled (SKIP_ACCESS_LOGS=true), using request_telemetry only\n";
+    echo "[CONFIG] access_logs writes disabled (default), using request_telemetry only\n";
+} else {
+    echo "[CONFIG] access_logs writes enabled (SKIP_ACCESS_LOGS=false)\n";
+}
+
+// Truncate log files after parsing to prevent re-processing and disk bloat
+// Set TRUNCATE_AFTER_PARSE=false to disable (e.g. if you need logs for other tools)
+$TRUNCATE_AFTER_PARSE = getenv('TRUNCATE_AFTER_PARSE') !== 'false';
+if ($TRUNCATE_AFTER_PARSE) {
+    echo "[CONFIG] Log files will be truncated after parsing (TRUNCATE_AFTER_PARSE=true)\n";
 }
 
 // Load bot patterns from bot-protection.conf
@@ -457,11 +467,24 @@ while (true) {
         }  // Close if (preg_match)
         }  // Close while (($line = fgets))
 
+        fclose($handle);
+
+        // Truncate the log file after parsing to prevent re-processing and disk bloat
+        // Position is reset to 0 since the file is now empty
+        if ($TRUNCATE_AFTER_PARSE && $lastPos > 0) {
+            $truncHandle = @fopen($logFile, 'w');
+            if ($truncHandle) {
+                fclose($truncHandle);
+                $lastPos = 0;
+                echo "[TRUNCATE] Truncated processed log: $logFile\n";
+            } else {
+                echo "[WARN] Could not truncate log file: $logFile\n";
+            }
+        }
+
         // Save position and inode for this log file
         safeFilePut($posFile, (string)$lastPos, $posDir);
         safeFilePut($inodeFile, (string)fileinode($logFile), $posDir);
-
-        fclose($handle);
     }
     
     // Flush queue if enabled
