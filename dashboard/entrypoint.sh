@@ -1,10 +1,12 @@
 #!/bin/sh
 set -e
 
-# Clear old logs to prevent duplicate telemetry entries
-echo "🧹 Clearing old logs..."
-find /var/log -type f -name "*.log" -exec truncate -s 0 {} \; 2>/dev/null || true
-echo "✅ Logs cleared"
+# Clean up obsolete per-site log files (access logs now go directly to DB via syslog)
+echo "🧹 Cleaning up obsolete log files..."
+find /var/log/nginx -type f -name "*-access.log" -delete 2>/dev/null || true
+find /var/log/nginx -type f -name "*-error.log" -delete 2>/dev/null || true
+rm -f /var/log/nginx/access.log /var/log/nginx/error.log 2>/dev/null || true
+echo "✅ Obsolete log files cleaned up"
 
 # Fix permissions on shared volumes
 echo "Fixing permissions on shared volumes..."
@@ -31,6 +33,12 @@ echo "✅ Database ready"
 # Clean up orphaned NGINX configs on startup
 echo "🧹 Checking for orphaned NGINX configs..."
 php /var/www/html/scripts/cleanup-orphaned-configs.php 2>&1 || true
+
+# Regenerate all site configs to ensure they use syslog-based logging (no .log files)
+# This ensures sites created before the syslog migration get updated configs
+echo "🔄 Regenerating site configs (ensuring syslog-based logging)..."
+php /var/www/html/regenerate-configs.php 2>&1 || echo "⚠️  Config regeneration failed, sites may need manual rebuild"
+echo "✅ Site configs regenerated"
 
 # Start supervisord
 exec /usr/bin/supervisord -c /etc/supervisord.conf

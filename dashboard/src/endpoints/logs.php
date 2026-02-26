@@ -12,43 +12,66 @@ function handleLogs($method, $params, $db) {
     
     switch ($type) {
         case 'access':
-            // Tail access log
-            $logFile = NGINX_LOG_PATH . '/access.log';
-            $lines = tailLog($logFile, $limit);
-            $parsed = array_map('parseAccessLog', array_filter($lines));
+            // Query access logs from database (no longer file-based)
+            $sql = "SELECT domain, ip_address AS ip, uri AS request_uri, method, 
+                           status_code AS status, bytes_sent AS size, 
+                           user_agent, referer, response_time, 
+                           blocked, blocked_reason, timestamp
+                    FROM request_telemetry ";
+            $params_array = [];
             
-            // Filter by domain if specified
             if ($domain) {
-                $parsed = array_filter($parsed, function($log) use ($domain) {
-                    // Check if log has a domain field (from structured logs)
-                    if (isset($log['domain']) && $log['domain'] === $domain) {
-                        return true;
-                    }
-                    return false;
-                });
-                $parsed = array_values($parsed); // Re-index array
+                $sql .= "WHERE domain = ? ";
+                $params_array[] = $domain;
             }
             
-            sendResponse(['logs' => $parsed, 'count' => count($parsed)]);
+            $sql .= "ORDER BY timestamp DESC LIMIT ? OFFSET ?";
+            $params_array[] = $limit;
+            $params_array[] = $offset;
+            
+            try {
+                $stmt = $db->prepare($sql);
+                $stmt->execute($params_array);
+                $logs = $stmt->fetchAll();
+                sendResponse(['logs' => $logs, 'count' => count($logs)]);
+            } catch (PDOException $e) {
+                sendResponse(['logs' => [], 'count' => 0, 'error' => 'Query failed']);
+            }
             break;
             
         case 'modsec':
-            // Tail ModSecurity audit log
+            // Tail ModSecurity audit log (still file-based)
             $logFile = MODSEC_LOG_PATH . '/modsec_audit.log';
             $lines = tailLog($logFile, $limit);
             sendResponse(['logs' => $lines, 'count' => count($lines)]);
             break;
             
         case 'error':
-            // Tail error log
-            $logFile = NGINX_LOG_PATH . '/error.log';
-            $lines = tailLog($logFile, $limit);
-            sendResponse(['logs' => $lines, 'count' => count($lines)]);
+            // Error logs now go to stderr (docker logs). Query modsec_events for WAF-related errors.
+            try {
+                $sql = "SELECT * FROM modsec_events ";
+                $params_array = [];
+                if ($domain) {
+                    $sql .= "WHERE domain = ? ";
+                    $params_array[] = $domain;
+                }
+                $sql .= "ORDER BY timestamp DESC LIMIT ? OFFSET ?";
+                $params_array[] = $limit;
+                $params_array[] = $offset;
+                
+                $stmt = $db->prepare($sql);
+                $stmt->execute($params_array);
+                $logs = $stmt->fetchAll();
+                sendResponse(['logs' => $logs, 'count' => count($logs), 
+                             'info' => 'NGINX error logs are now in container stderr (docker logs). This shows WAF events.']);
+            } catch (PDOException $e) {
+                sendResponse(['logs' => [], 'count' => 0, 'error' => 'Query failed']);
+            }
             break;
             
         case 'database':
-            // Get from database
-            $sql = "SELECT * FROM access_logs ";
+            // Get from database (request_telemetry is the primary table)
+            $sql = "SELECT * FROM request_telemetry ";
             $params_array = [];
             
             if ($domain) {
@@ -76,29 +99,6 @@ function tailLog($file, $lines = 100) {
     }
     
     $result = [];
-    exec("tail -n $lines " . escapeshellarg($file) . " 2>&1", $result);
+    exec("tail -n " . (int)$lines . " " . escapeshellarg($file) . " 2>&1", $result);
     return $result;
-}
-
-function parseAccessLog($line) {
-    // Parser for CatWAF NGINX access log
-    // Format: $host $http_x_real_ip $remote_addr - [$time_local] "$request" ...
-    $pattern = '/^(\S+) (\S+) (\S+) - \[([^\]]+)\] "([^"]*)" (\d+) (\d+) "([^"]*)" "([^"]*)"/';
-    
-    if (preg_match($pattern, $line, $matches)) {
-        return [
-            'domain' => $matches[1],
-            'x_real_ip' => $matches[2] !== '-' ? $matches[2] : null,
-            'ip' => $matches[3],
-            'timestamp' => $matches[4],
-            'request' => $matches[5],
-            'status' => (int)$matches[6],
-            'size' => (int)$matches[7],
-            'referer' => $matches[8],
-            'user_agent' => $matches[9],
-            'raw' => $line
-        ];
-    }
-    
-    return ['raw' => $line];
 }

@@ -1020,10 +1020,9 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
     $block .= "    # ModSecurity WAF\n";
     $block .= "    modsecurity " . ($modsec ? "on" : "off") . ";\n\n";
     
-    // Logging
-    $block .= "    # Logging\n";
-    $block .= "    access_log /var/log/nginx/{$domain}-access.log waf;\n";
-    $block .= "    error_log /var/log/nginx/{$domain}-error.log;\n\n";
+    // Logging - no per-site log files; access logs sent to DB via syslog (configured globally in nginx.conf)
+    $block .= "    # Logging - access logs go to DB via syslog (global config), errors to stderr\n";
+    $block .= "    error_log stderr;\n\n";
     
     // WAF and Security Headers (X-Frame-Options, X-Content-Type-Options, X-XSS-Protection added globally in nginx.conf)
     if ($enable_waf_headers) {
@@ -1314,7 +1313,6 @@ function generateCatWafLocation($siteData, $dashboardHost = 'dashboard:80') {
     $block .= "        # Tracking pixel - 1x1 transparent GIF for basic page view counting\n";
     $block .= "        location = /.cat-waf/pixel.gif {\n";
     $block .= "            empty_gif;\n";
-    $block .= "            access_log /var/log/nginx/{$domain}-access.log waf;\n";
     $block .= "            add_header Cache-Control \"no-cache, no-store, must-revalidate\" always;\n";
     $block .= "            add_header X-CatWAF-Tracked \"true\" always;\n";
     $block .= "        }\n\n";

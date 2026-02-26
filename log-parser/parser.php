@@ -1,14 +1,16 @@
 <?php
-// Log parser - Parses NGINX access logs and populates database with telemetry, bot detection, and ModSec events
+// Log parser - Receives NGINX access logs via syslog (UDP) and populates database with telemetry, bot detection, and ModSec events
+// No file-based logging - nginx sends access logs directly via syslog:server=log-parser:1514
 
 require_once __DIR__ . '/LogQueue.php';
 
-$logDir = '/var/log/nginx';
 $modsecAuditLog = '/var/log/modsec/modsec_audit.log';
 // Store position files in the shared waf-logs volume so they persist across restarts
 $posDir = '/var/log/.parser';
-$posFilePrefix = $posDir . '/parser_';
 $modsecPosFile = $posDir . '/parser_modsec.pos';
+
+// Syslog listener port (nginx sends access logs here)
+$SYSLOG_PORT = (int)(getenv('SYSLOG_PORT') ?: 1514);
 
 /**
  * Ensure the parser position directory exists.
@@ -38,6 +40,25 @@ function safeFilePut(string $path, string $data, string $posDir): void {
     }
 }
 
+/**
+ * Extract the raw nginx log line from a syslog message.
+ * nginx syslog format: <priority>timestamp hostname nginx: MESSAGE
+ */
+function extractSyslogMessage(string $syslogData): string {
+    // Strip syslog priority <NNN>
+    $msg = preg_replace('/^<\d+>/', '', $syslogData);
+    
+    // Try to extract after "nginx: " tag
+    if (preg_match('/nginx:\s*(.+)$/s', $msg, $m)) {
+        return trim($m[1]);
+    }
+    
+    // Fallback: skip syslog header (timestamp, hostname, tag)
+    // Format: "Mon DD HH:MM:SS hostname tag: message" or "YYYY-MM-DDTHH:MM:SS... hostname tag: message"
+    $msg = preg_replace('/^\w+\s+\d+\s+[\d:]+\s+\S+\s+\S+:\s*/', '', $msg);
+    return trim($msg);
+}
+
 ensurePosDir($posDir);
 
 // Queue configuration
@@ -52,13 +73,6 @@ if ($SKIP_ACCESS_LOGS) {
     echo "[CONFIG] access_logs writes disabled (default), using request_telemetry only\n";
 } else {
     echo "[CONFIG] access_logs writes enabled (SKIP_ACCESS_LOGS=false)\n";
-}
-
-// Truncate log files after parsing to prevent re-processing and disk bloat
-// Set TRUNCATE_AFTER_PARSE=false to disable (e.g. if you need logs for other tools)
-$TRUNCATE_AFTER_PARSE = getenv('TRUNCATE_AFTER_PARSE') !== 'false';
-if ($TRUNCATE_AFTER_PARSE) {
-    echo "[CONFIG] Log files will be truncated after parsing (TRUNCATE_AFTER_PARSE=true)\n";
 }
 
 // Load bot patterns from bot-protection.conf
@@ -140,6 +154,31 @@ if (!$pdo) {
 $lastHealthCheck = time();
 $healthCheckInterval = 60; // Check connection every 60 seconds
 
+// Clean up old access log files on startup (now obsolete - logs go via syslog)
+echo "🧹 Cleaning up obsolete access log files...\n";
+$obsoleteFiles = glob('/var/log/nginx/*-access.log') ?: [];
+$obsoleteFiles = array_merge($obsoleteFiles, glob('/var/log/nginx/*-error.log') ?: []);
+// Also clean up global access.log (no longer used)
+if (file_exists('/var/log/nginx/access.log')) {
+    $obsoleteFiles[] = '/var/log/nginx/access.log';
+}
+// Clean up old position/inode tracking files for access logs
+$obsoletePosFiles = glob($posDir . '/parser_*-access.log*') ?: [];
+$obsoletePosFiles = array_merge($obsoletePosFiles, glob($posDir . '/parser_access.log*') ?: []);
+
+$cleanedCount = 0;
+foreach (array_merge($obsoleteFiles, $obsoletePosFiles) as $file) {
+    if (file_exists($file) && @unlink($file)) {
+        $cleanedCount++;
+        echo "  🗑️  Removed: " . basename($file) . "\n";
+    }
+}
+if ($cleanedCount > 0) {
+    echo "✅ Removed {$cleanedCount} obsolete log/position file(s)\n";
+} else {
+    echo "✅ No obsolete log files found\n";
+}
+
 // Initialize queue if enabled
 $logQueue = null;
 if ($USE_QUEUE) {
@@ -173,6 +212,17 @@ foreach ($cleanupTables as $table) {
 }
 echo "Cleanup complete.\n";
 
+// Create UDP socket to listen for syslog messages from nginx
+echo "[SYSLOG] Starting UDP listener on port {$SYSLOG_PORT}...\n";
+$sock = @stream_socket_server("udp://0.0.0.0:{$SYSLOG_PORT}", $errno, $errstr, STREAM_SERVER_BIND);
+if (!$sock) {
+    echo "[ERROR] Could not create syslog listener on port {$SYSLOG_PORT}: $errstr ($errno)\n";
+    echo "[ERROR] Exiting...\n";
+    exit(1);
+}
+stream_set_blocking($sock, false); // Non-blocking so we can also process modsec logs and do health checks
+echo "[SYSLOG] ✅ Listening on UDP port {$SYSLOG_PORT} for nginx access logs (no file logging)\n";
+
 while (true) {
     // Periodic health check and reconnect if needed
     if (time() - $lastHealthCheck > $healthCheckInterval) {
@@ -188,55 +238,21 @@ while (true) {
         $lastHealthCheck = time();
     }
     
-    // Find all access log files
-    $logFiles = glob("$logDir/*-access.log");
-    if (empty($logFiles)) {
-        $logFiles = ["$logDir/access.log"];
-    }
-    
-    foreach ($logFiles as $logFile) {
-        if (!file_exists($logFile)) {
+    // Read syslog messages from nginx (non-blocking, batch up to 100 per cycle)
+    $messagesThisCycle = 0;
+    $maxPerCycle = 100;
+    while ($messagesThisCycle < $maxPerCycle) {
+        $pkt = @stream_socket_recvfrom($sock, 65536, 0, $peer);
+        if ($pkt === false || strlen($pkt) === 0) {
+            break; // No more messages waiting
+        }
+        $messagesThisCycle++;
+        
+        // Extract the raw nginx log line from the syslog message
+        $line = extractSyslogMessage($pkt);
+        if (empty($line)) {
             continue;
         }
-        
-        // Get position file for this specific log
-        $posFile = $posFilePrefix . basename($logFile) . '.pos';
-        $inodeFile = $posFilePrefix . basename($logFile) . '.inode';
-        $lastPos = 0;
-        $lastInode = 0;
-        if (file_exists($posFile)) {
-            $lastPos = (int)file_get_contents($posFile);
-        }
-        if (file_exists($inodeFile)) {
-            $lastInode = (int)file_get_contents($inodeFile);
-        }
-
-        // Detect file truncation or rotation
-        clearstatcache(true, $logFile);
-        $currentSize = filesize($logFile);
-        $currentInode = fileinode($logFile);
-        
-        if ($currentSize < $lastPos) {
-            echo "[LOG] File truncated: $logFile (size: $currentSize < pos: $lastPos). Resetting position to 0.\n";
-            $lastPos = 0;
-        }
-        
-        if ($lastInode > 0 && $currentInode !== $lastInode) {
-            echo "[LOG] File rotated: $logFile (inode changed: $lastInode -> $currentInode). Resetting position to 0.\n";
-            $lastPos = 0;
-        }
-
-        $handle = fopen($logFile, 'r');
-        if (!$handle) {
-            error_log("Failed to open log file: $logFile");
-            continue;
-        }
-
-        // Seek to last position
-        fseek($handle, $lastPos);
-
-        while (($line = fgets($handle)) !== false) {
-            $lastPos = ftell($handle);
         
             // Parse nginx log line with enhanced format including X-Real-IP
         // Format: $host $http_x_real_ip $remote_addr - [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" rt=$request_time uct="$upstream_connect_time" uht="$upstream_header_time" urt="$upstream_response_time" cs=$upstream_cache_status ua="$upstream_addr"
@@ -465,27 +481,7 @@ while (true) {
                 error_log("Log line format mismatch (occurrence #$unmatchedCount): " . substr($line, 0, 150));
             }
         }  // Close if (preg_match)
-        }  // Close while (($line = fgets))
-
-        fclose($handle);
-
-        // Truncate the log file after parsing to prevent re-processing and disk bloat
-        // Position is reset to 0 since the file is now empty
-        if ($TRUNCATE_AFTER_PARSE && $lastPos > 0) {
-            $truncHandle = @fopen($logFile, 'w');
-            if ($truncHandle) {
-                fclose($truncHandle);
-                $lastPos = 0;
-                echo "[TRUNCATE] Truncated processed log: $logFile\n";
-            } else {
-                echo "[WARN] Could not truncate log file: $logFile\n";
-            }
-        }
-
-        // Save position and inode for this log file
-        safeFilePut($posFile, (string)$lastPos, $posDir);
-        safeFilePut($inodeFile, (string)fileinode($logFile), $posDir);
-    }
+    }  // Close inner while (reading syslog messages)
     
     // Flush queue if enabled
     if ($logQueue) {
@@ -505,11 +501,15 @@ while (true) {
         }
     }
     
-    // Parse ModSecurity audit logs (once per iteration, not per file)
+    // Parse ModSecurity audit logs (still file-based, separate from access logs)
     parseModSecAuditLog();
     
-    // Wait before checking for new logs
-    sleep(2);
+    // Brief sleep to prevent CPU spin when no syslog messages are arriving
+    if ($messagesThisCycle === 0) {
+        usleep(200000); // 200ms when idle
+    } else {
+        usleep(10000); // 10ms when active (to batch efficiently)
+    }
 }
 
 /**
