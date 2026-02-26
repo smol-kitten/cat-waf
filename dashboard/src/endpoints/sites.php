@@ -1094,7 +1094,6 @@ function generateLocationBlock($upstream, $domain, $modsec, $geoip, $blocked_cou
     // resizing, format conversion (WebP/AVIF), and caching
     if ($enable_image_opt) {
         $imageMaxWidth = $siteData['image_max_width'] ?? 1920;
-        $imageWebpConversion = $siteData['image_webp_conversion'] ?? 1;
         $block .= "    # On-the-fly image optimization\n";
         $block .= "    location ~* \\.(jpg|jpeg|png|gif)$ {\n";
         $block .= "        # Proxy to CatWAF image optimizer\n";

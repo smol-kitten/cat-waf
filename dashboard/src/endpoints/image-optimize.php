@@ -16,6 +16,9 @@
 
 require_once __DIR__ . '/../lib/ImageOptimizer.php';
 
+const MAX_IMAGE_DIMENSION = 4096;
+const MAX_FIELD_LENGTH = 500;
+
 function handleImageOptimize($method, $params, $db) {
     if ($method !== 'GET') {
         http_response_code(405);
@@ -24,8 +27,8 @@ function handleImageOptimize($method, $params, $db) {
     }
 
     $url = $_GET['url'] ?? '';
-    $width = max(1, min(4096, (int)($_GET['w'] ?? 0))) ?: null;
-    $height = max(1, min(4096, (int)($_GET['h'] ?? 0))) ?: null;
+    $width = max(1, min(MAX_IMAGE_DIMENSION, (int)($_GET['w'] ?? 0))) ?: null;
+    $height = max(1, min(MAX_IMAGE_DIMENSION, (int)($_GET['h'] ?? 0))) ?: null;
     $quality = max(1, min(100, (int)($_GET['q'] ?? 80)));
     $format = $_GET['f'] ?? null;
     $domain = $_GET['domain'] ?? ($_SERVER['HTTP_X_CATWAF_DOMAIN'] ?? '');
@@ -148,8 +151,8 @@ function handleImageOptimize($method, $params, $db) {
         $result = $optimizer->optimize($tmpFile, [
             'format' => $format,
             'quality' => $quality,
-            'max_width' => $width ?? 4096,
-            'max_height' => $height ?? 4096,
+            'max_width' => $width ?? MAX_IMAGE_DIMENSION,
+            'max_height' => $height ?? MAX_IMAGE_DIMENSION,
             'strip_metadata' => true
         ]);
 
