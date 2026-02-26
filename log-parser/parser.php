@@ -506,7 +506,7 @@ while (true) {
     
     // Brief sleep to prevent CPU spin when no syslog messages are arriving
     if ($messagesThisCycle === 0) {
-        usleep(200000); // 200ms when idle
+        usleep(500000); // 500ms when idle
     } else {
         usleep(10000); // 10ms when active (to batch efficiently)
     }

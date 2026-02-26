@@ -49,7 +49,9 @@ function handleLogs($method, $params, $db) {
         case 'error':
             // Error logs now go to stderr (docker logs). Query modsec_events for WAF-related errors.
             try {
-                $sql = "SELECT * FROM modsec_events ";
+                $sql = "SELECT domain, ip_address, uri, rule_id, severity, 
+                               action, message, timestamp 
+                        FROM modsec_events ";
                 $params_array = [];
                 if ($domain) {
                     $sql .= "WHERE domain = ? ";
@@ -71,7 +73,10 @@ function handleLogs($method, $params, $db) {
             
         case 'database':
             // Get from database (request_telemetry is the primary table)
-            $sql = "SELECT * FROM request_telemetry ";
+            $sql = "SELECT domain, uri, method, status_code, ip_address,
+                           bytes_sent, response_time, cache_status, backend_server,
+                           user_agent, referer, blocked, blocked_reason, timestamp
+                    FROM request_telemetry ";
             $params_array = [];
             
             if ($domain) {
