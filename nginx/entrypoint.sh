@@ -13,10 +13,25 @@ echo ""
 echo "🐱 Starting CatWAF NGINX + ModSecurity v3..."
 echo ""
 
-# Ensure log directories exist (do NOT truncate — the log-parser tracks position)
+# Ensure log directories exist (modsec still uses file-based audit log)
 echo "📁 Ensuring log directories exist..."
 mkdir -p /var/log/nginx /var/log/modsec
 echo "✅ Log directories ready"
+
+# Clean up obsolete per-site log files (access logs now go directly to DB via syslog)
+echo "🧹 Cleaning up obsolete log files (access logs now go to DB via syslog)..."
+LOG_CLEANUP_COUNT=0
+for logfile in /var/log/nginx/*-access.log /var/log/nginx/*-error.log /var/log/nginx/access.log /var/log/nginx/error.log; do
+    if [ -f "$logfile" ]; then
+        rm -f "$logfile"
+        LOG_CLEANUP_COUNT=$((LOG_CLEANUP_COUNT + 1))
+    fi
+done
+if [ $LOG_CLEANUP_COUNT -gt 0 ]; then
+    echo "  ✅ Removed $LOG_CLEANUP_COUNT obsolete log file(s)"
+else
+    echo "  ✅ No obsolete log files found"
+fi
 
 # Create symlink to fail2ban state volume for banlist
 if [ ! -f "/etc/nginx/banlist.conf" ]; then
@@ -236,8 +251,8 @@ for pattern in '*.copy.conf' '*.bak.conf' '*.old.conf' '*.tmp.conf' '*.backup.co
             rm -f "$conf_file"
             CLEANUP_COUNT=$((CLEANUP_COUNT + 1))
             
-            # Log to quarantine log for record-keeping
-            echo "[$(date '+%Y-%m-%d %H:%M:%S')] STARTUP_CLEANUP: Removed $filename (invalid suffix)" >> /var/log/nginx/quarantine.log
+            # Log to stderr for record-keeping (no file logging)
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] STARTUP_CLEANUP: Removed $filename (invalid suffix)" >&2
         fi
     done
 done
@@ -295,9 +310,9 @@ TESTCONF
                 mv "$conf_file" "/etc/nginx/sites-quarantine/$domain"
                 echo "  📦 Quarantined: $domain"
                 
-                # Log the error for debugging
-                echo "[$(date)] Quarantined broken config: $domain" >> /var/log/nginx/quarantine.log
-                nginx -t -c /tmp/test-nginx.conf 2>&1 >> /var/log/nginx/quarantine.log
+                # Log the error to stderr for debugging (no file logging)
+                echo "[$(date)] Quarantined broken config: $domain" >&2
+                nginx -t -c /tmp/test-nginx.conf 2>&1 >&2
             else
                 echo "  ✅ Config OK: $domain"
             fi
@@ -364,7 +379,7 @@ EMERGENCY
         echo "✅ Emergency fallback loaded"
         echo "📝 Broken configs: ${BROKEN_CONFIGS}"
         echo "📁 Quarantined to: /etc/nginx/sites-quarantine/"
-        echo "📋 Recovery logs: /var/log/nginx/quarantine.log"
+        echo "📋 Recovery logs: see docker logs (stderr)"
     else
         echo "✅ NGINX configuration recovered!"
         echo "📝 Quarantined broken configs: ${BROKEN_CONFIGS}"
@@ -373,13 +388,11 @@ else
     echo "✅ NGINX configuration test passed"
 fi
 
-# Create log files that fail2ban expects
-echo "📝 Creating log files for fail2ban..."
-mkdir -p /var/log/nginx /var/log/modsec
-touch /var/log/nginx/access.log
-touch /var/log/nginx/error.log
+# Create modsec audit log file (modsecurity still uses file-based audit logging)
+echo "📝 Creating modsec audit log..."
+mkdir -p /var/log/modsec
 touch /var/log/modsec/modsec_audit.log
-echo "✅ Log files created"
+echo "✅ Modsec audit log ready (access/error logs now go via syslog to DB)"
 
 # Start config watcher in background
 echo "🔍 Starting config watcher..."

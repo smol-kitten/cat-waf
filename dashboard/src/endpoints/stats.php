@@ -353,13 +353,13 @@ function getModSecurityStats($db) {
         'paranoia_level' => 1
     ];
     
-    // Parse ModSecurity rules loaded from nginx error log
-    $logFile = '/var/log/nginx/error.log';
-    if (file_exists($logFile)) {
-        $cmd = "tail -100 " . escapeshellarg($logFile) . " | grep 'ModSecurity-nginx' | grep 'rules loaded' | tail -1";
-        $output = shell_exec($cmd);
-        if ($output && preg_match('/rules loaded inline\/local\/remote: (\d+)\/(\d+)\/(\d+)/', $output, $matches)) {
-            $stats['rules_loaded'] = (int)$matches[1] + (int)$matches[2] + (int)$matches[3];
+    // Get ModSecurity rules loaded count from modsec_stats file (written by entrypoint)
+    // Note: error_log now goes to stderr, so we can't read it from a file
+    $statsFile = '/etc/nginx/sites-enabled/.modsec_stats';
+    if (file_exists($statsFile)) {
+        $ruleCount = (int)trim(file_get_contents($statsFile));
+        if ($ruleCount > 0) {
+            $stats['rules_loaded'] = $ruleCount;
         }
     }
     

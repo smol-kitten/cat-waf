@@ -14,15 +14,19 @@ $uri = explode('/', trim($uri, '/'));
 
 // Public endpoints (no auth required)
 // Note: 'rsl' has partial public access (OLP endpoints and builder tools)
-$publicEndpoints = ['health', 'info', 'cat-waf'];
-$partialPublicEndpoints = ['rsl']; // Some sub-endpoints are public
+// Note: 'telemetry' has partial public access (analytics.js and beacon for client-side injection)
+$publicEndpoints = ['health', 'info', 'cat-waf', 'image-optimize'];
+$partialPublicEndpoints = ['rsl', 'telemetry']; // Some sub-endpoints are public
 if (!in_array($uri[0] ?? '', $publicEndpoints)) {
     // Check if it's a partial public endpoint
     $isPartialPublic = in_array($uri[0] ?? '', $partialPublicEndpoints);
     $publicRslEndpoints = ['olp', 'generate', 'validate'];
+    $publicTelemetryEndpoints = ['analytics.js', 'beacon'];
     
     if ($isPartialPublic && isset($uri[1]) && in_array($uri[1], $publicRslEndpoints)) {
         // Allow public access to OLP and builder tools
+    } elseif ($isPartialPublic && isset($uri[1]) && in_array($uri[1], $publicTelemetryEndpoints)) {
+        // Allow public access to analytics.js and beacon (injected into monitored sites)
     } else {
         $user = authenticate();
     }
@@ -305,6 +309,11 @@ try {
         case 'rsl-tester':
             require_once 'endpoints/rsl-tester.php';
             handleRslTester($method, array_slice($uri, 1), $db);
+            break;
+
+        case 'image-optimize':
+            require_once 'endpoints/image-optimize.php';
+            handleImageOptimize($method, array_slice($uri, 1), $db);
             break;
 
         default:

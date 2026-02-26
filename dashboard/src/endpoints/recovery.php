@@ -130,22 +130,12 @@ function handleRecovery($method, $params, $db) {
                 sendResponse(['error' => 'Method not allowed'], 405);
             }
             
-            $logFile = '/var/log/nginx/quarantine.log';
-            $lines = (int)($_GET['lines'] ?? 100);
-            
-            if (!file_exists($logFile)) {
-                sendResponse([
-                    'logs' => '',
-                    'message' => 'No quarantine events recorded'
-                ]);
-            }
-            
-            // Read last N lines
-            exec("tail -n {$lines} {$logFile} 2>&1", $output);
-            
+            // Quarantine logs now go to container stderr (docker logs)
+            // Return a helpful message instead of reading a file
             sendResponse([
-                'logs' => implode("\n", $output),
-                'lines' => count($output)
+                'logs' => 'Quarantine events are now logged to container stderr. Use `docker logs waf-nginx` to view them.',
+                'message' => 'Quarantine logs moved to container stderr (no file logging)',
+                'lines' => 0
             ]);
             break;
             
