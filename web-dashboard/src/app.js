@@ -3760,6 +3760,9 @@ function setupEditorTabs() {
         btn.addEventListener('click', () => {
             const tab = btn.getAttribute('data-editor-tab');
             
+            // Sync current tab data to memory before switching
+            syncCurrentTabToMemory();
+            
             // Update active state
             tabBtns.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
@@ -3767,10 +3770,32 @@ function setupEditorTabs() {
             // Store last active tab
             sessionStorage.setItem('lastEditorTab', tab);
             
-            // Load tab content without reloading from server - data is already in memory
-            // Only reload when explicitly requested via refresh button
+            // Load tab content from in-memory data (which is always up-to-date)
             loadEditorTab(tab);
         });
+    });
+}
+
+/**
+ * Sync all edit_ form fields from the current tab back into currentSiteData.
+ * This ensures data is preserved when switching between tabs.
+ */
+function syncCurrentTabToMemory() {
+    if (!currentSiteData) return;
+    
+    const editorContent = document.getElementById('editorContent');
+    if (!editorContent) return;
+    
+    // Sync all edit_ prefixed inputs, selects, textareas
+    editorContent.querySelectorAll('[id^="edit_"]').forEach(el => {
+        const fieldName = el.id.replace('edit_', '');
+        if (el.type === 'checkbox') {
+            currentSiteData[fieldName] = el.checked ? 1 : 0;
+        } else if (el.type === 'number' || el.type === 'range') {
+            currentSiteData[fieldName] = parseFloat(el.value) || 0;
+        } else {
+            currentSiteData[fieldName] = el.value || '';
+        }
     });
 }
 
@@ -4059,6 +4084,42 @@ function renderPerformanceTab() {
                     <span>Bypass Challenge for Cloudflare IPs</span>
                 </label>
                 <small style="color: var(--text-muted);">Skip challenge if request comes through Cloudflare</small>
+            </div>
+        </div>
+        
+        <div class="editor-panel">
+            <h3>🖼️ Image Optimization</h3>
+            <p>On-the-fly image optimization, resizing, and format conversion</p>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="edit_enable_image_optimization" ${data.enable_image_optimization ? 'checked' : ''}>
+                    <span>Enable Image Optimization</span>
+                </label>
+                <small style="color: var(--text-muted);">Automatically optimize images (resize, convert to WebP/AVIF) with caching</small>
+            </div>
+            
+            <div class="form-group">
+                <label>Image Quality (1-100)</label>
+                <input type="range" id="edit_image_quality" style="width:100%;" min="1" max="100" value="${data.image_quality || 85}" oninput="document.getElementById('imgQualityValue').textContent = this.value">
+                <div style="display: flex; justify-content: space-between; margin-top: 0.25rem;">
+                    <small style="color: var(--text-muted);">Low (1)</small>
+                    <div style="font-weight:600; color:var(--text-primary);" id="imgQualityValue">${data.image_quality || 85}</div>
+                    <small style="color: var(--text-muted);">High (100)</small>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label>Max Width (px)</label>
+                <input type="number" id="edit_image_max_width" class="form-input" min="100" max="4096" value="${data.image_max_width || 1920}">
+                <small style="color: var(--text-muted);">Images wider than this will be resized down</small>
+            </div>
+            
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="edit_image_webp_conversion" ${data.image_webp_conversion ? 'checked' : ''}>
+                    <span>Auto-convert to WebP/AVIF</span>
+                </label>
+                <small style="color: var(--text-muted);">Serve modern formats to browsers that support them (auto-negotiated via Accept header)</small>
             </div>
         </div>
     `;
@@ -4477,6 +4538,18 @@ async function regenerateSiteConfig() {
 function renderAdvancedTab() {
     const data = currentSiteData;
     return `
+        <div class="editor-panel">
+            <h3>📊 Telemetry</h3>
+            <p>Client-side analytics and performance monitoring</p>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="edit_enable_telemetry" ${data.enable_telemetry !== 0 ? 'checked' : ''}>
+                    <span>Enable Telemetry</span>
+                </label>
+                <small style="color: var(--text-muted);">Injects analytics.js into pages to collect page load metrics, and adds telemetry headers (X-Request-ID, X-Response-Time)</small>
+            </div>
+        </div>
+        
         <div class="editor-panel">
             <h3>🔧 Headers</h3>
             <p>Add custom headers to responses</p>
@@ -5081,6 +5154,9 @@ async function uploadCustomCertificate() {
 // Save site editor
 async function saveSiteEditor() {
     try {
+        // Sync current tab data to memory first
+        syncCurrentTabToMemory();
+        
         // Start with existing data to preserve fields from other tabs
         const formData = { ...currentSiteData };
         
@@ -5119,6 +5195,10 @@ async function saveSiteEditor() {
         set('challenge_difficulty', 'edit_challenge_difficulty', false, val => parseInt(val) || 18);
         set('challenge_duration', 'edit_challenge_duration', false, val => parseFloat(val) || 1);
         set('challenge_bypass_cf', 'edit_challenge_bypass_cf', true);
+        set('enable_image_optimization', 'edit_enable_image_optimization', true);
+        set('image_quality', 'edit_image_quality', false, val => parseInt(val) || 85);
+        set('image_max_width', 'edit_image_max_width', false, val => parseInt(val) || 1920);
+        set('image_webp_conversion', 'edit_image_webp_conversion', true);
         
         // SSL tab
         set('ssl_enabled', 'edit_ssl_enabled', true);
@@ -5136,6 +5216,7 @@ async function saveSiteEditor() {
         set('basic_auth_password', 'edit_auth_password');
         
         // Advanced tab
+        set('enable_telemetry', 'edit_enable_telemetry', true);
         set('enable_waf_headers', 'edit_enable_waf_headers', true);
         set('custom_headers', 'edit_custom_headers');
         set('custom_config', 'edit_custom_config');
@@ -5169,8 +5250,19 @@ async function saveSiteEditor() {
         // Dispatch event for tab switching
         window.dispatchEvent(new Event('siteSaved'));
         
-        // Reload site data after longer delay to see toast
-        setTimeout(() => loadSiteEditor(currentSiteId), 2000);
+        // Silently refresh data from server to pick up any server-side computed values
+        // Maintain current tab position
+        setTimeout(async () => {
+            try {
+                const response = await apiRequest(`/sites/${currentSiteId}`);
+                currentSiteData = response.site;
+                // Re-render current tab with fresh data
+                const lastTab = sessionStorage.getItem('lastEditorTab') || 'general';
+                loadEditorTab(lastTab);
+            } catch (e) {
+                console.log('Silent refresh after save skipped:', e.message);
+            }
+        }, 1500);
         
     } catch (error) {
         console.error('Error saving site:', error);
@@ -5224,6 +5316,10 @@ async function autoSaveField(fieldName, value) {
     try {
         const data = { [fieldName]: value };
         await apiRequest(`/sites/${currentSiteId}`, 'PATCH', data);
+        // Update in-memory data so tab switches show correct values
+        if (currentSiteData) {
+            currentSiteData[fieldName] = value;
+        }
         updateAutoSaveStatus('saved', `${fieldName} saved`);
     } catch (error) {
         console.error('Auto-save error:', error);
@@ -5288,6 +5384,8 @@ function copySiteToForm(siteId) {
 window.loadSiteEditor = loadSiteEditor;
 window.saveSiteEditor = saveSiteEditor;
 window.setupAutoSave = setupAutoSave;
+window.syncCurrentTabToMemory = syncCurrentTabToMemory;
+window.refreshEditorData = refreshEditorData;
 window.addEditorBackend = addEditorBackend;
 window.removeEditorBackend = removeEditorBackend;
 window.updateEditorBackend = updateEditorBackend;
@@ -5295,6 +5393,48 @@ window.updateLBMethod = updateLBMethod;
 window.toggleHealthChecks = toggleHealthChecks;
 window.handleCertUpload = handleCertUpload;
 window.uploadCustomCertificate = uploadCustomCertificate;
+
+/**
+ * Refresh editor data from server while maintaining current tab
+ */
+async function refreshEditorData() {
+    if (!currentSiteId) return;
+    
+    try {
+        showToast('🔄 Refreshing...', 'info');
+        const response = await apiRequest(`/sites/${currentSiteId}`);
+        currentSiteData = response.site;
+        
+        // Re-render current tab with fresh data
+        const lastTab = sessionStorage.getItem('lastEditorTab') || 'general';
+        loadEditorTab(lastTab);
+        
+        // Re-init auto-save for the new content
+        setupAutoSave();
+        
+        // Update header info
+        const titleEl = document.getElementById('editorSiteTitle');
+        const domainEl = document.getElementById('editorSiteDomain');
+        if (titleEl) titleEl.textContent = `Edit: ${currentSiteData.domain}`;
+        if (domainEl) {
+            const sslStatus = currentSiteData.ssl_enabled ? '🔒 SSL' : '🔓 No SSL';
+            const modsecStatus = currentSiteData.enable_modsecurity ? '🛡️ WAF' : '';
+            const statusParts = [`ID: ${currentSiteData.id}`, sslStatus];
+            if (modsecStatus) statusParts.push(modsecStatus);
+            domainEl.textContent = statusParts.join(' · ');
+        }
+        
+        const statusBadge = document.getElementById('editorSiteStatusBadge');
+        if (statusBadge) {
+            statusBadge.style.background = currentSiteData.enabled ? 'var(--success)' : 'var(--text-muted)';
+        }
+        
+        showToast('✅ Data refreshed', 'success');
+    } catch (error) {
+        console.error('Error refreshing editor data:', error);
+        showToast('❌ Failed to refresh data', 'error');
+    }
+}
 
 // Toggle custom rate limit
 window.toggleCustomRateLimit = function() {
