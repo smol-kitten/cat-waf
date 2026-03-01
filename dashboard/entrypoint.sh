@@ -1,12 +1,9 @@
 #!/bin/sh
 set -e
 
-# Clean up obsolete per-site log files (access logs now go directly to DB via syslog)
-echo "🧹 Cleaning up obsolete log files..."
-find /var/log/nginx -type f -name "*-access.log" -delete 2>/dev/null || true
-find /var/log/nginx -type f -name "*-error.log" -delete 2>/dev/null || true
-rm -f /var/log/nginx/access.log /var/log/nginx/error.log 2>/dev/null || true
-echo "✅ Obsolete log files cleaned up"
+# Parser position files are now stored locally inside the log-parser container (/app/data/),
+# NOT on the shared waf-logs volume. Nothing to clean up here.
+echo "✅ Shared log volume intact (parser uses local state)"
 
 # Fix permissions on shared volumes
 echo "Fixing permissions on shared volumes..."

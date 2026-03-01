@@ -1,4 +1,4 @@
-# Fail2Ban jail configuration
+# CatWAF Fail2Ban jail configuration
 
 [DEFAULT]
 # Ban settings
@@ -6,16 +6,14 @@ bantime  = 3600
 findtime = 600
 maxretry = 5
 
-# Actions
+# Actions — update nginx geo banlist
 banaction = nginx-banlist
 action = %(banaction)s[name=%(__name__)s, port="%(port)s", protocol="%(protocol)s"]
 
-# Backend - use polling instead of auto to reduce CPU
-# 'polling' backend is more CPU-efficient for large log files
+# Backend — use polling for docker volume logs
 backend = polling
 
-# Log processing optimization
-# Only scan last 10000 lines of log files to prevent high CPU on large logs
+# Limit line scanning to prevent CPU spikes on large files
 maxlines = 10000
 
 # Email settings (optional)
@@ -26,26 +24,8 @@ mta = sendmail
 # Logging
 logpath = /var/log/fail2ban/fail2ban.log
 
-# Custom WAF jails only
-# Standard NGINX and SSH jails are disabled via jail.d/defaults-disabled.conf
+# Per-jail configuration is in jail.d/*.conf:
+#   modsecurity.conf  — ModSecurity 403 block detection
+#   sqli.conf         — SQL injection pattern detection
+#   xss.conf          — XSS attack pattern detection
 
-[modsecurity]
-# Disabled due to CPU usage with large audit logs
-# Use sqli and xss jails instead which are more efficient
-enabled = false
-port = http,https
-logpath = /mnt/logs/modsec/modsec_audit.log
-maxretry = 5
-findtime = 600
-bantime = 3600
-# Poll log every 10 seconds instead of 1
-polltime = 10
-
-[modsecurity-severe]
-# Disabled due to CPU usage with large audit logs
-enabled = false
-port = http,https
-logpath = /mnt/logs/modsec/modsec_audit.log
-maxretry = 2
-findtime = 300
-bantime = 86400

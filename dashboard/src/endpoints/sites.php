@@ -1661,8 +1661,9 @@ function generateCustomErrorPages($siteData) {
         $stmt = $db->query("SELECT html_403, html_404, html_429, html_500, html_502, html_503 FROM error_page_templates WHERE is_default = 1 LIMIT 1");
         $template = $stmt->fetch(PDO::FETCH_ASSOC);
         
-        // Write custom error pages to per-site directory (never inline HTML in nginx return)
-        $errorDir = "/usr/share/nginx/error-pages/sites/{$domain}";
+        // Write custom error pages to the default-backend custom-errors volume
+        // The default-backend serves /custom-errors/{domain}/{code}.html
+        $errorDir = "/usr/share/nginx/html/custom-errors/{$domain}";
         if (!is_dir($errorDir)) {
             @mkdir($errorDir, 0755, true);
         }
@@ -1679,7 +1680,7 @@ function generateCustomErrorPages($siteData) {
         }
         
         if ($hasCustom) {
-            $config .= "    # Custom error pages (per-site files)\n";
+            $config .= "    # Custom error pages served via default-backend\n";
             
             $statusMap = [
                 '403' => '403',
@@ -1696,13 +1697,14 @@ function generateCustomErrorPages($siteData) {
                 }
                 $statusCodes = $statusMap[$code];
                 if ($statusCodes && $html && file_exists("{$errorDir}/{$code}.html")) {
-                    $config .= "    error_page {$statusCodes} /custom-errors/{$code}.html;\n";
+                    $config .= "    error_page {$statusCodes} /custom-errors/{$domain}/{$code}.html;\n";
                 }
             }
             
             $config .= "    location ^~ /custom-errors/ {\n";
-            $config .= "        alias {$errorDir}/;\n";
             $config .= "        internal;\n";
+            $config .= "        proxy_pass http://default_backend;\n";
+            $config .= "        proxy_set_header Host \$host;\n";
             $config .= "    }\n\n";
         } else {
             // Fallback to default template pages
@@ -1716,18 +1718,19 @@ function generateCustomErrorPages($siteData) {
 }
 
 /**
- * Generate default template error page config (file-based, never inline HTML)
+ * Generate default template error page config — proxied via default-backend
  */
 function generateDefaultErrorPages() {
     $config = "";
-    $config .= "    # Template error pages\n";
+    $config .= "    # Default error pages served via default-backend\n";
     $config .= "    error_page 429 /errors/429.html;\n";
     $config .= "    error_page 403 /errors/403.html;\n";
     $config .= "    error_page 404 /errors/404.html;\n";
     $config .= "    error_page 500 502 503 504 /errors/500.html;\n";
     $config .= "    location ^~ /errors/ {\n";
-    $config .= "        alias /usr/share/nginx/error-pages/;\n";
     $config .= "        internal;\n";
+    $config .= "        proxy_pass http://default_backend;\n";
+    $config .= "        proxy_set_header Host \$host;\n";
     $config .= "    }\n\n";
     return $config;
 }

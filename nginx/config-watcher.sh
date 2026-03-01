@@ -17,15 +17,38 @@ while true; do
     # ── Config reload check ───────────────────────────────────
     if [ -f "$RELOAD_SIGNAL" ]; then
         echo "[$(date)] Config change detected"
+
+        # If emergency fallback is active and real site configs now exist,
+        # remove the emergency config BEFORE testing so it doesn't conflict
+        # (duplicate default_server would cause nginx -t to fail)
+        if [ -f "/etc/nginx/sites-enabled/emergency-fallback.conf" ]; then
+            real_configs=$(find /etc/nginx/sites-enabled -name '*.conf' ! -name 'emergency-fallback.conf' | head -1)
+            if [ -n "$real_configs" ]; then
+                echo "[$(date)] Real configs detected, removing emergency fallback for test"
+                mv /etc/nginx/sites-enabled/emergency-fallback.conf /tmp/emergency-fallback.conf.bak
+            fi
+        fi
+
         if nginx -t 2>&1; then
             nginx -s reload
             if [ $? -eq 0 ]; then
                 rm -f "$RELOAD_SIGNAL"
+                # Emergency fallback was removed and reload succeeded — clean up backup
+                rm -f /tmp/emergency-fallback.conf.bak
                 echo "[$(date)] NGINX reloaded OK"
             else
+                # Reload failed — restore emergency fallback if we removed it
+                if [ -f /tmp/emergency-fallback.conf.bak ]; then
+                    mv /tmp/emergency-fallback.conf.bak /etc/nginx/sites-enabled/emergency-fallback.conf
+                fi
                 echo "[$(date)] NGINX reload failed"
             fi
         else
+            # Config test failed — restore emergency fallback if we removed it
+            if [ -f /tmp/emergency-fallback.conf.bak ]; then
+                mv /tmp/emergency-fallback.conf.bak /etc/nginx/sites-enabled/emergency-fallback.conf
+            fi
+            rm -f "$RELOAD_SIGNAL"
             echo "[$(date)] Config test failed — NOT reloading"
         fi
     fi

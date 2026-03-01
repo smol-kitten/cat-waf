@@ -160,7 +160,7 @@ if ($truncate) {
 
 // Reset parser position files to re-scan from current position  
 echo "\nResetting parser position files...\n";
-$posDir = '/var/log/.parser';
+$posDir = '/app/data';
 if (is_dir($posDir)) {
     $files = glob($posDir . '/*.pos');
     foreach ($files as $file) {

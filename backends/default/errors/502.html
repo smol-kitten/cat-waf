@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backend Configuration Required - CatWAF</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #333;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 3rem;
+            max-width: 700px;
+            text-align: center;
+            animation: slideIn 0.5s ease-out;
+        }
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .logo {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+        h1 {
+            color: #f5576c;
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+        .status-code {
+            font-size: 6rem;
+            font-weight: bold;
+            color: #f093fb;
+            line-height: 1;
+            margin-bottom: 1rem;
+        }
+        p {
+            color: #666;
+            font-size: 1.1rem;
+            line-height: 1.6;
+            margin-bottom: 1.5rem;
+        }
+        .warning-box {
+            background: #fff3cd;
+            border-left: 4px solid #f5576c;
+            padding: 1.5rem;
+            margin: 2rem 0;
+            text-align: left;
+        }
+        .warning-box h3 {
+            color: #f5576c;
+            margin-bottom: 0.5rem;
+        }
+        .code-box {
+            background: #2d3748;
+            color: #a0aec0;
+            padding: 1rem;
+            border-radius: 6px;
+            text-align: left;
+            font-family: 'Courier New', monospace;
+            margin: 1rem 0;
+            overflow-x: auto;
+        }
+        .code-box code {
+            color: #68d391;
+        }
+        .steps {
+            text-align: left;
+            margin: 1.5rem 0;
+        }
+        .steps ol {
+            padding-left: 1.5rem;
+        }
+        .steps li {
+            padding: 0.5rem 0;
+            color: #555;
+        }
+        .footer {
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #eee;
+            color: #999;
+            font-size: 0.9rem;
+        }
+        .dashboard-btn {
+            display: inline-block;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            padding: 12px 30px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: bold;
+            margin-top: 1rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .dashboard-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(245, 87, 108, 0.4);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">⚠️</div>
+        <div class="status-code">502</div>
+        <h1>Backend Not Configured</h1>
+        <p>This site is protected by CatWAF but has no backend server configured.</p>
+        
+        <div class="warning-box">
+            <h3>🔧 Administrator Action Required</h3>
+            <p>The site administrator needs to configure a backend server for this domain.</p>
+        </div>
+
+        <div class="steps">
+            <h3 style="color: #f5576c; margin-bottom: 1rem;">📝 How to fix this:</h3>
+            <ol>
+                <li>Log in to the CatWAF Dashboard</li>
+                <li>Navigate to <strong>Sites</strong> and edit this domain</li>
+                <li>Go to the <strong>Backends</strong> tab</li>
+                <li>Add at least one backend server (e.g., <code>10.0.0.1:80</code>)</li>
+                <li>Click <strong>Save Site</strong></li>
+            </ol>
+        </div>
+
+        <div class="code-box">
+Example backend configuration:<br>
+<code>Backend Address: 192.168.1.100:8080</code><br>
+<code>OR: backend.example.com:80</code>
+        </div>
+
+        <div class="footer">
+            Protected by <strong>CatWAF</strong> 🛡️<br>
+            Backend configuration missing for this site
+        </div>
+    </div>
+</body>
+</html>

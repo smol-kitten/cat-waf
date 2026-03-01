@@ -5,8 +5,11 @@
 require_once __DIR__ . '/LogQueue.php';
 
 $modsecAuditLog = '/var/log/modsec/modsec_audit.log';
-// Store position files in the shared waf-logs volume so they persist across restarts
-$posDir = '/var/log/.parser';
+// Store position files locally in the container — NOT on the shared waf-logs volume.
+// The dashboard container can corrupt/delete files on the shared volume.
+// Position files are cheap to lose: modsec dedup by unique_id prevents duplicates.
+// /app/data is a named Docker volume so files survive container recreation.
+$posDir = '/app/data';
 $modsecPosFile = $posDir . '/parser_modsec.pos';
 
 // Syslog listener port (nginx sends access logs here)
@@ -14,28 +17,39 @@ $SYSLOG_PORT = (int)(getenv('SYSLOG_PORT') ?: 1514);
 
 /**
  * Ensure the parser position directory exists.
- * Called at startup AND before every position-file write because
- * the directory lives on a shared Docker volume and may be removed
- * by other containers or cleanup operations at runtime.
+ * Called at startup AND before every position-file write.
  */
 function ensurePosDir(string $dir): void {
     if (!is_dir($dir)) {
         if (!@mkdir($dir, 0755, true) && !is_dir($dir)) {
-            echo "[WARN] Could not create position directory: $dir\n";
+            // Rate-limit this warning to avoid log spam
+            static $lastWarn = 0;
+            $now = time();
+            if ($now - $lastWarn >= 60) {
+                echo "[WARN] Could not create position directory: $dir\n";
+                $lastWarn = $now;
+            }
         }
     }
 }
 
 /**
  * Safely write a position/inode file with automatic directory re-creation.
+ * Warnings are rate-limited to once per 60s per path to prevent log flood.
  */
 function safeFilePut(string $path, string $data, string $posDir): void {
+    static $warnTimes = [];
     ensurePosDir($posDir);
     if (@file_put_contents($path, $data) === false) {
         // Second attempt after explicit re-creation
         ensurePosDir($posDir);
         if (@file_put_contents($path, $data) === false) {
-            echo "[WARN] Failed to write position file: $path\n";
+            $now = time();
+            $lastWarn = $warnTimes[$path] ?? 0;
+            if ($now - $lastWarn >= 60) {
+                echo "[WARN] Failed to write position file: $path (suppressing repeats for 60s)\n";
+                $warnTimes[$path] = $now;
+            }
         }
     }
 }
@@ -154,29 +168,22 @@ if (!$pdo) {
 $lastHealthCheck = time();
 $healthCheckInterval = 60; // Check connection every 60 seconds
 
-// Clean up old access log files on startup (now obsolete - logs go via syslog)
-echo "🧹 Cleaning up obsolete access log files...\n";
-$obsoleteFiles = glob('/var/log/nginx/*-access.log') ?: [];
-$obsoleteFiles = array_merge($obsoleteFiles, glob('/var/log/nginx/*-error.log') ?: []);
-// Also clean up global access.log (no longer used)
-if (file_exists('/var/log/nginx/access.log')) {
-    $obsoleteFiles[] = '/var/log/nginx/access.log';
-}
-// Clean up old position/inode tracking files for access logs
+// Clean up old position/inode tracking files for access logs (no longer relevant — access logs arrive via syslog)
+// NOTE: Access log FILES are kept for fail2ban — only stale parser position files are cleaned up
+echo "Cleaning up obsolete parser position files...\n";
 $obsoletePosFiles = glob($posDir . '/parser_*-access.log*') ?: [];
 $obsoletePosFiles = array_merge($obsoletePosFiles, glob($posDir . '/parser_access.log*') ?: []);
 
 $cleanedCount = 0;
-foreach (array_merge($obsoleteFiles, $obsoletePosFiles) as $file) {
+foreach ($obsoletePosFiles as $file) {
     if (file_exists($file) && @unlink($file)) {
         $cleanedCount++;
-        echo "  🗑️  Removed: " . basename($file) . "\n";
     }
 }
 if ($cleanedCount > 0) {
-    echo "✅ Removed {$cleanedCount} obsolete log/position file(s)\n";
+    echo "Removed {$cleanedCount} obsolete position file(s)\n";
 } else {
-    echo "✅ No obsolete log files found\n";
+    echo "No obsolete position files found\n";
 }
 
 // Initialize queue if enabled
@@ -190,15 +197,16 @@ if ($USE_QUEUE) {
 
 echo "Starting log parser...\n";
 
-// Cleanup old data on startup to prevent bloat - use batched deletes to avoid locking tables
-echo "Cleaning up old data (older than 90 days)...\n";
+// Cleanup old data on startup - use configurable retention and batched deletes 
+$retentionDays = (int)(getenv('LOG_RETENTION_DAYS') ?: 30);
+echo "Cleaning up data older than {$retentionDays} days...\n";
 $cleanupTables = ['access_logs', 'request_telemetry', 'modsec_events', 'bot_detections'];
 foreach ($cleanupTables as $table) {
     try {
         $totalDeleted = 0;
         do {
-            $stmt = $pdo->prepare("DELETE FROM {$table} WHERE timestamp < DATE_SUB(NOW(), INTERVAL 90 DAY) LIMIT 10000");
-            $stmt->execute();
+            $stmt = $pdo->prepare("DELETE FROM {$table} WHERE timestamp < DATE_SUB(NOW(), INTERVAL ? DAY) LIMIT 10000");
+            $stmt->execute([$retentionDays]);
             $deleted = $stmt->rowCount();
             $totalDeleted += $deleted;
             if ($deleted > 0) {
@@ -377,7 +385,7 @@ while (true) {
                             $action = ($status == 403) ? 'blocked' : 'allowed';
                         }
                         
-                        echo "[DEBUG] Bot detected: name=$botName, type=$botType, action=$action, UA=$userAgent, IP=$clientIp\n";
+                        echo "[DEBUG] Bot detected: name=$botName, type=$botType, action=$action, IP=$clientIp\n";
                         
                         // Insert bot detection (via queue or direct)
                         $botData = [
@@ -404,7 +412,7 @@ while (true) {
                             ]);
                         }
                         
-                        echo "[BOT] $botName ($botType) detected: $userAgent ($action)\n";
+                        echo "[BOT] $botName ($botType) from $clientIp ($action)\n";
                     } catch (PDOException $e) {
                         // Table might not exist yet, log the error
                         echo "[ERROR] Failed to insert bot detection: " . $e->getMessage() . "\n";
@@ -457,7 +465,8 @@ while (true) {
                     // Table might not exist yet, silently continue
                 }
 
-                echo "[" . date('Y-m-d H:i:s') . "] Logged: $host $method $uri ($status)\n";
+                // Logged via syslog — suppress per-request stdout to reduce noise
+                // echo "[" . date('Y-m-d H:i:s') . "] Logged: $host $method $uri ($status)\n";
 
             } catch (PDOException $e) {
                 // Check if connection was lost
@@ -603,8 +612,43 @@ function sanitizeUri($uri) {
 function parseModSecAuditLog() {
     global $pdo, $modsecAuditLog, $modsecPosFile, $posDir;
     
+    // Process rotated .1 file first (created by config-watcher.sh rotation)
+    $rotatedLog = $modsecAuditLog . '.1';
+    if (file_exists($rotatedLog)) {
+        $handle = fopen($rotatedLog, 'r');
+        if ($handle) {
+            $currentEntry = [];
+            $inEntry = false;
+            $entryCount = 0;
+            while (($line = fgets($handle)) !== false) {
+                $line = trim($line);
+                if (preg_match('/^---([a-zA-Z0-9]{8})---A--$/', $line, $matches)) {
+                    $inEntry = true;
+                    $currentEntry = ['id' => $matches[1], 'sections' => []];
+                } elseif (preg_match('/^---([a-zA-Z0-9]{8})---Z--$/', $line, $matches)) {
+                    if (!empty($currentEntry)) {
+                        processModSecEntry($pdo, $currentEntry);
+                        $entryCount++;
+                    }
+                    $inEntry = false;
+                    $currentEntry = [];
+                } elseif (preg_match('/^---([a-zA-Z0-9]{8})---([A-Z])--$/', $line, $matches)) {
+                    $currentEntry['current_section'] = $matches[2];
+                    $currentEntry['sections'][$matches[2]] = [];
+                } elseif ($inEntry && isset($currentEntry['current_section'])) {
+                    $section = $currentEntry['current_section'];
+                    $currentEntry['sections'][$section][] = $line;
+                }
+            }
+            fclose($handle);
+            if ($entryCount > 0) {
+                echo "[MODSEC] Processed {$entryCount} entries from rotated file\n";
+            }
+            @unlink($rotatedLog);
+        }
+    }
+    
     if (!file_exists($modsecAuditLog)) {
-        echo "[DEBUG] ModSec audit log not found: $modsecAuditLog\n";
         return;
     }
     
@@ -651,22 +695,14 @@ function parseModSecAuditLog() {
         $line = trim($line);
         $lineCount++;
         
-        // Debug: Show first few lines
-        if ($lineCount <= 5) {
-            echo "[DEBUG] Line $lineCount (raw length: " . strlen($rawLine) . "): " . substr($line, 0, 50) . "\n";
-            echo "[DEBUG] First chars: " . bin2hex(substr($line, 0, 20)) . "\n";
-        }
-        
         // ModSec audit log format: entries start with ---XXXXXXXX---A-- and end with ---XXXXXXXX---Z--
         if (preg_match('/^---([a-zA-Z0-9]{8})---A--$/', $line, $matches)) {
             // Start of new entry
             $inEntry = true;
             $currentEntry = ['id' => $matches[1], 'sections' => []];
-            echo "[DEBUG] Started new entry: {$matches[1]}\n";
         } elseif (preg_match('/^---([a-zA-Z0-9]{8})---Z--$/', $line, $matches)) {
-            // End of entry - process it BEFORE checking for section marker
+            // End of entry - process it
             if (!empty($currentEntry)) {
-                echo "[DEBUG] Processing ModSec entry: {$currentEntry['id']}\n";
                 processModSecEntry($pdo, $currentEntry);
             }
             $inEntry = false;
@@ -675,7 +711,6 @@ function parseModSecAuditLog() {
             // Section marker (not Z, which is handled above)
             $currentEntry['current_section'] = $matches[2];
             $currentEntry['sections'][$matches[2]] = [];
-            echo "[DEBUG] Section marker: {$matches[2]}\n";
         } elseif ($inEntry && isset($currentEntry['current_section'])) {
             // Collect section data
             $section = $currentEntry['current_section'];
@@ -759,11 +794,15 @@ function processModSecEntry($pdo, $entry) {
             }
         }
         
-        // Debug extracted data
-        echo "[DEBUG] Extracted - Rules: " . count($ruleIds) . ", Messages: " . count($messages) . ", Domain: $domain, IP: $ip\n";
-        
         // Only insert if we have meaningful data
         if (!empty($ruleIds) || !empty($messages)) {
+            // Dedup by unique_id
+            $checkStmt = $pdo->prepare("SELECT 1 FROM modsec_events WHERE unique_id = ? LIMIT 1");
+            $checkStmt->execute([$entry['id']]);
+            if ($checkStmt->fetch()) {
+                return; // Already recorded
+            }
+            
             $stmt = $pdo->prepare("
                 INSERT INTO modsec_events (
                     unique_id, ip_address, domain, uri, method,

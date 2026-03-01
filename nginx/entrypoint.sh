@@ -13,37 +13,26 @@ echo ""
 echo "🐱 Starting CatWAF NGINX + ModSecurity v3..."
 echo ""
 
-# Ensure log directories exist (modsec still uses file-based audit log)
+# Ensure log directories exist — do NOT delete log files (fail2ban reads them, config-watcher rotates them)
 echo "📁 Ensuring log directories exist..."
 mkdir -p /var/log/nginx /var/log/modsec
 echo "✅ Log directories ready"
 
-# Clean up obsolete per-site log files (access logs now go directly to DB via syslog)
-echo "🧹 Cleaning up obsolete log files (access logs now go to DB via syslog)..."
-LOG_CLEANUP_COUNT=0
-for logfile in /var/log/nginx/*-access.log /var/log/nginx/*-error.log /var/log/nginx/access.log /var/log/nginx/error.log; do
-    if [ -f "$logfile" ]; then
-        rm -f "$logfile"
-        LOG_CLEANUP_COUNT=$((LOG_CLEANUP_COUNT + 1))
-    fi
-done
-if [ $LOG_CLEANUP_COUNT -gt 0 ]; then
-    echo "  ✅ Removed $LOG_CLEANUP_COUNT obsolete log file(s)"
-else
-    echo "  ✅ No obsolete log files found"
-fi
-
 # Create symlink to fail2ban state volume for banlist
-if [ ! -f "/etc/nginx/banlist.conf" ]; then
-    echo "🔗 Creating symlink to fail2ban banlist..."
+if [ ! -f "/etc/nginx/banlist.conf" ] || [ ! -s "/etc/nginx/banlist.conf" ]; then
+    echo "Setting up fail2ban banlist..."
     mkdir -p /etc/fail2ban/state
-    touch /etc/fail2ban/state/banlist.conf 2>/dev/null || true
-    ln -sf /etc/fail2ban/state/banlist.conf /etc/nginx/banlist.conf
-    if [ $? -eq 0 ]; then
-        echo "✅ Banlist symlink created"
-    else
-        echo "⚠️  Could not create symlink, using default banlist"
+    # Write proper geo block if file is missing or empty
+    if [ ! -s "/etc/fail2ban/state/banlist.conf" ]; then
+        cat > /etc/fail2ban/state/banlist.conf << 'BANEOF'
+# CatWAF Ban List — managed by fail2ban + auto-ban-service
+geo $ban {
+    default 0;
+}
+BANEOF
     fi
+    ln -sf /etc/fail2ban/state/banlist.conf /etc/nginx/banlist.conf
+    echo "Banlist ready"
 fi
 
 # Generate snakeoil certificate if not present
@@ -271,55 +260,50 @@ if [ $? -ne 0 ]; then
     # Create quarantine directory
     mkdir -p /etc/nginx/sites-quarantine
     
-    # Test each site config individually to find the broken one(s)
+    # Find broken configs by removing them one-at-a-time and re-testing
+    # We MUST use the real nginx.conf (not a minimal test harness) because
+    # site configs depend on shared definitions (geo $ban, rate limit zones,
+    # upstream default_backend, modsecurity module, etc.)
     BROKEN_CONFIGS=""
-    for conf_file in /etc/nginx/sites-enabled/*.conf; do
-        if [ -f "$conf_file" ]; then
-            domain=$(basename "$conf_file")
+    echo "  🔍 Isolating broken config(s) by exclusion..."
+    
+    # First, move ALL site configs to a staging area
+    mkdir -p /tmp/site-configs-staging
+    cp /etc/nginx/sites-enabled/*.conf /tmp/site-configs-staging/ 2>/dev/null || true
+    rm -f /etc/nginx/sites-enabled/*.conf
+    
+    # Add configs back one at a time and test
+    for conf_file in /tmp/site-configs-staging/*.conf; do
+        [ -f "$conf_file" ] || continue
+        domain=$(basename "$conf_file")
+        
+        # Skip default config
+        if [ "$domain" = "default.conf" ]; then
+            cp "$conf_file" "/etc/nginx/sites-enabled/$domain"
+            continue
+        fi
+        
+        # Add this config
+        cp "$conf_file" "/etc/nginx/sites-enabled/$domain"
+        
+        # Test with real nginx.conf
+        if nginx -t 2>/dev/null; then
+            echo "  ✅ Config OK: $domain"
+        else
+            echo "  ❌ Broken config: $domain"
+            BROKEN_CONFIGS="${BROKEN_CONFIGS}$domain "
             
-            # Skip default config
-            if [ "$domain" = "default.conf" ]; then
-                continue
-            fi
+            # Move to quarantine (remove from sites-enabled)
+            rm -f "/etc/nginx/sites-enabled/$domain"
+            mv "$conf_file" "/etc/nginx/sites-quarantine/$domain"
             
-            echo "  🔍 Testing $domain..."
-            
-            # Create temp nginx config with only this site
-            cat > /tmp/test-nginx.conf << 'TESTCONF'
-user nginx;
-worker_processes 1;
-error_log /dev/null;
-pid /tmp/nginx-test.pid;
-events { worker_connections 1024; }
-http {
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-    access_log /dev/null;
-    include /etc/nginx/conf.d/*.conf;
-TESTCONF
-            echo "    include $conf_file;" >> /tmp/test-nginx.conf
-            echo "}" >> /tmp/test-nginx.conf
-            
-            # Test this specific config
-            nginx -t -c /tmp/test-nginx.conf 2>&1 | grep -q "test is successful"
-            if [ $? -ne 0 ]; then
-                echo "  ❌ Broken config detected: $domain"
-                BROKEN_CONFIGS="${BROKEN_CONFIGS}$domain "
-                
-                # Move to quarantine
-                mv "$conf_file" "/etc/nginx/sites-quarantine/$domain"
-                echo "  📦 Quarantined: $domain"
-                
-                # Log the error to stderr for debugging (no file logging)
-                echo "[$(date)] Quarantined broken config: $domain" >&2
-                nginx -t -c /tmp/test-nginx.conf 2>&1 >&2
-            else
-                echo "  ✅ Config OK: $domain"
-            fi
-            
-            rm -f /tmp/test-nginx.conf /tmp/nginx-test.pid
+            echo "[$(date)] Quarantined broken config: $domain" >&2
+            echo "  📦 Quarantined: $domain"
         fi
     done
+    
+    # Clean up staging
+    rm -rf /tmp/site-configs-staging
     
     # Test again after quarantine
     echo "🧪 Re-testing NGINX configuration..."
@@ -337,25 +321,30 @@ TESTCONF
         # Create minimal emergency config to keep API accessible
         cat > /etc/nginx/sites-enabled/emergency-fallback.conf << 'EMERGENCY'
 # Emergency Fallback Configuration
-# This config is loaded when all site configs fail
-# Provides minimal API access for recovery
+# Auto-removed by config-watcher when real site configs are restored
 
 server {
     listen 80 default_server;
     listen [::]:80 default_server;
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
     server_name _;
-    
+
+    ssl_certificate /etc/nginx/ssl/snakeoil/cert.pem;
+    ssl_certificate_key /etc/nginx/ssl/snakeoil/key.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
     # Root directory for emergency page
     root /var/www/emergency;
     index index.html;
-    
+
     # Serve emergency recovery page
     location / {
         try_files $uri $uri/ /index.html;
         add_header X-Emergency-Mode "true" always;
     }
-    
-    # Keep API accessible via HTTP (dashboard access)
+
+    # Keep API accessible (dashboard access for cert issuance, site management, etc.)
     location /api/ {
         proxy_pass http://waf-dashboard:80/;
         proxy_http_version 1.1;
@@ -365,8 +354,12 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_redirect off;
         proxy_buffering off;
+        # Long timeout for cert operations (acme.sh can take minutes)
+        proxy_read_timeout 600;
+        proxy_connect_timeout 30;
+        proxy_send_timeout 120;
     }
-    
+
     # Health check endpoint
     location /health {
         access_log off;
@@ -392,7 +385,9 @@ fi
 echo "📝 Creating modsec audit log..."
 mkdir -p /var/log/modsec
 touch /var/log/modsec/modsec_audit.log
-echo "✅ Modsec audit log ready (access/error logs now go via syslog to DB)"
+# Ensure access.log exists for fail2ban (nginx writes it alongside syslog)
+touch /var/log/nginx/access.log
+echo "✅ Log files ready (syslog→DB + file-based for fail2ban)"
 
 # Start config watcher in background
 echo "🔍 Starting config watcher..."

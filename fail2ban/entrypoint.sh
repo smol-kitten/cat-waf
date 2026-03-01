@@ -1,23 +1,22 @@
 #!/bin/bash
 
-# Wait for nginx to create log files
-echo "Waiting for nginx to create log files..."
+# Wait for nginx to create access log file (fail2ban jails monitor access logs)
+echo "Waiting for nginx access logs..."
 COUNTER=0
-while [ ! -f "/mnt/logs/nginx/error.log" ] && [ $COUNTER -lt 30 ]; do
-    echo "Waiting for /mnt/logs/nginx/error.log... ($COUNTER/30)"
+while [ ! -f "/mnt/logs/nginx/access.log" ] && [ $COUNTER -lt 60 ]; do
+    echo "Waiting for /mnt/logs/nginx/access.log... ($COUNTER/60)"
     sleep 1
     COUNTER=$((COUNTER+1))
 done
 
-if [ -f "/mnt/logs/nginx/error.log" ]; then
-    echo "✓ Found /mnt/logs/nginx/error.log"
-    # Give the filesystem a moment to stabilize
+if [ -f "/mnt/logs/nginx/access.log" ]; then
+    echo "✓ Found /mnt/logs/nginx/access.log"
     sleep 2
 else
-    echo "✗ WARNING: /mnt/logs/nginx/error.log not found after 30 seconds!"
-    echo "Contents of /mnt/logs:"
-    ls -laR /mnt/logs/ || echo "Cannot list /mnt/logs"
-    # Try to continue anyway
+    echo "✗ WARNING: /mnt/logs/nginx/access.log not found after 60 seconds!"
+    echo "Creating empty access log so fail2ban can start..."
+    mkdir -p /mnt/logs/nginx
+    touch /mnt/logs/nginx/access.log
 fi
 
 echo "Setting up log rotation..."

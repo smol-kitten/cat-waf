@@ -242,6 +242,7 @@ class LogQueue {
     
     /**
      * Batch insert scanner requests
+     * Columns match parser.php direct inserts: scanner_ip_id, path, status_code, domain, timestamp
      */
     private function batchInsertScannerRequests(): void {
         if (empty($this->scannerBuffer)) return;
@@ -250,15 +251,15 @@ class LogQueue {
         foreach ($this->scannerBuffer as $s) {
             try {
                 $stmt = $this->pdo->prepare("
-                    INSERT INTO scanner_requests (scanner_ip_id, timestamp, path, user_agent, status_code)
+                    INSERT INTO scanner_requests (scanner_ip_id, path, status_code, domain, timestamp)
                     VALUES (?, ?, ?, ?, ?)
                 ");
                 $stmt->execute([
                     $s['scanner_ip_id'],
-                    $s['timestamp'],
                     $s['path'],
-                    $s['user_agent'],
-                    $s['status_code']
+                    $s['status_code'],
+                    $s['domain'] ?? 'unknown',
+                    $s['timestamp']
                 ]);
             } catch (\PDOException $e) {
                 // Log but continue

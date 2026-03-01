@@ -188,6 +188,8 @@ services:
     volumes:
       # Data volumes (read-only access to logs)
       - waf-logs:/var/log:ro
+      # Persistent position file storage (NOT on shared waf-logs volume)
+      - waf-parser-data:/app/data
     networks:
       - waf-network
     restart: unless-stopped
@@ -254,3 +256,6 @@ volumes:
     name: waf-playwright-screenshots
   waf-playwright-cache:
     name: waf-playwright-cache
+  # Log parser position file storage
+  waf-parser-data:
+    name: waf-parser-data

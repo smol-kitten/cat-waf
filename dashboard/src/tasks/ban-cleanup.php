@@ -35,31 +35,33 @@ foreach ($expiredBans as $ban) {
     $deleted++;
 }
 
-// Regenerate nginx banlist
+// Regenerate nginx banlist using the same geo $ban format as auto-ban-service + fail2ban
 $regenerated = false;
 try {
     $ips = $pdo->query("SELECT ip_address FROM banned_ips WHERE (expires_at IS NULL OR expires_at > NOW())")->fetchAll(PDO::FETCH_COLUMN);
     
-    $banlistPath = '/etc/nginx/conf.d/banlist.conf';
-    if (is_writable(dirname($banlistPath))) {
-        $content = "# Auto-generated banlist - " . date('Y-m-d H:i:s') . "\n";
-        $content .= "geo \$banned_ip {\n";
-        $content .= "    default 0;\n";
-        foreach ($ips as $ip) {
-            $content .= "    {$ip} 1;\n";
-        }
-        $content .= "}\n";
-        
-        file_put_contents($banlistPath, $content);
-        
-        // Signal nginx reload
-        if (file_exists('/tmp/nginx-reload-signal')) {
-            touch('/tmp/nginx-reload-signal');
-        }
-        
-        $regenerated = true;
-        echo "Regenerated nginx banlist with " . count($ips) . " IPs\n";
+    $banlistPath = BANLIST_PATH; // /etc/fail2ban/state/banlist.conf (from config.php)
+    $banlistDir = dirname($banlistPath);
+    if (!is_dir($banlistDir)) {
+        @mkdir($banlistDir, 0755, true);
     }
+    
+    $content = "# CatWAF Ban List — managed by fail2ban + auto-ban-service\n";
+    $content .= "# Updated: " . date('Y-m-d H:i:s') . "\n";
+    $content .= "geo \$ban {\n";
+    $content .= "    default 0;\n";
+    foreach ($ips as $ip) {
+        $content .= "    {$ip} 1;\n";
+    }
+    $content .= "}\n";
+    
+    file_put_contents($banlistPath, $content);
+    
+    // Signal nginx reload via config-watcher
+    @touch('/etc/nginx/sites-enabled/.reload_needed');
+    
+    $regenerated = true;
+    echo "Regenerated nginx banlist with " . count($ips) . " active IPs\n";
 } catch (Exception $e) {
     echo "Warning: Could not regenerate banlist: " . $e->getMessage() . "\n";
 }
