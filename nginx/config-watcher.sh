@@ -13,6 +13,23 @@ last_rotate=$(date +%s)
 
 echo "CatWAF Config Watcher + Log Rotation Started"
 
+# Wait for nginx master process to be ready before processing reload signals.
+# The entrypoint starts config-watcher BEFORE 'exec nginx', so the PID file
+# won't exist yet. Without this wait, the first reload attempt fails with:
+#   nginx: [error] invalid PID number "" in "/var/run/nginx.pid"
+#   bind() to 0.0.0.0:80 failed (98: Address in use)
+echo "Waiting for nginx master process..."
+for i in $(seq 1 30); do
+    if [ -f /var/run/nginx.pid ] && [ -s /var/run/nginx.pid ]; then
+        echo "nginx master ready (PID $(cat /var/run/nginx.pid))"
+        break
+    fi
+    sleep 1
+done
+if [ ! -s /var/run/nginx.pid ]; then
+    echo "[WARN] nginx PID file not found after 30s, continuing anyway"
+fi
+
 while true; do
     # ── Config reload check ───────────────────────────────────
     if [ -f "$RELOAD_SIGNAL" ]; then

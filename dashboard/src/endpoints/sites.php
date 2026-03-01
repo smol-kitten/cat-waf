@@ -196,7 +196,7 @@ function handleSites($method, $params, $db) {
                 $data['enable_gzip'] ?? 1,
                 $data['enable_brotli'] ?? 0,
                 $data['compression_level'] ?? 6,
-                $data['compression_types'] ?? 'text/html text/css text/javascript application/json application/xml',
+                $data['compression_types'] ?? 'text/plain text/css text/javascript application/json application/xml',
                 $data['enable_image_optimization'] ?? 0,
                 $data['image_quality'] ?? 85,
                 $data['image_max_width'] ?? 1920,
