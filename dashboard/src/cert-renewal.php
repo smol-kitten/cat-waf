@@ -13,11 +13,14 @@ require_once __DIR__ . '/config.php';
 error_log("=== Certificate Auto-Renewal Started ===");
 
 // Step 1: Run acme.sh --cron (renews certs that are within 30 days of expiry)
-$command = "docker exec waf-acme sh -c 'acme.sh --cron --home /acme.sh' 2>&1";
+// Timeout after 5 minutes to prevent hangs
+$command = "timeout 300 docker exec waf-acme sh -c 'acme.sh --cron --home /acme.sh' 2>&1";
 exec($command, $output, $returnCode);
 $outputStr = implode("\n", $output);
 
-if ($returnCode !== 0) {
+if ($returnCode === 124) {
+    error_log("ERROR: acme.sh --cron timed out after 300s — killing hung process");
+} elseif ($returnCode !== 0) {
     error_log("WARNING: acme.sh --cron exited with code {$returnCode}: {$outputStr}");
 } else {
     error_log("acme.sh --cron completed: {$outputStr}");
@@ -74,11 +77,11 @@ try {
 }
 
 // Step 3: Always reload nginx (cheap operation, ensures latest certs are served)
-exec("docker exec waf-nginx nginx -s reload 2>&1", $reloadOutput, $reloadRc);
+exec("timeout 30 docker exec waf-nginx nginx -s reload 2>&1", $reloadOutput, $reloadRc);
 if ($reloadRc === 0) {
     error_log("nginx reloaded successfully");
 } else {
-    error_log("WARNING: nginx reload failed: " . implode("\n", $reloadOutput));
+    error_log("WARNING: nginx reload failed (rc=$reloadRc): " . implode("\n", $reloadOutput));
 }
 
 error_log("=== Certificate Auto-Renewal Completed ===");

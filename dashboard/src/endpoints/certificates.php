@@ -75,33 +75,41 @@ function sanitizeDomain(string $domain): string {
 }
 }
 
-/** Run a command inside a container. Returns [output, exitCode]. */
+/** Run a command inside a container with timeout. Returns [output, exitCode]. */
 if (!function_exists('dockerExec')) {
-function dockerExec(string $container, string $cmd): array {
-    $full = sprintf("docker exec %s sh -c %s 2>&1",
+function dockerExec(string $container, string $cmd, int $timeout = 120): array {
+    $full = sprintf("timeout %d docker exec %s sh -c %s 2>&1",
+        $timeout,
         escapeshellarg($container),
         escapeshellarg($cmd)
     );
     exec($full, $output, $rc);
+    if ($rc === 124) {
+        error_log("dockerExec TIMEOUT ({$timeout}s) on {$container}: {$cmd}");
+    }
     return [implode("\n", $output), $rc];
 }
 }
 
-/** Run a command with env vars via docker exec -e. Returns [output, exitCode]. */
+/** Run a command with env vars via docker exec -e, with timeout. Returns [output, exitCode]. */
 if (!function_exists('dockerExecEnv')) {
-function dockerExecEnv(string $container, array $env, string $cmd): array {
+function dockerExecEnv(string $container, array $env, string $cmd, int $timeout = 300): array {
     $envStr = '';
     foreach ($env as $k => $v) {
         if ($v !== '' && $v !== null) {
             $envStr .= ' -e ' . escapeshellarg("{$k}={$v}");
         }
     }
-    $full = sprintf("docker exec%s %s sh -c %s 2>&1",
+    $full = sprintf("timeout %d docker exec%s %s sh -c %s 2>&1",
+        $timeout,
         $envStr,
         escapeshellarg($container),
         escapeshellarg($cmd)
     );
     exec($full, $output, $rc);
+    if ($rc === 124) {
+        error_log("dockerExecEnv TIMEOUT ({$timeout}s) on {$container}: {$cmd}");
+    }
     return [implode("\n", $output), $rc];
 }
 }
