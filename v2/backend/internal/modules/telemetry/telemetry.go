@@ -13,8 +13,9 @@ import (
 
 // Module implements the telemetry module
 type Module struct {
-	db    *pgxpool.Pool
-	redis *redis.Client
+	db         *pgxpool.Pool
+	redis      *redis.Client
+	pushWorker *PushWorker
 }
 
 func New() *Module { return &Module{} }
@@ -25,6 +26,11 @@ func (m *Module) Version() string { return "2.0.0" }
 func (m *Module) Init(ctx context.Context, db *pgxpool.Pool, redis *redis.Client) error {
 	m.db = db
 	m.redis = redis
+
+	// Start external telemetry push worker
+	m.pushWorker = NewPushWorker(db)
+	m.pushWorker.Start()
+
 	return nil
 }
 
@@ -52,7 +58,12 @@ func (m *Module) RegisterRoutes(router fiber.Router) {
 	geo.Post("/update", m.GeoUpdate)
 }
 
-func (m *Module) Shutdown(ctx context.Context) error { return nil }
+func (m *Module) Shutdown(ctx context.Context) error {
+	if m.pushWorker != nil {
+		m.pushWorker.Stop()
+	}
+	return nil
+}
 
 // TelemetryConfig represents telemetry settings
 type TelemetryConfig struct {
